@@ -31,6 +31,11 @@ this module never spawns npm or git itself.
    `±pattern` / `±builtin:<name>` entries; declarations are added and removed through pi's own
    `addSourceToSettings` / `removeSourceFromSettings`. Nothing inside a package is rewritten (see Deferred).
 4. **The identity is ThinkRail's key, never pi's input.** It keys `disabledPackages` and nothing else.
+5. **No package mutation can pin the queue.** Every pi call that may spawn npm/git runs under
+   `withPackageOperationTimeout` (five minutes): on expiry the host kills the spawned command tree and
+   rejects with `PACKAGE_OPERATION_TIMEOUT`, so the module queue advances instead of every later
+   install/remove/update waiting on a process that never exits. The install probe is bounded separately
+   (60 s): the package is already installed, so a factory that never settles loses only its chips.
 
 ## Files
 
@@ -61,7 +66,9 @@ this module never spawns npm or git itself.
   the next load records them; a row without chips is a file no load has seen, not an empty extension.
   A record that changes what a row would show (`setExtensionInfoListener`) invalidates the catalog's
   result cache and publishes `packages.changed`, without touching the package revision, so an open page
-  re-lists after a chat's load and no chat reloads.
+  re-lists after a chat's load and no chat reloads. The install probe is awaited by the install request
+  with a 60 s deadline; a factory that never settles leaves the row without chips and logs instead of
+  holding the dialog forever (see `piPackages.ts`).
 - `extensionCache.ts` — `advancePiExtensionCache`: pi clears its process-wide factory cache only on a
   loaded loader's reload and exports no clearer; an empty loader reloaded twice does it. Used before the
   boot runtime and before the install probe. It reaches only pi's map. In a Bun source run (dev,
@@ -86,6 +93,11 @@ this module never spawns npm or git itself.
   path calls `invalidatePiPackageCatalog()`; a file dropped into a scanned folder by hand is the one change
   no path sees, so the Extensions page's opening read (`packages.list` with `force`) drops the cache first. `listPiPackageRevealTargets` validates a reveal path from
   the same reads.
+- `operationTimeout.ts` — `withPackageOperationTimeout`: the five-minute bound around pi's
+  `install` / `remove` / `update`. pi's npm/git runner has no timeout or cancel hook, so this shadows its
+  private per-instance `spawnCommand` to track children and kills the live tree on expiry (`taskkill /T`
+  on Windows, `SIGKILL` elsewhere); see [[pi-compatibility]]. It is not a timeout on the module queue's
+  wait — a queued mutation starts its deadline only when pi is called.
 - `mutations.ts` — one module queue (two `SettingsManager`s racing on one field would lose a write);
   every write validates `scope` / `type` at the boundary, is opened on the scope it writes
   (`assertScopeLoaded`: pi's `save()` silently skips a scope whose file failed to parse — only that
@@ -114,8 +126,9 @@ this module never spawns npm or git itself.
     decides the built-in; a resource inside a package is refused with `PACKAGE_SOURCE_INVALID`.
   - Error codes: `PACKAGE_SOURCE_INVALID`, `PACKAGE_OFFLINE`, `PACKAGE_UNTRUSTED`, `PACKAGE_UNKNOWN`,
     `PACKAGE_INSTALL_FAILED`, `PACKAGE_REMOVE_FAILED`, `PACKAGE_UPDATE_FAILED`,
-    `PACKAGE_SETTINGS_WRITE_FAILED`; `PACKAGE_INSTALLED_UNLISTED` is the façade's (declaration persisted,
-    row not produced). Messages carry pi's text and never reach analytics.
+    `PACKAGE_OPERATION_TIMEOUT` (a pi npm/git command outlived its five-minute host deadline and was
+    killed), `PACKAGE_SETTINGS_WRITE_FAILED`; `PACKAGE_INSTALLED_UNLISTED` is the façade's (declaration
+    persisted, row not produced). Messages carry pi's text and never reach analytics.
 
 ## Deferred
 

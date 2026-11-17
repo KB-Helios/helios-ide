@@ -10,7 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorText, getTransport } from "@/transport";
 import { type PiPackageAction, piPackageKey } from "./PiPackagesSettings";
 
-/** npm installs outlast the transport's default; the host still finishes a run that outlasts this. */
+/** npm installs outlast the transport's default; the host kills its own npm/git work at five minutes. */
 const PACKAGE_MUTATION_TIMEOUT_MS = 10 * 60_000;
 /** An update check is a read that spawns `npm view` / `git ls-remote` per package. */
 const UPDATE_CHECK_TIMEOUT_MS = 2 * 60_000;
