@@ -425,7 +425,7 @@ export function InstallPackageDialog({
 					workspaceId={workspaceId}
 					onSourceChange={(next) => {
 						setSource(next);
-						if (parsePiPackageInput(next).local) setScope("project");
+						if (parsePiPackageInput(piPackageInstallSource(next)).local) setScope("project");
 					}}
 					onScopeChange={setScope}
 					onSubmit={() => void submit()}

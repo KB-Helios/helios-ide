@@ -109,6 +109,45 @@ describe("pi package mutations", () => {
 		}
 	});
 
+	it("uses one deadline across all requested updates", async () => {
+		jest.useFakeTimers();
+		let firstDone = () => {};
+		let secondStarted = () => {};
+		const second = new Promise<void>((resolve) => {
+			secondStarted = resolve;
+		});
+		let calls = 0;
+		const update = spyOn(DefaultPackageManager.prototype, "update").mockImplementation(async () => {
+			calls++;
+			if (calls === 1)
+				await new Promise<void>((resolve) => {
+					firstDone = resolve;
+				});
+			else {
+				secondStarted();
+				await new Promise(() => {});
+			}
+		});
+		try {
+			const operation = updatePiPackages(ctx, [
+				{ source: "npm:a", scope: "user" },
+				{ source: "npm:b", scope: "user" },
+			]);
+			while (calls === 0) await Promise.resolve();
+			jest.advanceTimersByTime(PACKAGE_OPERATION_TIMEOUT_MS / 2);
+			firstDone();
+			await second;
+			jest.advanceTimersByTime(PACKAGE_OPERATION_TIMEOUT_MS / 2);
+			expect(errorCodeOf(await operation.catch((error) => error))).toBe(
+				"PACKAGE_OPERATION_TIMEOUT",
+			);
+			expect(calls).toBe(2);
+		} finally {
+			update.mockRestore();
+			jest.useRealTimers();
+		}
+	});
+
 	it("refuses an unknown local path, an npm install offline, and a repository write without trust", async () => {
 		await expect(
 			installPiPackage(ctx, { source: join(root, "nope"), scope: "user" }),

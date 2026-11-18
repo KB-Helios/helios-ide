@@ -63,14 +63,19 @@ const log = logger("agent");
 
 // pi's loader awaits a factory with no deadline. The install already succeeded by now, so a factory
 // that never settles loses its chips but must not keep the dialog and every later package mutation waiting.
-function probeWithDeadline(task: Promise<void>, source: string): Promise<void> {
+function probeWithDeadline(
+	task: (signal: AbortSignal) => Promise<void>,
+	source: string,
+): Promise<void> {
+	const expiry = new AbortController();
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
+			expiry.abort();
 			log.warn(`extension probe for ${source} exceeded ${EXTENSION_PROBE_TIMEOUT_MS}ms`);
 			resolve();
 		}, EXTENSION_PROBE_TIMEOUT_MS);
 		timer.unref?.();
-		task.then(
+		task(expiry.signal).then(
 			() => {
 				clearTimeout(timer);
 				resolve();
@@ -140,14 +145,11 @@ export async function piPackagesInstall(
 	try {
 		summary = find(await piPackagesCatalog(target, enabledFromNowOn));
 		if (summary?.installedPath !== undefined) {
+			const paths = summary.resources
+				.filter((resource) => resource.type === "extensions" && resource.enabled)
+				.map((resource) => resource.path);
 			await probeWithDeadline(
-				probeExtensionInfo(
-					target.cwd ?? getAgentDir(),
-					getAgentDir(),
-					summary.resources
-						.filter((resource) => resource.type === "extensions" && resource.enabled)
-						.map((resource) => resource.path),
-				),
+				(signal) => probeExtensionInfo(target.cwd ?? getAgentDir(), getAgentDir(), paths, signal),
 				request.source,
 			);
 			invalidatePiPackageCatalog();

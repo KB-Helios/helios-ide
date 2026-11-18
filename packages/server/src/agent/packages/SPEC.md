@@ -58,6 +58,10 @@ this module never spawns npm or git itself.
 - `settingsView.ts` — `createPiSettings(cwd, agentDir, { projectTrusted?, packages })` and the
   `disabledPackages` resolver the host sets from its config. `enabled` hides the switched-off
   declarations from `getGlobalSettings` / `getProjectSettings`, re-evaluated per read; `none` hides all.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e2fe5842db21d5951e6291dc329da19daf99f709f00b0f64495869b5a49cc040 -->
+
 - `extensionInfo.ts` — the recorded-load memo, keyed by file and mtime: `recordLoadedExtensions` (every
   chat's `buildResourceLoader` reports its `LoadExtensionsResult`), `knownExtensionInfo` (what the
   catalog annotates with), `probeExtensionInfo` (the one deliberate run: the install dialog's "Installed"
@@ -68,7 +72,12 @@ this module never spawns npm or git itself.
   result cache and publishes `packages.changed`, without touching the package revision, so an open page
   re-lists after a chat's load and no chat reloads. The install probe is awaited by the install request
   with a 60 s deadline; a factory that never settles leaves the row without chips and logs instead of
-  holding the dialog forever (see `piPackages.ts`).
+  holding the dialog forever (see `piPackages.ts`). `probeExtensionInfo` accepts an optional expiry
+  signal; an expired probe cannot record or publish late results. Loads completed before expiry retain
+  their recorded information.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 - `extensionCache.ts` — `advancePiExtensionCache`: pi clears its process-wide factory cache only on a
   loaded loader's reload and exports no clearer; an empty loader reloaded twice does it. Used before the
   boot runtime and before the install probe. It reaches only pi's map. In a Bun source run (dev,
@@ -93,11 +102,20 @@ this module never spawns npm or git itself.
   path calls `invalidatePiPackageCatalog()`; a file dropped into a scanned folder by hand is the one change
   no path sees, so the Extensions page's opening read (`packages.list` with `force`) drops the cache first. `listPiPackageRevealTargets` validates a reveal path from
   the same reads.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e6bd5ab6fe02f1dd5e91c3552f1722259a7db7257af6bb4a39859915a81f8c97 -->
+
 - `operationTimeout.ts` — `withPackageOperationTimeout`: the five-minute bound around pi's
   `install` / `remove` / `update`. pi's npm/git runner has no timeout or cancel hook, so this shadows its
   private per-instance `spawnCommand` to track children and kills the live tree on expiry (`taskkill /T`
-  on Windows, `SIGKILL` elsewhere); see [[pi-compatibility]]. It is not a timeout on the module queue's
-  wait — a queued mutation starts its deadline only when pi is called.
+  on Windows; stop and repeatedly enumerate the POSIX tree with `ps` before descendant-first `SIGKILL`,
+  including npm lifecycle shells and their children); see [[pi-compatibility]]. Expiry blocks subsequent
+  launches until the original task settles. One deadline covers the complete update batch. It is not a timeout on the
+  module queue's wait — a queued mutation starts its deadline only when pi is called.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
 - `mutations.ts` — one module queue (two `SettingsManager`s racing on one field would lose a write);
   every write validates `scope` / `type` at the boundary, is opened on the scope it writes
   (`assertScopeLoaded`: pi's `save()` silently skips a scope whose file failed to parse — only that

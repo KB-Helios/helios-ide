@@ -83,6 +83,7 @@ export async function probeExtensionInfo(
 	cwd: string,
 	agentDir: string,
 	paths: readonly string[],
+	expiry?: AbortSignal,
 ): Promise<void> {
 	if (paths.length === 0) return;
 	await advancePiExtensionCache(agentDir);
@@ -98,5 +99,5 @@ export async function probeExtensionInfo(
 		noContextFiles: true,
 	});
 	await loader.reload();
-	recordLoadedExtensions(loader.getExtensions());
+	if (!expiry?.aborted) recordLoadedExtensions(loader.getExtensions());
 }

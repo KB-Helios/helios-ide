@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import type { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
 import { CodedError } from "@thinkrail/shared/codedError";
 
@@ -18,16 +19,19 @@ type SpawnCommandHost = {
 };
 
 type SpawnHook = {
-	/** Kill every child that has not exited yet and put pi's method back. */
+	/** Cancel further launches and kill every child that has not exited yet. */
 	stop: () => Promise<void>;
+	restore: () => void;
 };
 
 function hookSpawnedChildren(packageManager: DefaultPackageManager): SpawnHook {
 	const host = packageManager as unknown as SpawnCommandHost;
 	const original = host.spawnCommand;
-	if (typeof original !== "function") return { stop: async () => {} };
+	if (typeof original !== "function") return { stop: async () => {}, restore: () => {} };
 	const children = new Set<SpawnedChild>();
+	let cancelled = false;
 	host.spawnCommand = (command, args, options) => {
+		if (cancelled) throw new CodedError("PACKAGE_OPERATION_TIMEOUT", "Package operation expired.");
 		const child = original.call(packageManager, command, args, options);
 		if (child.pid !== undefined) {
 			children.add(child);
@@ -36,8 +40,11 @@ function hookSpawnedChildren(packageManager: DefaultPackageManager): SpawnHook {
 		return child;
 	};
 	return {
-		stop: async () => {
+		restore: () => {
 			host.spawnCommand = original;
+		},
+		stop: async () => {
+			cancelled = true;
 			const live = [...children];
 			children.clear();
 			await Promise.all(live.map(killProcessTree));
@@ -49,9 +56,55 @@ async function killProcessTree(child: SpawnedChild): Promise<void> {
 	const pid = child.pid;
 	if (pid === undefined || child.exitCode !== null) return;
 	if (process.platform !== "win32") {
+		const owned = new Set([pid]);
+		const stop = (target: number) => {
+			try {
+				process.kill(target, "SIGSTOP");
+			} catch {}
+		};
+		stop(pid);
 		try {
-			child.kill("SIGKILL");
-		} catch {}
+			let previousSize = 0;
+			while (previousSize !== owned.size) {
+				previousSize = owned.size;
+				const snapshot = spawnSync("ps", ["-A", "-o", "pid=,ppid="], {
+					encoding: "utf8",
+					timeout: 5_000,
+				});
+				if (snapshot.error || snapshot.status !== 0) return;
+				const rows = snapshot.stdout
+					.trim()
+					.split("\n")
+					.map((line) => line.trim().split(/\s+/).map(Number));
+				let expanded = true;
+				while (expanded) {
+					expanded = false;
+					for (const [descendant, parent] of rows) {
+						if (
+							descendant !== undefined &&
+							descendant > 0 &&
+							parent !== undefined &&
+							owned.has(parent) &&
+							!owned.has(descendant)
+						) {
+							owned.add(descendant);
+							stop(descendant);
+							expanded = true;
+						}
+					}
+				}
+			}
+		} finally {
+			for (const descendant of [...owned].reverse()) {
+				if (descendant === pid) continue;
+				try {
+					process.kill(descendant, "SIGKILL");
+				} catch {}
+			}
+			try {
+				child.kill("SIGKILL");
+			} catch {}
+		}
 		return;
 	}
 	try {
@@ -86,18 +139,33 @@ export async function withPackageOperationTimeout<T>(
 	const deadline = new Promise<never>((_, reject) => {
 		timer = setTimeout(() => {
 			timedOut = true;
-			void hook.stop().finally(() => {
+			const finish = () => {
 				reject(
 					new CodedError(
 						"PACKAGE_OPERATION_TIMEOUT",
 						`${label} did not finish within ${Math.round(PACKAGE_OPERATION_TIMEOUT_MS / 60_000)} minutes.`,
 					),
 				);
-			});
+			};
+			void hook.stop().then(finish, finish);
 		}, PACKAGE_OPERATION_TIMEOUT_MS);
 	});
+	const running = (async () => {
+		try {
+			return await task();
+		} finally {
+			hook.restore();
+		}
+	})();
+	const outcome = running.then(
+		(value) => (timedOut ? deadline : value),
+		(error) => {
+			if (timedOut) return deadline;
+			throw error;
+		},
+	);
 	try {
-		return await Promise.race([task(), deadline]);
+		return await Promise.race([outcome, deadline]);
 	} finally {
 		if (timer !== undefined) clearTimeout(timer);
 		if (!timedOut) await hook.stop();

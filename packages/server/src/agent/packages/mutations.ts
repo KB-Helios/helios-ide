@@ -241,17 +241,15 @@ export function updatePiPackages(
 			configured.length > 0 &&
 			configured.every((entry) => requested.has(`${entry.scope}\0${entry.source}`));
 		try {
-			if (coversEverything) {
-				await withPackageOperationTimeout(packageManager, "Updating packages", () =>
-					packageManager.update(),
-				);
-			} else {
-				for (const target of targets) {
-					await withPackageOperationTimeout(packageManager, `Updating ${target.source}`, () =>
-						packageManager.update(declaredAsInput(ctx, target)),
-					);
+			await withPackageOperationTimeout(packageManager, "Updating packages", async () => {
+				if (coversEverything) {
+					await packageManager.update();
+				} else {
+					for (const target of targets) {
+						await packageManager.update(declaredAsInput(ctx, target));
+					}
 				}
-			}
+			});
 		} catch (error) {
 			if (error instanceof CodedError) throw error;
 			throw new CodedError("PACKAGE_UPDATE_FAILED", messageOf(error));

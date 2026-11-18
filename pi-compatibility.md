@@ -205,8 +205,17 @@ restart and toggle-reload regressions on upgrades.
     `spawnCommand` (private) inherits the host's stdio. A command that outlives the client's patience
     pins every later install/remove/update behind the module queue. The host shadows `spawnCommand`
     per `DefaultPackageManager` instance to track children, bounds install/remove/update at five
-    minutes, kills the live tree (`taskkill /T` on Windows, `SIGKILL` elsewhere), and reports
-    `PACKAGE_OPERATION_TIMEOUT`; the install probe is bounded separately at 60 s because pi's loader
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:306ac646d6fee62f4406fa83c3721969035556f94971bd69ad8bba86a108c052 -->
+
+    minutes for the entire mutation batch, kills the live tree (`taskkill /T` on Windows; a `ps`
+    parent-PID snapshot and descendant-first `SIGKILL` on POSIX), and reports `PACKAGE_OPERATION_TIMEOUT`.
+    The cancellation guard remains until the original task settles. pi 1.5.2 still supplies neither a
+    public cancellation hook nor detached process groups, so this adapter remains necessary. The install
+    probe suppresses expired results and is bounded separately at 60 s because pi's loader
+
+<!-- /coderabbit-ai-generated:v1 -->
     awaits an extension factory with no deadline. **Gate:** a public timeout/cancel hook on
     `DefaultPackageManager` and a loader deadline. On every bump re-check `spawnCommand` /
     `runCommand`, and run `agent/packages/operationTimeout.test.ts` and `mutations.test.ts`.
