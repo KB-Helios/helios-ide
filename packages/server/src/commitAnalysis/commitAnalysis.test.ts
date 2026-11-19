@@ -198,3 +198,51 @@ test("pending is visible while a run is queued", async () => {
 	await run;
 	expect(analyzer.isPending("ws1", A)).toBe(false);
 });
+
+test("a rejected child aborts its sibling, and the next commit waits for the sibling to settle", async () => {
+	const events: string[] = [];
+	let siblingSignal: AbortSignal | undefined;
+	const analyzer = createCommitAnalyzer(
+		deps({
+			runSubagent: async (_w, _p, task, _r, signal, info) => {
+				const commit = task.includes(A) ? "A" : "B";
+				const role = info?.roleName ?? "";
+				events.push(`start:${commit}:${role}`);
+				try {
+					if (commit === "A" && role === "commit-analyzer") throw new Error("provider down");
+					if (commit === "A") {
+						if (!signal) throw new Error("child signal missing");
+						siblingSignal = signal;
+						await new Promise<void>((resolve) =>
+							signal.addEventListener("abort", () => setTimeout(resolve, 10), { once: true }),
+						);
+						return { status: "aborted" };
+					}
+					return {
+						status: "completed",
+						finalText: fence(role === "commit-analyzer" ? ANALYSIS : IMPACT),
+					};
+				} finally {
+					events.push(`end:${commit}:${role}`);
+				}
+			},
+		}),
+	);
+	const [first, second] = await Promise.all([
+		analyzer.analyzeCommit("ws1", A, "parent", "manual"),
+		analyzer.analyzeCommit("ws1", B, "parent", "manual"),
+	]);
+	expect(siblingSignal?.aborted).toBe(true);
+	expect(first).toBeNull();
+	expect(published[0]).toEqual({
+		workspaceId: "ws1",
+		sha: A,
+		status: "failed",
+		code: "COMMIT_ANALYSIS_CHILD_FAILED",
+	});
+	expect(second?.sha).toBe(B);
+	const siblingEnd = events.indexOf("end:A:architecture-mapper");
+	const nextStart = events.indexOf("start:B:commit-analyzer");
+	expect(siblingEnd).toBeGreaterThanOrEqual(0);
+	expect(nextStart).toBeGreaterThan(siblingEnd);
+});

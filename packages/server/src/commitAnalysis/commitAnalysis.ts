@@ -133,25 +133,52 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 			...(model ? { model } : {}),
 			...(thinkingLevel ? { thinkingLevel } : {}),
 		});
-		const signal = AbortSignal.timeout(deps.timeoutMs ?? DEFAULT_TIMEOUT_MS);
-		const [analyzerRun, mapperRun] = await Promise.all([
-			deps.runSubagent(
-				workspaceId,
-				parentSessionId,
-				renderCommitTask(pkg, ANALYZER_OUTPUT_CONTRACT),
-				role(ANALYZER_SYSTEM_PROMPT, ANALYZER_TOOLS),
-				signal,
-				{ createdBy: "host:commit-analysis", roleName: "commit-analyzer" },
+		const controller = new AbortController();
+		const signal = AbortSignal.any([
+			controller.signal,
+			AbortSignal.timeout(deps.timeoutMs ?? DEFAULT_TIMEOUT_MS),
+		]);
+		const guarded = (run: Promise<{ status: string; finalText?: string }>) =>
+			run.then(
+				(result) => {
+					if (result.status !== "completed") controller.abort();
+					return result;
+				},
+				(error: unknown) => {
+					controller.abort();
+					throw error;
+				},
+			);
+		const [analyzerSettled, mapperSettled] = await Promise.allSettled([
+			guarded(
+				deps.runSubagent(
+					workspaceId,
+					parentSessionId,
+					renderCommitTask(pkg, ANALYZER_OUTPUT_CONTRACT),
+					role(ANALYZER_SYSTEM_PROMPT, ANALYZER_TOOLS),
+					signal,
+					{ createdBy: "host:commit-analysis", roleName: "commit-analyzer" },
+				),
 			),
-			deps.runSubagent(
-				workspaceId,
-				parentSessionId,
-				renderCommitTask(pkg, MAPPER_OUTPUT_CONTRACT),
-				role(MAPPER_SYSTEM_PROMPT, MAPPER_TOOLS),
-				signal,
-				{ createdBy: "host:commit-analysis", roleName: "architecture-mapper" },
+			guarded(
+				deps.runSubagent(
+					workspaceId,
+					parentSessionId,
+					renderCommitTask(pkg, MAPPER_OUTPUT_CONTRACT),
+					role(MAPPER_SYSTEM_PROMPT, MAPPER_TOOLS),
+					signal,
+					{ createdBy: "host:commit-analysis", roleName: "architecture-mapper" },
+				),
 			),
 		]);
+		for (const outcome of [analyzerSettled, mapperSettled]) {
+			if (outcome.status === "rejected")
+				log.warn(`commit analysis child threw (${workspaceId}/${sha})`, outcome.reason);
+		}
+		if (analyzerSettled.status === "rejected" || mapperSettled.status === "rejected")
+			throw new AnalysisFailure("COMMIT_ANALYSIS_CHILD_FAILED");
+		const analyzerRun = analyzerSettled.value;
+		const mapperRun = mapperSettled.value;
 		if (analyzerRun.status !== "completed" || mapperRun.status !== "completed")
 			throw new AnalysisFailure("COMMIT_ANALYSIS_CHILD_FAILED");
 		const analysis = parseCommitAnalysis(analyzerRun.finalText);
