@@ -34,11 +34,12 @@ const split = (
 	direction: "horizontal" | "vertical",
 	first: LayoutPresetCenterNode,
 	second: LayoutPresetCenterNode,
+	weights: [number, number] = [0.5, 0.5],
 ): LayoutPresetCenterNode => ({
 	kind: "split",
 	id,
 	direction,
-	weights: [0.5, 0.5],
+	weights,
 	children: [first, second],
 });
 
@@ -119,13 +120,64 @@ export const BUILTIN_LAYOUT_PRESETS: readonly LayoutPreset[] = [
 		]),
 		bottom: bottom(true, [{ id: "review-bottom", tools: [] }]),
 	},
+	{
+		id: "agent-split",
+		name: "Agent + Code Split",
+		center: split(
+			"agent-split-center",
+			"horizontal",
+			group("agent-split-agent"),
+			group("agent-split-code"),
+			[0.42, 0.58],
+		),
+		left: side(true, 0.16, [{ id: "agent-split-left", tools: ["projects"] }]),
+		right: side(false, 0.28, [
+			{ id: "agent-split-right-top", tools: ["specs", "files", "artifacts"], weight: 1.25 },
+			{ id: "agent-split-right-bottom", tools: ["plan", "review"] },
+		]),
+		bottom: bottom(false, [{ id: "agent-split-bottom", tools: [] }]),
+	},
+	{
+		id: "code-focus",
+		name: "Code Focus",
+		center: split(
+			"code-focus-center",
+			"horizontal",
+			group("code-focus-code"),
+			group("code-focus-agent"),
+			[0.78, 0.22],
+		),
+		left: side(false, 0.16, [{ id: "code-focus-left", tools: ["projects"] }]),
+		right: side(false, 0.26, [
+			{ id: "code-focus-right", tools: ["files", "specs", "review", "artifacts", "plan"] },
+		]),
+		bottom: bottom(false, [{ id: "code-focus-bottom", tools: [] }]),
+	},
+	{
+		id: "review-mode",
+		name: "Review Mode",
+		center: group("review-mode-primary"),
+		left: side(false, 0.16, [{ id: "review-mode-left", tools: ["projects"] }]),
+		right: side(true, 0.5, [
+			{ id: "review-mode-main", tools: ["review"], weight: 2 },
+			{ id: "review-mode-reference", tools: ["files", "specs", "artifacts", "plan"] },
+		]),
+		bottom: bottom(false, [{ id: "review-mode-bottom", tools: [] }]),
+	},
 ] as const;
+
+/** The built-ins the topbar menu, the palette and the `layout.*` chords apply, in menu order. */
+export const WORKFLOW_LAYOUT_PRESET_IDS = ["agent-split", "code-focus", "review-mode"] as const;
+export type WorkflowLayoutPresetId = (typeof WORKFLOW_LAYOUT_PRESET_IDS)[number];
 
 const BUILTIN_PRESET_NAME_KEYS: Readonly<Record<string, MessageKey>> = {
 	codex: "workbench.preset.codex",
 	balanced: "workbench.preset.balanced",
 	focus: "workbench.preset.focus",
 	review: "workbench.preset.review",
+	"agent-split": "workbench.preset.agentSplit",
+	"code-focus": "workbench.preset.codeFocus",
+	"review-mode": "workbench.preset.reviewMode",
 };
 
 export function layoutPresetName(t: Translator, preset: LayoutPreset): string {

@@ -23,10 +23,12 @@ registerToolRenderer("read", ReadCard, {
 });
 registerToolRenderer("edit", EditCard, {
 	summary: ({ args, workspaceRoot }) => projectRelativePath(strArg(args, "path"), workspaceRoot),
+	chrome: "bare",
 	width: "content",
 });
 registerToolRenderer("write", WriteCard, {
 	summary: ({ args, workspaceRoot }) => projectRelativePath(strArg(args, "path"), workspaceRoot),
+	chrome: "bare",
 	width: "content",
 });
 

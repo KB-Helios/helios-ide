@@ -23,9 +23,7 @@ test("turn-divider files-changed chip opens the file's diff and highlights its r
 			"Use the write tool to create a new file notes.txt whose only content is the line: hello",
 		);
 	await page.getByTestId("chat-send").click();
-	await expect(routineActivityRows(page).filter({ hasText: "write" }).first()).toBeVisible({
-		timeout: 90_000,
-	});
+	await expect(page.getByTestId("tool-write").first()).toBeVisible({ timeout: 90_000 });
 	await waitForAgentSettled(page);
 
 	const chip = page.getByTestId("turn-divider-files").first();
@@ -134,9 +132,7 @@ test("a spec written while the Specs tab is closed still counts as a spec", {
 				"Do NOT use the spec_create tool — use write. Then stop.",
 		);
 	await page.getByTestId("chat-send").click();
-	await expect(routineActivityRows(page).filter({ hasText: "write" }).first()).toBeVisible({
-		timeout: 90_000,
-	});
+	await expect(page.getByTestId("tool-write").first()).toBeVisible({ timeout: 90_000 });
 	await expect(routineActivityRows(page).filter({ hasText: "spec_create" })).toHaveCount(0);
 	await waitForAgentSettled(page);
 

@@ -105,6 +105,7 @@ function deps(overrides: Partial<PaletteCatalogDeps> = {}): PaletteCatalogDeps {
 			toggleLeft: noop,
 			toggleRight: noop,
 			toggleBottom: noop,
+			applyLayout: noop,
 			showTool: noop,
 			showFiles: noop,
 			focusRegion: noop,
@@ -197,6 +198,9 @@ describe("palette project and Settings commands", () => {
 			"view.toggleRight",
 			"view.toggleBottom",
 			"view.changes",
+			"layout.agentSplit",
+			"layout.codeFocus",
+			"layout.reviewMode",
 			"region.next",
 			"region.previous",
 			"focus.composer",
@@ -220,6 +224,28 @@ describe("palette project and Settings commands", () => {
 				);
 			}
 		}
+	});
+});
+
+describe("palette layout presets", () => {
+	test("each workflow preset is a view command that applies exactly its preset, and needs a workspace", () => {
+		const applied: string[] = [];
+		const catalog = deps({
+			actions: { ...deps().actions, applyLayout: (id) => void applied.push(id) },
+		});
+		const expected = {
+			"layout.agentSplit": "agent-split",
+			"layout.codeFocus": "code-focus",
+			"layout.reviewMode": "review-mode",
+		} as const;
+		for (const [id, preset] of Object.entries(expected)) {
+			const command = buildCommands(catalog).find((candidate) => candidate.id === id);
+			expect(command?.group).toBe("view");
+			command?.run();
+			expect(applied.at(-1)).toBe(preset);
+			expect(row(id, deps({ activeWorkspace: null }))).toBeUndefined();
+		}
+		expect(applied).toEqual(["agent-split", "code-focus", "review-mode"]);
 	});
 });
 

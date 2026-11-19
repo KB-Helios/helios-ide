@@ -81,7 +81,9 @@ import { installFocusRecovery } from "./focusRecovery";
 import { JbcentralQuotaTopbar } from "./JbcentralQuotaTopbar";
 import { KeybindingEditor } from "./KeybindingEditor";
 import { useKeybindingLabel, useLocalKeymap } from "./keybindingState";
+import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import { LayoutSettings } from "./LayoutSettings";
+import { applyLayoutBinding } from "./layoutPresetActions";
 import { useLocalLayoutState } from "./layoutState";
 import { LocationBar } from "./locationBar";
 import { NativeWindowControls } from "./NativeWindowControls";
@@ -252,6 +254,7 @@ function ShellLayout() {
 					onFocusGroup: focusCenterGroup,
 					onTerminal: focusTerminal,
 					onFiles: () => showFiles("all"),
+					onLayout: (binding) => applyLayoutBinding(t, binding),
 					...(activeChat ? {} : { onChanges: () => showFiles("changed") }),
 					onSplitRight: runActiveTabAction,
 					onMoveTab: runActiveTabAction,
@@ -311,6 +314,7 @@ function ShellLayout() {
 							onOpen={() => useAppStore.getState().openSettings(SettingsSection.Updates)}
 						/>
 					) : null}
+					{activeWorkspaceId ? <LayoutPresetMenu /> : null}
 					{activeWorkspaceId ? (
 						<ReviewChangesButton
 							workspaceId={activeWorkspaceId}

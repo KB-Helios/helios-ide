@@ -132,7 +132,7 @@ The generator derives one class per semantic style, mechanically:
 | `ui.default` · `ui.metadata` | `.tr-text-ui` · `.tr-text-metadata` |
 | `ui.eyebrow` · `ui.labelPill` · `ui.caption` · `ui.action` · `ui.button` · `ui.emphasis` | `.tr-text-eyebrow` · `.tr-text-label-pill` · `.tr-text-caption` · `.tr-text-action` · `.tr-text-button` · `.tr-text-emphasis` |
 | `body.reading` | `.tr-text-reading` |
-| `code.text` · `code.block` · `code.editor` · `code.document` · `code.otp` · `code.textSmall` | `.tr-code-text` · `.tr-code-block` · `.tr-code-editor` · `.tr-code-document` · `.tr-code-otp` · `.tr-code-text-small` |
+| `code.text` · `code.block` · `code.editor` · `code.document` · `code.otp` · `code.textSmall` · `code.path` | `.tr-code-text` · `.tr-code-block` · `.tr-code-editor` · `.tr-code-document` · `.tr-code-otp` · `.tr-code-text-small` · `.tr-code-path` (12px mono — a workspace-relative file path in a transcript file-change card header) |
 | `proseSystems.<id>.*` | `.tr-prose-<id>` + one element selector each |
 
 Primitive tokens are also emitted as custom properties — `--tr-font-family-code`,

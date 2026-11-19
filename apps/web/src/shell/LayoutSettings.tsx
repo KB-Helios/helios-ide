@@ -6,6 +6,7 @@ import {
 	RiArrowRightSLine,
 	RiDashboardLine,
 	RiFocusLine,
+	RiLayoutColumnLine,
 	RiLayoutLine,
 	RiLayoutRightLine,
 	RiQuestionLine,
@@ -36,14 +37,13 @@ import {
 	BUILTIN_LAYOUT_PRESETS,
 	captureWorkbenchPreset,
 	DEFAULT_LAYOUT_PRESET_ID,
-	frameMatchesPreset,
 	layoutPresetName,
 	minimumBottomGroupLimit,
 	minimumSideGroupLimit,
 	presetPlacesTool,
 	resolveLayoutPreset,
 } from "./layout";
-import { applyLayoutPresetLocally } from "./layoutState";
+import { applyLayoutPreset, useAppliedLayoutPresetId } from "./layoutPresetActions";
 
 const BUILTIN_PRESET_IDS = new Set(BUILTIN_LAYOUT_PRESETS.map((preset) => preset.id));
 const MAX_CUSTOM_PRESETS = 32;
@@ -54,12 +54,18 @@ const PRESET_DESCRIPTIONS: Readonly<Record<string, MessageKey>> = {
 	balanced: "workbench.layoutSettings.balancedDescription",
 	focus: "workbench.layoutSettings.focusDescription",
 	review: "workbench.layoutSettings.reviewDescription",
+	"agent-split": "workbench.layoutSettings.agentSplitDescription",
+	"code-focus": "workbench.layoutSettings.codeFocusDescription",
+	"review-mode": "workbench.layoutSettings.reviewModeDescription",
 };
 
 const PRESET_ICONS: Record<string, typeof RiDashboardLine> = {
 	balanced: RiDashboardLine,
 	focus: RiFocusLine,
 	review: RiLayoutRightLine,
+	"agent-split": RiLayoutColumnLine,
+	"code-focus": RiFocusLine,
+	"review-mode": RiLayoutRightLine,
 };
 
 const NEWER_HOST_TOOLS: readonly { tool: LayoutToolId; since: number; message: MessageKey }[] = [
@@ -183,10 +189,7 @@ export function LayoutSettings() {
 	const selected = resolveLayoutPreset(preferences.defaultPresetId, customLayoutPresets);
 	const canApply = !saving && activeWorkspaceId !== null && frame !== null;
 
-	const appliedPresetId = useMemo(() => {
-		if (!frame) return null;
-		return presets.find((preset) => frameMatchesPreset(frame, preset))?.id ?? null;
-	}, [frame, presets]);
+	const appliedPresetId = useAppliedLayoutPresetId(presets);
 
 	const saveCustomPresets = (customPresets: LayoutPreset[]): Promise<boolean> => {
 		setSaving(true);
@@ -195,12 +198,7 @@ export function LayoutSettings() {
 
 	const apply = (preset: LayoutPreset) => {
 		if (!activeWorkspaceId || !frame) return;
-		try {
-			applyLayoutPresetLocally(preset);
-			toast.success(t("workbench.layoutSettings.applied", { name: layoutPresetName(t, preset) }));
-		} catch (error) {
-			toast.error(errorText(error), t("workbench.layoutSettings.applyFailed"));
-		}
+		applyLayoutPreset(t, preset);
 	};
 
 	const commitRename = (presetId: string) => {

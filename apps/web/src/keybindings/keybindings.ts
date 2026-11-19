@@ -20,6 +20,9 @@ export type KeybindingId =
 	| "view.toggleBottom"
 	| "view.files"
 	| "view.changes"
+	| "layout.agentSplit"
+	| "layout.codeFocus"
+	| "layout.reviewMode"
 	| "workspace.new"
 	| "search.open"
 	| "files.findInFiles"
@@ -70,6 +73,9 @@ export const KEYBINDINGS: Readonly<Record<KeybindingId, readonly [KeyChord, ...K
 	"chat.history": [{ code: "KeyR", key: "R", ctrl: true }],
 	"view.files": [{ code: "KeyE", key: "E", mod: true, shift: true }],
 	"view.changes": [{ code: "KeyG", key: "G", mod: true, shift: true }],
+	"layout.agentSplit": [{ code: "Digit1", key: "1", mod: true, shift: true }],
+	"layout.codeFocus": [{ code: "Digit2", key: "2", mod: true, shift: true }],
+	"layout.reviewMode": [{ code: "Digit3", key: "3", mod: true, shift: true }],
 	"region.next": [{ code: "F6", key: "F6" }],
 	"region.previous": [{ code: "F6", key: "F6", shift: true }],
 	"focus.composer": [{ code: "KeyL", key: "L", mod: true }],

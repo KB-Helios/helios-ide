@@ -192,6 +192,7 @@ export const CODE_STYLE_IDS = new Set([
 	"code.document",
 	"code.otp",
 	"code.textSmall",
+	"code.path",
 ]);
 
 export function isCodeStyleId(t: Typography, id: string): boolean {

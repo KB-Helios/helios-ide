@@ -142,7 +142,7 @@ describe("deriveRows grouping", () => {
 		const turns = [
 			user("u1"),
 			assistant("a1", [tc("t0", "read"), think("plan"), tc("t1", "bash")]),
-			assistant("a2", [tc("t2", "read"), think("revise"), tc("t3", "edit")]),
+			assistant("a2", [tc("t2", "read"), think("revise"), tc("t3", "grep")]),
 			assistant("a3", [text("the answer")]),
 			done("s1"),
 		];
@@ -424,7 +424,7 @@ describe("deriveRows live trailing run", () => {
 
 describe("deriveRows dividers", () => {
 	test("a divider row closes the round at its done marker, which folds into it as the outcome", () => {
-		const turns = [user("u1", 1_000), assistant("a1", [tc("t1", "write")]), done("s1", 3_000)];
+		const turns = [user("u1", 1_000), assistant("a1", [tc("t1", "grep")]), done("s1", 3_000)];
 		const rows = deriveRows(turns, {}, false);
 		expect(kinds(rows)).toEqual(["user", "activity", "divider"]);
 		const divider = rows[2];

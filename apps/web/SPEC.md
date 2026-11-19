@@ -391,6 +391,14 @@ themselves.
   code-only mono, the two prose systems, and how to add or change a style — is specced in
   [src/styles/TYPOGRAPHY.md](src/styles/TYPOGRAPHY.md)** (`web-typography`); check changes against it. The
   generator that turns it into CSS is [scripts/SPEC.md](scripts/SPEC.md).
+- **The icon system stays `@remixicon/react`; Phosphor was evaluated and rejected.** It would rewrite ~200 files
+  and the Line/Fill-when-active convention for no product gain. Remix has no duotone weight, so an empty state
+  or a tool-execution badge uses the Fill glyph tinted by a semantic `text-*`/`feedback-*` token. A second icon
+  set never enters `apps/web`, `packages/ui`, `resource-renderers` or an extension web half.
+- **Motion library: `framer-motion` is allowed for spring transitions on compositor-only properties**
+  (`opacity`, `transform`), always honouring `prefers-reduced-motion` through `useReducedMotion`. It never
+  animates layout (height/width) inside the virtualized transcript, whose fold anchoring needs synchronous
+  geometry. Today only `chat/tools/FileChangeCard` uses it.
 - **Icons: `@remixicon/react` (Line default, Fill when active/selected). Components: shadcn/ui** (Radix primitives), owned by [[module-ui]]
   and themed with our token utilities (`cn()` in `@thinkrail/ui/utils`) — never shadcn's default oklch
   palette. Use these for accessible menus / dialogs / tooltips. **Every ordinary action button is

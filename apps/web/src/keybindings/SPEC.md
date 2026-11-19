@@ -53,6 +53,10 @@ binding does.
   `focus.group1`…, and the active-tab commands `tab.close`, `group.splitRight`,
   `tab.moveToPreviousGroup` / `tab.moveToNextGroup`, which are also the workbench's tab-action ids);
   `search.open` has no palette row, and `view.files` is shown by the older `view.show.files` row.
+- **Layout chords:** `layout.agentSplit` / `layout.codeFocus` / `layout.reviewMode` are `Mod+Shift+1` / `2` /
+  `3` and apply the matching workflow preset ([[submodule-web-shell-layout]], *Workflow presets*). No Alt, so
+  the AltGr guard below never applies. macOS reserves `⌘⇧3` for its screenshot, so that one never reaches the
+  page there; all three rebind in Settings → Keyboard like any other binding.
 - **Tab chords** (VS Code's keymap; [[submodule-web-shell]], *Global chords*, owns what they do):
   `tab.close` is `Mod+W` (display-only) and `Mod+Alt+W`, `group.splitRight` is `Mod+\` (`Backslash`),
   and the group moves are `⌃⌘←` / `⌃⌘→` on Apple and `Ctrl+Alt+←` / `Ctrl+Alt+→` elsewhere (`Mod+Alt`

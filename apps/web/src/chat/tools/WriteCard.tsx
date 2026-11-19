@@ -1,4 +1,3 @@
-import { RiFileAddLine as FilePlus } from "@remixicon/react";
 import {
 	languageFromPath,
 	resultText,
@@ -8,7 +7,7 @@ import {
 import { useT } from "@thinkrail/locales/react";
 import { CodeBlock } from "./CodeBlock";
 import { Collapsible, countLines } from "./Collapsible";
-import { ToolFileLink } from "./ToolFileLink";
+import { FileChangeCard } from "./FileChangeCard";
 
 export function WriteCard({
 	toolCallId,
@@ -21,33 +20,32 @@ export function WriteCard({
 	const t = useT();
 	const path = strArg(args, "path");
 	const content = strArg(args, "content");
-	const lang = languageFromPath(path);
-	const message = resultText(result);
 
 	return (
-		<div data-testid="tool-write" className="flex flex-col gap-4">
-			<div className="flex items-center gap-4 tr-text-metadata">
-				<FilePlus className="size-12 shrink-0 text-feedback-success" />
-				<ToolFileLink
-					path={path}
-					workspaceRoot={workspaceRoot}
-					onOpenFile={onOpenFile}
-					disabled={status !== "done"}
-					className="text-text-default"
-				/>
-				<span className="shrink-0 text-text-muted">{t("tools.write.written")}</span>
-			</div>
+		<FileChangeCard
+			toolCallId={toolCallId}
+			testId="tool-write"
+			path={path}
+			workspaceRoot={workspaceRoot}
+			onOpenFile={onOpenFile}
+			status={status}
+			added={countLines(content)}
+			removed={0}
+			verb={t("tools.write.written")}
+		>
 			{status === "error" ? (
-				<pre className="overflow-auto px-8 py-4 text-feedback-error tr-code-text">{message}</pre>
+				<pre className="overflow-auto px-8 py-4 text-feedback-error tr-code-text">
+					{resultText(result)}
+				</pre>
 			) : content ? (
 				<Collapsible id={`${toolCallId}:content`} lines={countLines(content)}>
-					<CodeBlock code={content} lang={lang} />
+					<CodeBlock code={content} lang={languageFromPath(path)} />
 				</Collapsible>
 			) : (
 				<span className="text-text-muted tr-text-metadata italic">
 					{t("tools.write.emptyFile")}
 				</span>
 			)}
-		</div>
+		</FileChangeCard>
 	);
 }

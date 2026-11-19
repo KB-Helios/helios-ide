@@ -36,6 +36,7 @@ type GlobalHotkeyActions = {
 	onTerminal?: ChordHandler;
 	onFiles?: ChordHandler;
 	onChanges?: ChordHandler;
+	onLayout?: ChordHandler;
 	onCloseTab?: ChordHandler;
 	onSplitRight?: ChordHandler;
 	onMoveTab?: ChordHandler;
@@ -48,6 +49,9 @@ const CHORD_ACTIONS = {
 	"view.toggleBottom": "onBottom",
 	"view.files": "onFiles",
 	"view.changes": "onChanges",
+	"layout.agentSplit": "onLayout",
+	"layout.codeFocus": "onLayout",
+	"layout.reviewMode": "onLayout",
 	"workspace.new": "onNewWorkspace",
 	"search.open": "onSearch",
 	"files.findInFiles": "onFindInFiles",

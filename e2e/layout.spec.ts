@@ -1435,3 +1435,35 @@ test("the hidden bottom drop zone wins overlapping terminal targets and reveals 
 	await expect(page.getByTestId("bottom-group").getByTestId("terminal-tab")).toHaveCount(1);
 	await expect(page.getByTestId("center-group").getByTestId("terminal-tab")).toHaveCount(0);
 });
+
+test("the topbar layout menu and the Mod+Shift+1/2/3 chords apply the workflow presets", async ({
+	page,
+}) => {
+	await openFixtureProject(page);
+	await enterDefaultWorkspace(page);
+	await waitForLayoutSettled(page);
+	await expect(page.getByTestId("center-group")).toHaveCount(1);
+
+	await page.getByTestId("layout-preset-menu").click();
+	await page.getByTestId("layout-preset-code-focus").click();
+	await waitForLayoutSettled(page);
+	await expect(page.getByTestId("center-group")).toHaveCount(2);
+	await expect(page.getByTestId("left-stack")).toHaveCount(0);
+
+	await page.getByTestId("layout-preset-menu").click();
+	await expect(page.getByTestId("layout-preset-code-focus")).toHaveAttribute(
+		"data-applied",
+		"true",
+	);
+	await page.keyboard.press("Escape");
+
+	await pressPlatformShortcut(page, "Shift+Digit3");
+	await waitForLayoutSettled(page);
+	await expect(page.getByTestId("center-group")).toHaveCount(1);
+	await expect(page.getByTestId("right-stack")).toBeVisible();
+
+	await pressPlatformShortcut(page, "Shift+Digit1");
+	await waitForLayoutSettled(page);
+	await expect(page.getByTestId("center-group")).toHaveCount(2);
+	await expect(page.getByTestId("left-stack")).toBeVisible();
+});

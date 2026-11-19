@@ -280,6 +280,24 @@ export const SHORTCUT_CATALOG: readonly ShortcutCatalogEntry[] = [
 		surface: "panels",
 		bindings: ["view.changes"],
 	},
+	{
+		id: "layout.agentSplit",
+		title: "shortcuts.layoutAgentSplit",
+		surface: "panels",
+		bindings: ["layout.agentSplit"],
+	},
+	{
+		id: "layout.codeFocus",
+		title: "shortcuts.layoutCodeFocus",
+		surface: "panels",
+		bindings: ["layout.codeFocus"],
+	},
+	{
+		id: "layout.reviewMode",
+		title: "shortcuts.layoutReviewMode",
+		surface: "panels",
+		bindings: ["layout.reviewMode"],
+	},
 	...inScope("rails", [
 		{ id: "rails.up", title: "shortcuts.rail.up", surface: "panels", keys: [UP], twin: TWIN.up },
 		{
