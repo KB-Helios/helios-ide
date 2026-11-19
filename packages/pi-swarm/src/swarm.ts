@@ -206,6 +206,23 @@ export class Swarm {
 		}
 	}
 
+	/** Undoes a member that never started: its child, registry entry, worktree, branch and roster row. */
+	private async discardUnstarted(member: Member): Promise<void> {
+		this.board.members.delete(member.name);
+		this.maxTurns.delete(member.name);
+		const child = this.handles.get(member.name);
+		this.handles.delete(member.name);
+		if (child) {
+			forgetMember(child.sessionId);
+			await child.dispose().catch(() => {});
+		}
+		if (member.worktree && this.deps.repo)
+			await removeWorktree(
+				{ ...member.worktree, repo: this.deps.repo },
+				{ deleteBranch: true },
+			).catch(() => {});
+	}
+
 	async addMember(input: AddMemberInput): Promise<Member> {
 		this.assertRunning();
 		const kind: MemberKind = input.a2aAgent
@@ -228,13 +245,12 @@ export class Swarm {
 		try {
 			if (kind !== "a2a") await this.spawn(member, input);
 		} catch (error) {
-			this.board.members.delete(member.name);
-			if (member.worktree && this.deps.repo)
-				await removeWorktree(
-					{ ...member.worktree, repo: this.deps.repo },
-					{ deleteBranch: true },
-				).catch(() => {});
+			await this.discardUnstarted(member);
 			throw error;
+		}
+		if (this.disposed || this.status !== "running") {
+			await this.discardUnstarted(member);
+			throw new Error("This swarm has finished.");
 		}
 		const brief = [
 			`@${member.name} joins as ${kind}${member.model ? ` on ${member.model}` : ""}.`,

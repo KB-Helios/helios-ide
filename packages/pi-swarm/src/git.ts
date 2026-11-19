@@ -212,13 +212,18 @@ export async function createWorktree(options: {
 	const branch = `swarm/${dir}/${options.member}`;
 	mkdirSync(dirname(path), { recursive: true });
 	await git(options.repo, ["worktree", "add", "-b", branch, path, base]);
-	if (options.seed) {
-		const patch = await uncommittedPatch(options.repo);
-		if (patch.trim()) {
-			await git(path, ["apply", "--whitespace=nowarn", "-"], patch);
-			await commitAll(path, "swarm: coordinator baseline");
-			base = (await git(path, ["rev-parse", "HEAD"])).trim();
+	try {
+		if (options.seed) {
+			const patch = await uncommittedPatch(options.repo);
+			if (patch.trim()) {
+				await git(path, ["apply", "--whitespace=nowarn", "-"], patch);
+				await commitAll(path, "swarm: coordinator baseline");
+				base = (await git(path, ["rev-parse", "HEAD"])).trim();
+			}
 		}
+	} catch (error) {
+		await removeWorktree({ path, branch, repo: options.repo }, { deleteBranch: true });
+		throw error;
 	}
 	linkDependencies(options.repo, path);
 	return { path, branch, base, repo: options.repo };
