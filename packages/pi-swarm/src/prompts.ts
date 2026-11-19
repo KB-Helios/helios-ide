@@ -54,7 +54,13 @@ export function wakePrompt(text: string): string {
 	return `New posts for you on the swarm board:\n\n${text}\n\nAct on them. Your final message is posted to the board.`;
 }
 
-export const REVIEW_VERDICT = /VERDICT:\s*(APPROVE|CHANGES_REQUESTED)/i;
+const REVIEW_VERDICT = /VERDICT:\s*(APPROVE|CHANGES_REQUESTED)\b/gi;
+
+/** The last verdict a reviewer wrote, if any. */
+export function reviewVerdict(text: string): "APPROVE" | "CHANGES_REQUESTED" | undefined {
+	const last = [...text.matchAll(REVIEW_VERDICT)].at(-1)?.[1]?.toUpperCase();
+	return last === "APPROVE" || last === "CHANGES_REQUESTED" ? last : undefined;
+}
 
 export function reviewTask(options: { member: Member; stat: string; patch: string }): string {
 	const patch =

@@ -20,8 +20,9 @@ import {
 	commitWorktree,
 	describeGates,
 	detectGates,
+	reviewVerdict,
 	runCommand as run,
-	runGates,
+	runProjectGates,
 	worktreeDiff,
 } from "pi-swarm";
 import { abortSession, runReviewSubagent, sendHostMessageToSession } from "../agent";
@@ -48,6 +49,8 @@ interface InboundTask {
 	rounds: number;
 	lastReply?: string;
 	finalizing: boolean;
+	/** Aborted when the task is canceled; finalization stops at its next step. */
+	finalization?: AbortController;
 }
 
 const tasks = new Map<string, InboundTask>();
@@ -152,6 +155,14 @@ When you are done, end with a short summary of what changed and how you verified
 the gates and a read-only review; problems come back to you in this chat.`;
 }
 
+function promptGates(cwd: string): string[] {
+	try {
+		return detectGates(cwd);
+	} catch {
+		return [];
+	}
+}
+
 async function sendToTask(entry: InboundTask, text: string): Promise<void> {
 	await ackSend(
 		sendHostMessageToSession(entry.sessionId, A2A_TASK_CUSTOM_TYPE, text, {
@@ -193,7 +204,7 @@ async function startTask(params: MessageSendParams): Promise<Task> {
 	};
 	tasks.set(id, entry);
 	bySession.set(sessionId, id);
-	await sendToTask(entry, taskPrompt(text, detectGates(workspace.worktreePath)));
+	await sendToTask(entry, taskPrompt(text, promptGates(workspace.worktreePath)));
 	setState(
 		entry,
 		"working",
@@ -205,6 +216,11 @@ async function startTask(params: MessageSendParams): Promise<Task> {
 async function continueTask(params: MessageSendParams): Promise<Task> {
 	const entry = tasks.get(params.message.taskId ?? "");
 	if (!entry) throw new A2AError(A2A_ERRORS.taskNotFound, "Unknown task");
+	if (entry.finalizing)
+		throw new A2AError(
+			A2A_ERRORS.unsupportedOperation,
+			"The task is being verified; send the follow-up after it completes",
+		);
 	if (TERMINAL_STATES.has(entry.task.status.state) && entry.task.status.state !== "completed")
 		throw new A2AError(A2A_ERRORS.taskNotCancelable, `Task is ${entry.task.status.state}`);
 	entry.task.history?.push(params.message);
@@ -234,15 +250,20 @@ VERDICT: APPROVE  or  VERDICT: CHANGES_REQUESTED`;
 async function finalize(entry: InboundTask): Promise<void> {
 	if (entry.finalizing || entry.task.status.state !== "working") return;
 	entry.finalizing = true;
+	const controller = new AbortController();
+	entry.finalization = controller;
+	const { signal } = controller;
 	const cwd = entry.workspace.worktreePath;
 	try {
 		setState(entry, "working", "Running quality gates");
-		const gates = await runGates(detectGates(cwd), cwd);
+		const gates = await runProjectGates(cwd, { signal });
+		if (signal.aborted) return;
 		const failedGates = gates.some((g) => !g.ok);
 		let review: { verdict: "approve" | "changes"; text: string } | undefined;
 		if (!failedGates) {
 			setState(entry, "working", "Under read-only review");
 			const { patch, stat } = await worktreeDiff(cwd);
+			if (signal.aborted) return;
 			const reviewer = BUILTIN_AGENTS.find((agent) => agent.name === "reviewer");
 			if (patch.trim() && reviewer) {
 				const result = await runReviewSubagent(
@@ -250,11 +271,16 @@ async function finalize(entry: InboundTask): Promise<void> {
 					entry.sessionId,
 					reviewPrompt(entry, stat, patch),
 					{ systemPrompt: reviewer.systemPrompt, tools: ["read", "grep", "find", "ls"] },
+					signal,
 				);
+				if (signal.aborted) return;
 				const text = result.finalText ?? "";
+				const approved = result.status === "completed" && reviewVerdict(text) === "APPROVE";
 				review = {
-					verdict: /VERDICT:\s*CHANGES_REQUESTED/i.test(text) ? "changes" : "approve",
-					text,
+					verdict: approved ? "approve" : "changes",
+					text: approved
+						? text
+						: `${text}\n(The review did not complete with an explicit approval.)`.trim(),
 				};
 			}
 		}
@@ -272,6 +298,7 @@ async function finalize(entry: InboundTask): Promise<void> {
 			);
 			return;
 		}
+		if (signal.aborted) return;
 		const commit = await commitWorktree(cwd, `A2A task ${entry.task.id}`);
 		const diff = commit
 			? (await run("git", ["diff", "--binary", `${entry.base}..HEAD`], { cwd })).stdout
@@ -310,6 +337,7 @@ async function finalize(entry: InboundTask): Promise<void> {
 					{ kind: "text", text: diff.slice(0, MAX_PATCH), metadata: { mimeType: "text/x-diff" } },
 				],
 			});
+		if (signal.aborted) return;
 		entry.task.artifacts = artifacts;
 		setState(
 			entry,
@@ -321,10 +349,12 @@ async function finalize(entry: InboundTask): Promise<void> {
 					: "Finished with no changes.",
 		);
 	} catch (error) {
+		if (signal.aborted) return;
 		log.warn(`a2a task ${entry.task.id} could not finish`);
 		setState(entry, "failed", error instanceof Error ? error.message : "Internal error");
 	} finally {
 		entry.finalizing = false;
+		if (entry.finalization === controller) delete entry.finalization;
 	}
 }
 
@@ -364,8 +394,9 @@ const handler = createA2AHandler({
 		if (!entry) throw new A2AError(A2A_ERRORS.taskNotFound, "Unknown task");
 		if (TERMINAL_STATES.has(entry.task.status.state))
 			throw new A2AError(A2A_ERRORS.taskNotCancelable, `Task is ${entry.task.status.state}`);
-		await abortSession(entry.sessionId).catch(() => {});
+		entry.finalization?.abort();
 		setState(entry, "canceled", "Canceled by the remote agent.");
+		await abortSession(entry.sessionId).catch(() => {});
 		return entry.task;
 	},
 });

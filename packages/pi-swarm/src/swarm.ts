@@ -32,7 +32,7 @@ import {
 	run,
 	worktreeDiff,
 } from "./git.ts";
-import { MEMBER_TOOLS, memberBridge, REVIEW_VERDICT, reviewTask, wakePrompt } from "./prompts.ts";
+import { MEMBER_TOOLS, memberBridge, reviewTask, reviewVerdict, wakePrompt } from "./prompts.ts";
 import { forgetMember, rememberMember } from "./registry.ts";
 
 export type Isolation = "worktree" | "shared";
@@ -225,6 +225,11 @@ export class Swarm {
 			if (kind !== "a2a") await this.spawn(member, input);
 		} catch (error) {
 			this.board.members.delete(member.name);
+			if (member.worktree && this.deps.repo)
+				await removeWorktree(
+					{ ...member.worktree, repo: this.deps.repo },
+					{ deleteBranch: true },
+				).catch(() => {});
 			throw error;
 		}
 		const brief = [
@@ -344,6 +349,7 @@ export class Swarm {
 		member.status = "active";
 		member.activity = "starting";
 		delete member.error;
+		delete member.landed;
 		if (member.phase === "needs-fixes") member.phase = "working";
 		this.busy.add(member.name);
 		child
@@ -404,6 +410,13 @@ export class Swarm {
 	}
 
 	private async runQuality(member: Member): Promise<void> {
+		await this.qualityPipeline(member);
+		if (isKilled(member) || this.disposed || member.status === "active") return;
+		if (this.board.posts.some((p) => p.seq > member.readCursor && p.to.includes(member.name)))
+			this.deliver(member.name);
+	}
+
+	private async qualityPipeline(member: Member): Promise<void> {
 		const summary = member.doneClaim ?? "";
 		delete member.doneClaim;
 		const checked = member.kind === "worker" || member.kind === "custom";
@@ -519,10 +532,14 @@ export class Swarm {
 				mapping.maxTurns ? { maxTurns: mapping.maxTurns } : {},
 			);
 			const text = outcome.finalText ?? outcome.errorMessage ?? "";
-			const verdict = REVIEW_VERDICT.exec(text)?.[1]?.toUpperCase();
+			const verdict = reviewVerdict(text);
+			const approved = outcome.status === "completed" && verdict === "APPROVE";
 			return {
-				verdict: verdict === "CHANGES_REQUESTED" ? "changes" : "approve",
-				summary: verdict ? text : `${text}\n(The reviewer gave no verdict; treated as approve.)`,
+				verdict: approved ? "approve" : "changes",
+				summary:
+					approved || verdict === "CHANGES_REQUESTED"
+						? text
+						: `${text}\n(The review did not complete with an explicit approval, so it counts as changes requested.)`,
 				reviewerSessionId: child.sessionId,
 			};
 		} finally {

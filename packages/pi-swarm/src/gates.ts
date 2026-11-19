@@ -12,21 +12,29 @@ function packageManager(cwd: string): string {
 	return "npm";
 }
 
-/** The project's own typecheck → lint → test commands, from its manifest. */
+/**
+ * The project's own typecheck → lint → test commands, from its manifest. An unreadable manifest throws:
+ * "no checks found" must never be confused with "checks could not be determined".
+ */
 export function detectGates(cwd: string): string[] {
 	const manifest = join(cwd, "package.json");
 	if (existsSync(manifest)) {
+		let scripts: Record<string, unknown>;
 		try {
-			const scripts =
-				(JSON.parse(readFileSync(manifest, "utf8")) as { scripts?: Record<string, string> })
-					.scripts ?? {};
-			const pm = packageManager(cwd);
-			return SCRIPT_ORDER.filter((name) => typeof scripts[name] === "string").map(
-				(name) => `${pm} run ${name}`,
+			const parsed = JSON.parse(readFileSync(manifest, "utf8")) as { scripts?: unknown };
+			scripts =
+				parsed.scripts && typeof parsed.scripts === "object"
+					? (parsed.scripts as Record<string, unknown>)
+					: {};
+		} catch (error) {
+			throw new Error(
+				`Cannot determine quality gates: package.json is unreadable (${error instanceof Error ? error.message : String(error)}).`,
 			);
-		} catch {
-			return [];
 		}
+		const pm = packageManager(cwd);
+		return SCRIPT_ORDER.filter((name) => typeof scripts[name] === "string").map(
+			(name) => `${pm} run ${name}`,
+		);
 	}
 	if (existsSync(join(cwd, "Cargo.toml"))) return ["cargo check --all-targets", "cargo test"];
 	if (existsSync(join(cwd, "go.mod"))) return ["go vet ./...", "go test ./..."];
@@ -35,6 +43,28 @@ export function detectGates(cwd: string): string[] {
 }
 
 const TAIL = 4000;
+
+/** Detects and runs the project's gates; a manifest that cannot be read is reported as a failed gate. */
+export async function runProjectGates(
+	cwd: string,
+	options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<GateResult[]> {
+	let commands: string[];
+	try {
+		commands = detectGates(cwd);
+	} catch (error) {
+		return [
+			{
+				command: "detect quality gates",
+				ok: false,
+				exitCode: null,
+				durationMs: 0,
+				outputTail: error instanceof Error ? error.message : String(error),
+			},
+		];
+	}
+	return runGates(commands, cwd, options);
+}
 
 export async function runGates(
 	commands: readonly string[],

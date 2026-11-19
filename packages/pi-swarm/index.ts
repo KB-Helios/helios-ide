@@ -20,9 +20,10 @@ export {
 	type SwarmOptions,
 	type SwarmOwner,
 } from "./src/extension.ts";
-export { describeGates, detectGates, runGates } from "./src/gates.ts";
+export { describeGates, detectGates, runGates, runProjectGates } from "./src/gates.ts";
 export { commitWorktree, run as runCommand, worktreeDiff } from "./src/git.ts";
 export { swarmMemberExtension } from "./src/memberExtension.ts";
+export { reviewVerdict } from "./src/prompts.ts";
 export {
 	type AddMemberInput,
 	type Isolation,

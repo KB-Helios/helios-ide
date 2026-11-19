@@ -64,10 +64,11 @@ export interface GraphEdge {
 }
 
 const NAME = /^[a-z][a-z0-9-]{0,39}$/;
-const MENTION = /(^|[^\w@])@([a-z][a-z0-9-]{0,39})\b/gi;
+const MENTION = /(^|[^\w@])@([a-z][a-z0-9-]{0,39})(?![a-z0-9-])/gi;
+const RESERVED: ReadonlySet<string> = new Set([ALL, COORDINATOR, MONITOR, "gates", "system"]);
 
 export function assertMemberName(name: string): void {
-	if (!NAME.test(name) || name === ALL || name === COORDINATOR || name === MONITOR)
+	if (!NAME.test(name) || RESERVED.has(name))
 		throw new Error(
 			`Invalid member name "${name}": use lowercase letters, digits and dashes (e.g. parser, api-tests), and not "${ALL}", "${COORDINATOR}" or "${MONITOR}".`,
 		);
@@ -91,6 +92,8 @@ export class Board {
 			throw new Error(
 				`A member named @${member.name} already exists (killed members keep their name).`,
 			);
+		if (member.group && RESERVED.has(member.group))
+			throw new Error(`"${member.group}" is reserved and cannot name a group.`);
 		if (member.group && this.members.has(member.group))
 			throw new Error(`@${member.group} is a member, so it cannot also name a group.`);
 		if ([...this.members.values()].some((m) => m.group === member.name))

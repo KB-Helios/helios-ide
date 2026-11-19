@@ -90,6 +90,10 @@ export class A2AClient {
 	private async rpc<T>(method: string, params: unknown, signal?: AbortSignal): Promise<T> {
 		const card = await this.getCard(signal);
 		const target = assertHttpUrl(new URL(card.url, this.endpoint.url).toString());
+		if (target.origin !== assertHttpUrl(this.endpoint.url).origin)
+			throw new Error(
+				`The agent card at ${this.endpoint.url} points to another origin (${target.origin}); refusing to send its credentials there.`,
+			);
 		const response = await this.fetchImpl(target, {
 			method: "POST",
 			headers: {
@@ -135,8 +139,15 @@ export class A2AClient {
 		let interval = options.intervalMs ?? 1000;
 		let current = task;
 		while (!settled(current) && Date.now() < deadline) {
-			await sleep(interval, options.signal);
-			current = await this.getTask(current.id, options.signal);
+			const remaining = () => Math.max(0, deadline - Date.now());
+			try {
+				await sleep(Math.min(interval, remaining()), options.signal);
+				if (remaining() === 0) break;
+				current = await this.getTask(current.id, withTimeout(options.signal, remaining()));
+			} catch (error) {
+				if (!options.signal?.aborted && remaining() === 0) break;
+				throw error;
+			}
 			options.onUpdate?.(current);
 			interval = Math.min(interval * 1.5, 10_000);
 		}

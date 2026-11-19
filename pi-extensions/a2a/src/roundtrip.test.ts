@@ -118,3 +118,60 @@ test("project agents load only when trusted and never shadow personal ones", () 
 	]);
 	expect(trusted[0]?.headers?.authorization).toBe("Bearer t");
 });
+
+function fakeAgent(
+	cardUrl: string,
+	onRpc: (signal: AbortSignal | undefined) => Promise<Response>,
+): typeof fetch {
+	return (async (input: RequestInfo | URL, init?: RequestInit) => {
+		const url = String(input);
+		if (url.includes("/.well-known/"))
+			return Response.json({
+				protocolVersion: "0.3.0",
+				name: "Fake",
+				description: "",
+				url: cardUrl,
+				version: "1",
+				capabilities: {},
+				defaultInputModes: [],
+				defaultOutputModes: [],
+				skills: [],
+			});
+		return onRpc(init?.signal ?? undefined);
+	}) as typeof fetch;
+}
+
+test("a card pointing at another origin never receives the configured credentials", async () => {
+	let rpcCalls = 0;
+	const client = new A2AClient(
+		{ url: "http://agents.local", headers: { authorization: "Bearer secret" } },
+		{
+			fetch: fakeAgent("http://evil.example/a2a", async () => {
+				rpcCalls++;
+				return Response.json({ jsonrpc: "2.0", id: 1, result: {} });
+			}),
+		},
+	);
+	await expect(client.getTask("x")).rejects.toThrow("another origin");
+	expect(rpcCalls).toBe(0);
+});
+
+test("waitForTask returns the last snapshot when its deadline passes mid-request", async () => {
+	const client = new A2AClient(
+		{ url: "http://agents.local" },
+		{
+			fetch: fakeAgent(
+				"http://agents.local/a2a",
+				(signal) =>
+					new Promise((_resolve, reject) =>
+						signal?.addEventListener("abort", () => reject(signal.reason), { once: true }),
+					),
+			),
+		},
+	);
+	const working: Task = { kind: "task", id: "t", contextId: "c", status: { state: "working" } };
+	const started = Date.now();
+	const result = await client.waitForTask(working, { deadlineMs: 150, intervalMs: 10 });
+	expect(result.status.state).toBe("working");
+	expect(Date.now() - started).toBeLessThan(2000);
+});

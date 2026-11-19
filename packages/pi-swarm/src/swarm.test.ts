@@ -19,8 +19,10 @@ import {
 import { createDelegationService, type DelegationService } from "pi-delegation";
 import { BUILTIN_AGENTS } from "pi-subagents";
 import { Board, COORDINATOR, parseMentions } from "./board.ts";
-import { GIT_ENV, ownershipViolations } from "./git.ts";
+import { detectGates, runProjectGates } from "./gates.ts";
+import { GIT_ENV, matchesAny, ownershipViolations } from "./git.ts";
 import { swarmMemberExtension } from "./memberExtension.ts";
+import { reviewVerdict } from "./prompts.ts";
 import { Swarm, type SwarmSnapshot } from "./swarm.ts";
 
 const faux = createFauxCore({
@@ -149,6 +151,43 @@ test("ownership flags files outside owns and inside avoid", () => {
 			avoid: ["src/b/**"],
 		}),
 	).toEqual(["src/b/c.ts", "docs/x.md"]);
+});
+
+test("a **/ glob keeps the path-component boundary", () => {
+	expect(matchesAny("src/foo.ts", ["src/**/foo.ts"])).toBe(true);
+	expect(matchesAny("src/a/b/foo.ts", ["src/**/foo.ts"])).toBe(true);
+	expect(matchesAny("src/notfoo.ts", ["src/**/foo.ts"])).toBe(false);
+});
+
+test("a mention ends at the member-name boundary, and reserved names cannot be groups", () => {
+	expect(parseMentions("ask @parser- and @parser-x")).toEqual(["parser-", "parser-x"]);
+	const board = new Board();
+	const base = {
+		kind: "worker" as const,
+		status: "waiting" as const,
+		phase: "working" as const,
+		readCursor: 0,
+		fixRounds: 0,
+		createdAt: "",
+		brief: { task: "", owns: [], avoid: [] },
+	};
+	for (const group of ["all", "coordinator", "monitor"])
+		expect(() => board.add({ ...base, name: `${group}-1`, group })).toThrow("reserved");
+});
+
+test("a review counts as approval only when it says APPROVE last", () => {
+	expect(reviewVerdict("fine\nVERDICT: APPROVE")).toBe("APPROVE");
+	expect(reviewVerdict("VERDICT: APPROVE or VERDICT: CHANGES_REQUESTED")).toBe("CHANGES_REQUESTED");
+	expect(reviewVerdict("no verdict here")).toBeUndefined();
+});
+
+test("an unreadable manifest is a failed gate, never an empty pass", async () => {
+	const dir = tmp("swarm-gates-");
+	writeFileSync(join(dir, "package.json"), "{ not json");
+	expect(() => detectGates(dir)).toThrow("unreadable");
+	const results = await runProjectGates(dir);
+	expect(results).toHaveLength(1);
+	expect(results[0]?.ok).toBe(false);
 });
 
 test("a worker in its own worktree passes ownership, gates and review, then lands", async () => {
