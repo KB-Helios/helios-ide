@@ -206,8 +206,10 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 				};
 				finishedAt.set(event.sessionId, at);
 			} else {
+				const fresh = options.service.findChild(event.sessionId)?.snapshot;
+				const reset = withoutTerminalFields(base);
 				next = {
-					...withoutTerminalFields(base),
+					...(fresh ? applyDetails(reset, fresh.details, at) : reset),
 					status: event.type === "run-started" ? "running" : "queued",
 					lastEventAt: at,
 				};
@@ -224,7 +226,7 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 				scheduleExpiry();
 		},
 		read() {
-			if (prune()) revision++;
+			if (prune()) changed();
 			const sorted = [...rows.values()].sort(
 				(a, b) =>
 					Number(isLive(b)) - Number(isLive(a)) ||

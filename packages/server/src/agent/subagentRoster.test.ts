@@ -214,4 +214,21 @@ describe("subagent roster", () => {
 		h.roster.handle(terminal("a", "completed"));
 		expect(h.roster.read().rows[0]?.errorMessage).toBeUndefined();
 	});
+
+	test("a read that prunes also publishes, before the expiry timer fires", () => {
+		const h = harness({ a: {} });
+		h.roster.handle(ev("run-started", "a"));
+		h.roster.handle({
+			type: "run-terminal",
+			sessionId: "a",
+			parentSessionId: "parent-1",
+			outcome: { status: "completed", details: details("a", "completed") },
+		} as unknown as LifecycleEvent);
+		h.flush();
+		const before = h.published.length;
+		h.advance(3 * 60_000);
+		expect(h.roster.read().rows).toHaveLength(0);
+		h.flush();
+		expect(h.published.length).toBeGreaterThan(before);
+	});
 });
