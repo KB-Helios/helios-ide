@@ -341,11 +341,47 @@ test("absent session options reject: not-implemented (no parent-like consumer)",
 	);
 });
 
-test("a workspace provider rejects: not-implemented (no V1 consumer)", async () => {
+test("a workspace provider owns the child cwd and is released with the child", async () => {
+	const isolated = tmpDir("pi-delegation-workspace-");
+	const prepared: unknown[] = [];
+	const released: unknown[] = [];
 	const workspace = {
-		prepare: () => Promise.reject(new Error("never called")),
+		prepare: async (ctx: unknown) => {
+			prepared.push(ctx);
+			return { cwd: isolated, dispose: (outcome: unknown) => void released.push(outcome) };
+		},
 	};
-	expect(await codeOf(service.createChild(subagentSpec({ workspace })))).toBe("not-implemented");
+	const child = await service.createChild(
+		subagentSpec({ workspace, info: { createdBy: "test", roleName: "isolated" } }),
+	);
+	expect(prepared).toEqual([
+		{ parentSessionId: parent.sessionId, baseCwd: parentCwd, roleName: "isolated" },
+	]);
+	expect(released).toEqual([]);
+	await child.dispose();
+	expect(released).toEqual([{ status: "aborted" }]);
+});
+
+test("a throwing workspace disposer never blocks the child's own teardown", async () => {
+	const isolated = tmpDir("pi-delegation-workspace-throw-");
+	const workspace = {
+		prepare: async () => ({
+			cwd: isolated,
+			dispose: () => {
+				throw new Error("cleanup failed");
+			},
+		}),
+	};
+	const child = await service.createChild(subagentSpec({ workspace }));
+	await child.dispose();
+	expect(service.findChild(child.sessionId)).toBeUndefined();
+});
+
+test("a workspace provider that fails to prepare rejects before the child exists", async () => {
+	const workspace = { prepare: () => Promise.reject(new Error("no worktree")) };
+	const before = service.childrenOf(parent.sessionId).length;
+	await expect(service.createChild(subagentSpec({ workspace }))).rejects.toThrow("no worktree");
+	expect(service.childrenOf(parent.sessionId).length).toBe(before);
 });
 
 test("an unknown parent rejects: unknown-parent", async () => {

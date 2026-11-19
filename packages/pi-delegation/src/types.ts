@@ -31,12 +31,8 @@ export interface SessionOptions {
 }
 
 export interface WorkspaceProvider {
-	prepare(ctx: {
-		sessionId: string;
-		parentSessionId: string;
-		baseCwd: string;
-		roleName?: string;
-	}): Promise<{
+	/** Called before the child session exists; resource children pass the resource id as parent. */
+	prepare(ctx: { parentSessionId: string; baseCwd: string; roleName?: string }): Promise<{
 		cwd: string;
 		dispose(outcome: { status: RunStatus }): { resultAddendum?: string } | undefined;
 	}>;

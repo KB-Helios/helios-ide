@@ -144,6 +144,7 @@ import { projectSessionEvent } from "./sessionEventProjection";
 import { repairDanglingToolCalls } from "./sessionRepair";
 import { deriveSessionState } from "./sessionState";
 import type { SkillAdmissionContext } from "./skillAdmission";
+import { disposeSessionSwarm, swarmFor } from "./swarm";
 import {
 	assessRespondability,
 	buildToolResponseMessage,
@@ -1555,6 +1556,7 @@ async function createParentSessionInternal(
 		() => subagentsEnabled(workspaceId),
 		() => sessions.get(sessionId)?.subagents === subagents && canDeliverCompletion(),
 	);
+	const swarm = swarmFor(workspaceId, sessionId, canDeliverCompletion);
 	const commands = createBackgroundCommands({
 		sessionId,
 		getContext: () => {
@@ -1583,6 +1585,7 @@ async function createParentSessionInternal(
 				generation.excludedSessionExtensionPaths,
 				[
 					subagents.extension,
+					swarm.extension,
 					createBackgroundCommandsExtension({ service: commands }),
 					...mcpHost.extensions,
 					extraUsageModelSelectExtension(sessionId),
@@ -1611,6 +1614,7 @@ async function createParentSessionInternal(
 			} catch {}
 		} else if (!session) {
 			subagents.dispose();
+			void disposeSessionSwarm(sessionId);
 			void trackCascade(
 				workspaceId,
 				commands.dispose().catch(() => {}),
@@ -3116,6 +3120,7 @@ function closeSessionResources(entry: Entry, timeoutMs?: number): Promise<void> 
 	if (entry.resourceCascade) return entry.resourceCascade;
 	entry.resourcesClosing = true;
 	entry.subagents.dispose();
+	const swarmClosing = disposeSessionSwarm(entry.session.sessionId);
 	const closing = entry.commands
 		.dispose(timeoutMs === undefined ? undefined : { timeoutMs })
 		.finally(() => entry.commandHistory.finish());
@@ -3123,7 +3128,7 @@ function closeSessionResources(entry: Entry, timeoutMs?: number): Promise<void> 
 	const shutdown = emitSessionShutdown(entry, timeoutMs);
 	entry.resourceCascade = trackCascade(
 		entry.workspaceId,
-		Promise.allSettled([closing, children, shutdown]).then(() => {}),
+		Promise.allSettled([closing, children, shutdown, swarmClosing]).then(() => {}),
 	);
 	return entry.resourceCascade;
 }

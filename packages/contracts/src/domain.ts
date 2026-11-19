@@ -680,6 +680,81 @@ export interface SubagentRoster {
 	counts: SubagentRosterCounts;
 }
 
+/** Mirrors pi-swarm's `Member`: one named agent on a chat's swarm board. */
+export interface SwarmMember {
+	name: string;
+	group?: string;
+	kind: "worker" | "verifier" | "reviewer" | "scout" | "custom" | "a2a";
+	definition?: string;
+	status: "active" | "waiting" | "paused" | "killed";
+	phase: "working" | "gating" | "reviewing" | "needs-fixes" | "done";
+	brief: { task: string; owns: string[]; avoid: string[]; done?: string };
+	model?: string;
+	childSessionId?: string;
+	a2a?: { agent: string; taskId?: string; contextId?: string };
+	worktree?: { path: string; branch: string; base: string };
+	activity?: string;
+	lastPost?: number;
+	readCursor: number;
+	gates?: Array<{
+		command: string;
+		ok: boolean;
+		exitCode: number | null;
+		durationMs: number;
+		outputTail: string;
+	}>;
+	ownershipViolations?: string[];
+	review?: { verdict: "approve" | "changes"; summary: string; reviewerSessionId?: string };
+	changedFiles?: string[];
+	landed?: boolean;
+	doneClaim?: string;
+	fixRounds: number;
+	error?: string;
+	createdAt: string;
+}
+
+export interface SwarmPost {
+	seq: number;
+	from: string;
+	to: string[];
+	kind: "brief" | "message" | "report" | "gate" | "review" | "system";
+	text: string;
+	at: string;
+}
+
+export interface SwarmSnapshot {
+	id: string;
+	parentSessionId: string;
+	title: string;
+	status: "running" | "finished";
+	summary?: string;
+	createdAt: string;
+	config: {
+		title: string;
+		gates: string[];
+		review: boolean;
+		isolation: "worktree" | "shared";
+		setup: string[];
+		maxFixRounds: number;
+	};
+	members: SwarmMember[];
+	posts: SwarmPost[];
+	graph: Array<{ from: string; to: string; count: number }>;
+}
+
+export interface SwarmChanged {
+	workspaceId: string;
+	sessionId: string;
+	snapshot: SwarmSnapshot;
+}
+
+export interface SwarmDiff {
+	member: string;
+	stat: string;
+	patch: string;
+	truncated: boolean;
+}
+
 export type ResourceRecord =
 	| { kind: "command"; summary: BackgroundCommandSummary }
 	| { kind: "subagent"; summary: SubagentResourceSummary };

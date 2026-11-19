@@ -231,12 +231,6 @@ function assertV1Combination(spec: Omit<CreateChildSpec, "parent">): SessionOpti
 			"parent-like session options (absent `session`) have no V1 consumer — pass explicit SessionOptions",
 		);
 	}
-	if (spec.workspace) {
-		throw new DelegationError(
-			"not-implemented",
-			"WorkspaceProvider has no V1 consumer — children share the parent cwd",
-		);
-	}
 	return spec.session;
 }
 
@@ -715,7 +709,10 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 		const lastStatus = entry.snapshot?.status;
 		const terminal: RunStatus =
 			lastStatus === "completed" || lastStatus === "error" ? lastStatus : "aborted";
-		const teardown = entry.workspaceDispose?.({ status: terminal });
+		let teardown: { resultAddendum?: string } | undefined;
+		try {
+			teardown = entry.workspaceDispose?.({ status: terminal });
+		} catch {}
 		if (teardown?.resultAddendum && entry.snapshot) {
 			const finalText = [entry.snapshot.finalText, teardown.resultAddendum]
 				.filter((part): part is string => part !== undefined)
@@ -887,6 +884,26 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 		}
 	}
 
+	async function prepareWorkspace(
+		spec: Omit<CreateChildSpec, "parent">,
+		ctx: { parentSessionId: string; baseCwd: string },
+	): Promise<{ cwd: string; dispose?: ChildEntry["workspaceDispose"] }> {
+		if (!spec.workspace) return { cwd: ctx.baseCwd };
+		const prepared = await spec.workspace.prepare({
+			...ctx,
+			...(spec.info.roleName !== undefined ? { roleName: spec.info.roleName } : {}),
+		});
+		if (typeof prepared?.cwd !== "string" || !prepared.cwd)
+			throw new DelegationError("invalid-combination", "WorkspaceProvider returned no cwd");
+		return { cwd: prepared.cwd, dispose: (outcome) => prepared.dispose(outcome) };
+	}
+
+	function releaseWorkspace(workspace: { dispose?: ChildEntry["workspaceDispose"] }): void {
+		try {
+			workspace.dispose?.({ status: "aborted" });
+		} catch {}
+	}
+
 	function newManager(
 		spec: Omit<CreateChildSpec, "parent">,
 		cwd: string,
@@ -943,22 +960,29 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 			throw new Error(
 				`Unknown model ${options.model.provider}/${options.model.id} — resolve against available models before createChild`,
 			);
-		const manager = newManager(
-			spec,
-			parent.cwd,
-			delegationSessionDir(delegationRoot, scope, parentSessionId),
-		);
-		const session = await assemble(
-			options,
-			parent.cwd,
-			trustOf(parent),
-			runtime,
-			model,
-			options.thinkingLevel ?? parent.thinkingLevel,
-			bindings.childExtensionFactories ?? [],
-			manager,
-			model ? (parent.providerExtensionPaths?.(model.provider) ?? []) : [],
-		);
+		const workspace = await prepareWorkspace(spec, { parentSessionId, baseCwd: parent.cwd });
+		let session: AgentSession;
+		try {
+			const manager = newManager(
+				spec,
+				workspace.cwd,
+				delegationSessionDir(delegationRoot, scope, parentSessionId),
+			);
+			session = await assemble(
+				options,
+				workspace.cwd,
+				trustOf(parent),
+				runtime,
+				model,
+				options.thinkingLevel ?? parent.thinkingLevel,
+				bindings.childExtensionFactories ?? [],
+				manager,
+				model ? (parent.providerExtensionPaths?.(model.provider) ?? []) : [],
+			);
+		} catch (error) {
+			releaseWorkspace(workspace);
+			throw error;
+		}
 		const current = bindings.resolveParent?.(parentSessionId);
 		const parentClosed = parentLifetimes.get(parentSessionId) !== parentLifetime || !current;
 		const trustChanged =
@@ -968,6 +992,7 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 				await session.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
 			} finally {
 				session.dispose();
+				releaseWorkspace(workspace);
 			}
 			throw new DelegationError(
 				"unknown-parent",
@@ -986,6 +1011,7 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 			semaphore: semaphoreFor(parentSessionId),
 			listeners: new Set(),
 			disposed: false,
+			...(workspace.dispose ? { workspaceDispose: workspace.dispose } : {}),
 		};
 		const handle = makeHandle(entry);
 		entry.handle = handle;
@@ -1162,7 +1188,7 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 		assertOpen(resource);
 		const model = checkModel(context, options.model ?? context.model);
 		const dir = resourceSessionDir(delegationRoot, scope, resource.id);
-		let manager: SessionManager;
+		let manager: SessionManager | undefined;
 		if (birth) {
 			const located = locateResourceTranscript(delegationRoot, scope, resource.id, birth.sessionId);
 			manager = SessionManager.open(located.file, dir);
@@ -1173,17 +1199,27 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 				);
 			}
 			repairResourceTranscript(manager);
-		} else manager = newManager(spec, context.cwd, dir);
-		const session = await assemble(
-			options,
-			context.cwd,
-			trustOf(context),
-			context.runtime,
-			model,
-			options.thinkingLevel ?? context.thinkingLevel,
-			[...(bindings.childExtensionFactories ?? []), ...resource.factories],
-			manager,
-		);
+		}
+		const workspace = birth
+			? { cwd: context.cwd }
+			: await prepareWorkspace(spec, { parentSessionId: resource.id, baseCwd: context.cwd });
+		let session: AgentSession;
+		try {
+			manager ??= newManager(spec, workspace.cwd, dir);
+			session = await assemble(
+				options,
+				workspace.cwd,
+				trustOf(context),
+				context.runtime,
+				model,
+				options.thinkingLevel ?? context.thinkingLevel,
+				[...(bindings.childExtensionFactories ?? []), ...resource.factories],
+				manager,
+			);
+		} catch (error) {
+			releaseWorkspace(workspace);
+			throw error;
+		}
 		const record: ResourceSpawnRecord = Object.freeze(
 			birth
 				? { ...birth, sessionFile: manager.getSessionFile() ?? "" }
@@ -1192,6 +1228,7 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 		const semaphore = resource.semaphore;
 		if (!semaphore) {
 			session.dispose();
+			releaseWorkspace(workspace);
 			throw new DelegationError("disposed", "Resource pacing was released");
 		}
 		const entry: ChildEntry = {
@@ -1201,6 +1238,9 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 			semaphore,
 			listeners: new Set(),
 			disposed: false,
+			...("dispose" in workspace && workspace.dispose
+				? { workspaceDispose: workspace.dispose }
+				: {}),
 		};
 		resource.children.set(record.sessionId, entry);
 		if (resource.closed) {
