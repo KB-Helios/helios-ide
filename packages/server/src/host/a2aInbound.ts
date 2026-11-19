@@ -221,7 +221,7 @@ async function continueTask(params: MessageSendParams): Promise<Task> {
 			A2A_ERRORS.unsupportedOperation,
 			"The task is being verified; send the follow-up after it completes",
 		);
-	if (TERMINAL_STATES.has(entry.task.status.state) && entry.task.status.state !== "completed")
+	if (entry.task.status.state === "canceled" || entry.task.status.state === "rejected")
 		throw new A2AError(A2A_ERRORS.taskNotCancelable, `Task is ${entry.task.status.state}`);
 	entry.task.history?.push(params.message);
 	entry.rounds = 0;
@@ -299,10 +299,11 @@ async function finalize(entry: InboundTask): Promise<void> {
 			return;
 		}
 		if (signal.aborted) return;
-		const commit = await commitWorktree(cwd, `A2A task ${entry.task.id}`);
-		const diff = commit
-			? (await run("git", ["diff", "--binary", `${entry.base}..HEAD`], { cwd })).stdout
-			: "";
+		const created = await commitWorktree(cwd, `A2A task ${entry.task.id}`);
+		const diff = (await run("git", ["diff", "--binary", `${entry.base}..HEAD`], { cwd })).stdout;
+		const head = (await run("git", ["rev-parse", "HEAD"], { cwd })).stdout.trim();
+		const commit = created ?? (diff ? head : undefined);
+		const diffTruncated = diff.length > MAX_PATCH;
 		const artifacts: Artifact[] = [
 			{
 				artifactId: "summary",
@@ -323,6 +324,8 @@ async function finalize(entry: InboundTask): Promise<void> {
 							sessionId: entry.sessionId,
 							worktreePath: cwd,
 							gates: gates.map(({ command, ok }) => ({ command, ok })),
+							diffTruncated,
+							diffLength: diff.length,
 							review: review?.verdict ?? "skipped",
 						},
 					},
@@ -334,7 +337,20 @@ async function finalize(entry: InboundTask): Promise<void> {
 				artifactId: "diff",
 				name: "Diff",
 				parts: [
-					{ kind: "text", text: diff.slice(0, MAX_PATCH), metadata: { mimeType: "text/x-diff" } },
+					{
+						kind: "text",
+						text: diff.slice(0, MAX_PATCH),
+						metadata: {
+							mimeType: "text/x-diff",
+							...(diffTruncated
+								? {
+										truncated: true,
+										length: diff.length,
+										fetch: `git fetch <remote> ${entry.workspace.branch}`,
+									}
+								: {}),
+						},
+					},
 				],
 			});
 		if (signal.aborted) return;
@@ -345,7 +361,11 @@ async function finalize(entry: InboundTask): Promise<void> {
 			problems.length
 				? `Finished with unresolved problems after ${MAX_FIX_ROUNDS} fix rounds:\n${problems.join("\n\n")}`
 				: commit
-					? `Committed ${commit.slice(0, 12)} on ${entry.workspace.branch}.`
+					? `Committed ${commit.slice(0, 12)} on ${entry.workspace.branch}.${
+							diffTruncated
+								? ` The diff artifact is truncated (${diff.length} characters); fetch the branch for the full change.`
+								: ""
+						}`
 					: "Finished with no changes.",
 		);
 	} catch (error) {
@@ -377,7 +397,18 @@ export function observeA2ATask(sessionId: string, event: PiEvent): void {
 	if (!entry) return;
 	const text = assistantText(event);
 	if (text) entry.lastReply = text;
-	if (event.type === "agent_settled") void finalize(entry);
+	if (event.type !== "agent_settled" || !event.terminal) return;
+	if (entry.task.status.state !== "working" || entry.finalizing) return;
+	const { stopReason, errorMessage } = event.terminal;
+	if (stopReason === "stop") {
+		void finalize(entry);
+		return;
+	}
+	setState(
+		entry,
+		"failed",
+		`The agent run ended with "${stopReason}" before finishing${errorMessage ? `: ${errorMessage}` : "."} Send a follow-up with this task id to retry.`,
+	);
 }
 
 const handler = createA2AHandler({

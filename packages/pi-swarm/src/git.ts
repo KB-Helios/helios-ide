@@ -110,12 +110,15 @@ export interface Worktree {
 export async function createWorktree(options: {
 	repo: string;
 	root: string;
+	/** Display title; truncated in names, so `swarmId` keeps them unique. */
 	swarm: string;
+	swarmId: string;
 	member: string;
 }): Promise<Worktree> {
 	const base = (await git(options.repo, ["rev-parse", "HEAD"])).trim();
-	const path = join(options.root, slug(options.swarm), options.member);
-	const branch = `swarm/${slug(options.swarm)}/${options.member}`;
+	const dir = `${slug(options.swarm)}-${slug(options.swarmId)}`;
+	const path = join(options.root, dir, options.member);
+	const branch = `swarm/${dir}/${options.member}`;
 	mkdirSync(dirname(path), { recursive: true });
 	await git(options.repo, ["worktree", "add", "-b", branch, path, base]);
 	linkDependencies(options.repo, path);
@@ -181,11 +184,11 @@ export function unlinkDependencies(worktree: string): void {
 }
 
 export async function changedFiles(cwd: string): Promise<string[]> {
-	const out = await git(cwd, ["status", "--porcelain", "-uall", "--no-renames"]);
+	const out = await git(cwd, ["status", "--porcelain", "-z", "-uall", "--no-renames"]);
 	return out
-		.split("\n")
-		.filter((line) => line.length > 3)
-		.map((line) => line.slice(3).replace(/^"|"$/g, ""))
+		.split("\0")
+		.filter((record) => record.length > 3)
+		.map((record) => record.slice(3))
 		.filter((file) => !file.split("/").includes("node_modules"));
 }
 

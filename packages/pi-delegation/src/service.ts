@@ -709,7 +709,10 @@ export function createDelegationService(bindings: DelegationBindings): Delegatio
 		const lastStatus = entry.snapshot?.status;
 		const terminal: RunStatus =
 			lastStatus === "completed" || lastStatus === "error" ? lastStatus : "aborted";
-		const teardown = entry.workspaceDispose?.({ status: terminal });
+		let teardown: { resultAddendum?: string } | undefined;
+		try {
+			teardown = entry.workspaceDispose?.({ status: terminal });
+		} catch {}
 		if (teardown?.resultAddendum && entry.snapshot) {
 			const finalText = [entry.snapshot.finalText, teardown.resultAddendum]
 				.filter((part): part is string => part !== undefined)

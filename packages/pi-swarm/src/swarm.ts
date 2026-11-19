@@ -189,6 +189,7 @@ export class Swarm {
 		for (const name of names) {
 			const member = this.board.get(name);
 			if (!member || member.status === "killed" || this.disposed) continue;
+			if (member.kind === "a2a" ? member.status === "active" : !this.handles.has(name)) continue;
 			const unread = this.board.takeUnread(name);
 			if (unread.length === 0) continue;
 			const text = formatPosts(unread);
@@ -241,10 +242,13 @@ export class Swarm {
 		]
 			.filter(Boolean)
 			.join("\n");
-		const post = this.board.post(COORDINATOR, brief, "brief", []);
-		member.readCursor = post.seq;
-		if (kind === "a2a") void this.sendA2A(member, member.brief.task);
-		else this.startRun(member, `Start on your brief.\n\n${member.brief.task}`);
+		const briefPost = this.board.post(COORDINATOR, brief, "brief", []);
+		const early = this.board.takeUnread(member.name).filter((p) => p.seq !== briefPost.seq);
+		const start = early.length
+			? `${member.brief.task}\n\n${wakePrompt(formatPosts(early))}`
+			: member.brief.task;
+		if (kind === "a2a") void this.sendA2A(member, start);
+		else this.startRun(member, `Start on your brief.\n\n${start}`);
 		this.changed();
 		return member;
 	}
@@ -278,7 +282,8 @@ export class Swarm {
 			const worktree = await createWorktree({
 				repo: this.deps.repo,
 				root: this.deps.worktreeRoot,
-				swarm: `${this.config.title}-${this.id.slice(0, 8)}`,
+				swarm: this.config.title,
+				swarmId: this.id.slice(0, 8),
 				member: member.name,
 			});
 			member.worktree = { path: worktree.path, branch: worktree.branch, base: worktree.base };
@@ -576,6 +581,8 @@ export class Swarm {
 			member.status = "waiting";
 			delete member.activity;
 			this.post(member.name, describeResult(result), "report");
+			if (this.board.posts.some((p) => p.seq > member.readCursor && p.to.includes(member.name)))
+				this.deliver(member.name);
 		} catch (error) {
 			if (isKilled(member)) return;
 			member.status = "paused";

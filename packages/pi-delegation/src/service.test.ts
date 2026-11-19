@@ -362,6 +362,21 @@ test("a workspace provider owns the child cwd and is released with the child", a
 	expect(released).toEqual([{ status: "aborted" }]);
 });
 
+test("a throwing workspace disposer never blocks the child's own teardown", async () => {
+	const isolated = tmpDir("pi-delegation-workspace-throw-");
+	const workspace = {
+		prepare: async () => ({
+			cwd: isolated,
+			dispose: () => {
+				throw new Error("cleanup failed");
+			},
+		}),
+	};
+	const child = await service.createChild(subagentSpec({ workspace }));
+	await child.dispose();
+	expect(service.findChild(child.sessionId)).toBeUndefined();
+});
+
 test("a workspace provider that fails to prepare rejects before the child exists", async () => {
 	const workspace = { prepare: () => Promise.reject(new Error("no worktree")) };
 	const before = service.childrenOf(parent.sessionId).length;

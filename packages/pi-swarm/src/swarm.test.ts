@@ -20,7 +20,14 @@ import { createDelegationService, type DelegationService } from "pi-delegation";
 import { BUILTIN_AGENTS } from "pi-subagents";
 import { Board, COORDINATOR, parseMentions } from "./board.ts";
 import { detectGates, runProjectGates } from "./gates.ts";
-import { GIT_ENV, matchesAny, ownershipViolations } from "./git.ts";
+import {
+	changedFiles,
+	createWorktree,
+	GIT_ENV,
+	matchesAny,
+	ownershipViolations,
+	removeWorktree,
+} from "./git.ts";
 import { swarmMemberExtension } from "./memberExtension.ts";
 import { reviewVerdict } from "./prompts.ts";
 import { Swarm, type SwarmSnapshot } from "./swarm.ts";
@@ -258,3 +265,39 @@ test("a worker in its own worktree passes ownership, gates and review, then land
 	expect(member.status).toBe("killed");
 	await swarm.dispose();
 }, 60_000);
+
+test("changed paths are literal, even ones git would quote", async () => {
+	const name = "src/é x.ts";
+	writeFileSync(join(repo, name), "export {};\n");
+	try {
+		expect(await changedFiles(repo)).toContain(name);
+	} finally {
+		rmSync(join(repo, name), { force: true });
+	}
+});
+
+test("swarms with the same long title get distinct worktrees", async () => {
+	const root = tmp("swarm-long-titles-");
+	const title = "a very long swarm title that certainly exceeds the forty character slug limit";
+	const first = await createWorktree({
+		repo,
+		root,
+		swarm: title,
+		swarmId: "aaaa1111",
+		member: "w",
+	});
+	const second = await createWorktree({
+		repo,
+		root,
+		swarm: title,
+		swarmId: "bbbb2222",
+		member: "w",
+	});
+	try {
+		expect(first.path).not.toBe(second.path);
+		expect(first.branch).not.toBe(second.branch);
+	} finally {
+		await removeWorktree(first, { deleteBranch: true });
+		await removeWorktree(second, { deleteBranch: true });
+	}
+});
