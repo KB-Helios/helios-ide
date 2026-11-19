@@ -1530,7 +1530,7 @@ state after each change, `null` once forgotten). Errors use the `PR_BABYSIT_*` c
 boundary violations, dependency-edge changes) and `CommitAnalysisRecord`, with validators that
 reject malformed model output before it reaches the UI.
 
-From **`COMMIT_ANALYSIS_PROTOCOL_VERSION`** (v127): `commit.analyze` `{ workspaceId, sha, sessionId? }`
+From **`COMMIT_ANALYSIS_PROTOCOL_VERSION`** (v128): `commit.analyze` `{ workspaceId, sha, sessionId? }`
 (`sessionId` is optional; the host picks a live chat when it is absent) answers `stored` or `queued`
 before the run finishes, or refuses with `COMMIT_ANALYSIS_NOT_LISTED` (the sha is not on the branch's listed
 range) or `COMMIT_ANALYSIS_NO_SESSION` (no live chat to parent the run); `commit.analysis` `{ workspaceId, sha }` returns the record or `null`;
