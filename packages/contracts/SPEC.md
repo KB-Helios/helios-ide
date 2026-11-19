@@ -1527,7 +1527,7 @@ state after each change, `null` once forgotten). Errors use the `PR_BABYSIT_*` c
 
 `commitAnalysis.ts` (re-exported by the barrel) owns the wire vocabulary of AI commit analysis:
 `CommitAnalysis` (intent, summary, risk flags, file notes), `ArchitectureImpact` (module impact,
-boundary violations, dependency-edge changes) and `CommitAnalysisRecord`, with validators that
+boundary violations, dependency-edge changes) and `CommitAnalysisRecord` (which also notes the `checkout` HEAD the analysis could read), with validators that
 reject malformed model output before it reaches the UI.
 
 From **`COMMIT_ANALYSIS_PROTOCOL_VERSION`** (v129): `commit.analyze` `{ workspaceId, sha, sessionId? }`

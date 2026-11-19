@@ -61,4 +61,12 @@ describe("CommitAnalysisView", () => {
 			'data-testid="commit-analysis-risk-empty"',
 		);
 	});
+
+	it("shows the checkout the analysis read against only when it was recorded", () => {
+		const withCheckout = { ...record, checkout: "c".repeat(40) };
+		expect(renderToStaticMarkup(<CommitAnalysisView record={withCheckout} />)).toContain("ccccccc");
+		expect(renderToStaticMarkup(<CommitAnalysisView record={record} />)).not.toContain(
+			"commit-analysis-checkout",
+		);
+	});
 });

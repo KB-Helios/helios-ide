@@ -41,6 +41,10 @@ function readRawSidecar(root: string, workspaceId: string): RawSidecar {
 	return { status: "ok", items: items as Record<string, unknown> };
 }
 
+export function sidecarReadable(root: string, workspaceId: string): boolean {
+	return readRawSidecar(root, workspaceId).status !== "unreadable";
+}
+
 export function readAnalyses(
 	root: string,
 	workspaceId: string,

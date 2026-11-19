@@ -5,9 +5,10 @@ import {
 	type CommitAnalyzer,
 	type CommitSubagentRunner,
 	createCommitAnalyzer,
+	isMergeCommit,
 	readCommitPackage,
 } from "../commitAnalysis";
-import { resolveListedCommit } from "../git";
+import { gitHeadSha, resolveListedCommit } from "../git";
 import { loadWorkspaces } from "../persistence";
 import { getConfig } from "../settings";
 import { resolveNewChatModel } from "./newChatModel";
@@ -42,6 +43,8 @@ export function commitAnalyzer(): CommitAnalyzer {
 		worktreeOf: (workspaceId) =>
 			loadWorkspaces().find((w) => w.id === workspaceId)?.worktreePath ?? null,
 		readCommit: readCommitPackage,
+		isMerge: isMergeCommit,
+		headOf: gitHeadSha,
 		publish: (payload) => publish(payload),
 		now: Date.now,
 	});

@@ -1,4 +1,11 @@
-import { gitAsync, gitStatus, readCommitSubject, resolveCommitOid } from "../git";
+import { git, gitAsync, gitStatus, readCommitSubject, resolveCommitOid } from "../git";
+
+export function isMergeCommit(worktreePath: string, sha: string): boolean {
+	const parents = git(worktreePath, ["rev-list", "--parents", "-n", "1", "--end-of-options", sha], {
+		action: "count a commit's parents",
+	});
+	return parents.ok && parents.out.split(/\s+/).filter(Boolean).length > 2;
+}
 
 export interface CommitPackage {
 	sha: string;

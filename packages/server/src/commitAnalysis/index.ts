@@ -3,4 +3,4 @@ export {
 	type CommitSubagentRunner,
 	createCommitAnalyzer,
 } from "./commitAnalysis";
-export { readCommitPackage } from "./commitPackage";
+export { isMergeCommit, readCommitPackage } from "./commitPackage";

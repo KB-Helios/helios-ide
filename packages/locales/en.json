@@ -48,6 +48,7 @@
 	"changes.commitAnalysis.badge": "Analyzed",
 	"changes.commitAnalysis.badgePending": "Analysis running",
 	"changes.commitAnalysis.boundaryViolations": "Boundary violations",
+	"changes.commitAnalysis.checkout": "Read against checkout {{shortSha}}, which may be newer than the commit",
 	"changes.commitAnalysis.edgeAdded": "{{from}} → {{to}} added",
 	"changes.commitAnalysis.edgeRemoved": "{{from}} → {{to}} removed",
 	"changes.commitAnalysis.edgesChanged": "Dependency edges changed",

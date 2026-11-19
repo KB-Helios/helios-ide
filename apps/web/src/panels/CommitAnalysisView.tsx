@@ -49,6 +49,11 @@ export function CommitAnalysisView({ record }: { record: CommitAnalysisRecord })
 	const { analysis, architecture } = record;
 	return (
 		<div data-testid="commit-analysis-view" className="flex flex-col gap-12">
+			{record.checkout ? (
+				<p data-testid="commit-analysis-checkout" className="tr-text-metadata text-text-muted">
+					{t("changes.commitAnalysis.checkout", { shortSha: record.checkout.slice(0, 7) })}
+				</p>
+			) : null}
 			<Section id="intent" title={t("changes.commitAnalysis.intent")}>
 				<p>{analysis.intent}</p>
 			</Section>

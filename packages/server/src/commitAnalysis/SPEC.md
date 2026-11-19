@@ -51,15 +51,23 @@ fenced JSON strictly against the `contracts` validators, and store the pair once
 - Runs are serialized per workspace on one promise chain; a sha already stored, pending, or (auto
   path only) already attempted is not run again.
 - Nothing here throws into its caller's path: `analyzeCommit` / `analyzeNewCommits` resolve, never
-  reject. The only throw is `writeAnalysisOnce` on an unreadable sidecar, which the analyzer converts
-  into a failed analysis. Sidecar writes are tmp-file + rename.
+  reject. `writeAnalysisOnce` deliberately throws on an unreadable sidecar or an unsafe workspace id,
+  and the analyzer converts any throw into a failed analysis. Sidecar writes are tmp-file + rename.
+- A run checks the sidecar is readable before it reads the commit or resolves a model, so an unreadable
+  sidecar fails with `COMMIT_ANALYSIS_SIDECAR_UNREADABLE` without spending a single model call.
 - Token usage of both children is recorded against the parent chat that hosted them.
 
 ## Behavior
 
 - **Trigger:** `host/server.ts` calls `analyzeNewCommits(workspaceId, sessionId, shas)` detached after
-  `maybeAttachChangeArtifacts` resolves with the shas its reconcile committed or adopted.
+  `maybeAttachChangeArtifacts` resolves with the shas its reconcile committed or adopted. The auto path
+  skips merge commits (`isMerge`, more than one parent: a `git merge main` inside a step would otherwise
+  queue every commit it pulled in) and analyzes at most the newest `AUTO_ANALYZE_CAP` (5) of the rest;
+  the others stay available through `commit.analyze`.
 - **On demand:** `commit.analyze` validates the sha is in `listCommits`' range
   (`resolveListedCommit`), picks the given or first live chat as parent, and queues.
+- **Stale context:** the children read the current checkout, which can be newer than the analyzed
+  commit, and a record is immutable. The prompts say so (judge the patch, files are context only), and
+  the record stores `checkout`, the HEAD the children could read, which the dialog shows.
 - **Diff input:** `gitStatus(..., { kind: "commit", sha })` file list + one `git show --patch` capped
   at 120 000 chars; `gitDiffFile` is not used because it returns whole blobs.

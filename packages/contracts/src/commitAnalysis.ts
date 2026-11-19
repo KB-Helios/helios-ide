@@ -52,6 +52,7 @@ export interface CommitAnalysisRecord {
 	subject: string;
 	analyzedAt: number;
 	model?: string;
+	checkout?: string;
 	analysis: CommitAnalysis;
 	architecture: ArchitectureImpact;
 }
@@ -131,6 +132,7 @@ export function isCommitAnalysisRecord(v: unknown): v is CommitAnalysisRecord {
 		Number.isFinite(v.analyzedAt) &&
 		v.analyzedAt >= 0 &&
 		(v.model === undefined || isText(v.model)) &&
+		(v.checkout === undefined || isText(v.checkout)) &&
 		isCommitAnalysis(v.analysis) &&
 		isArchitectureImpact(v.architecture)
 	);

@@ -1,15 +1,17 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { CommitAnalyzedPayload } from "@thinkrail/contracts";
 import type { runReviewSubagent } from "../agent/delegation";
 import {
+	AUTO_ANALYZE_CAP,
 	type CommitAnalysisDeps,
 	type CommitSubagentRunner,
 	createCommitAnalyzer,
 } from "./commitAnalysis";
 import type { CommitPackage } from "./commitPackage";
+import { analysisSidecarPath } from "./store";
 
 type RunnerIsCompatible = typeof runReviewSubagent extends CommitSubagentRunner ? true : false;
 
@@ -245,4 +247,49 @@ test("a rejected child aborts its sibling, and the next commit waits for the sib
 	const nextStart = events.indexOf("start:B:commit-analyzer");
 	expect(siblingEnd).toBeGreaterThanOrEqual(0);
 	expect(nextStart).toBeGreaterThan(siblingEnd);
+});
+
+const shaN = (n: number) => String(n).repeat(40).slice(0, 40);
+
+test("the auto trigger analyzes only the newest AUTO_ANALYZE_CAP shas", async () => {
+	const analyzer = createCommitAnalyzer(deps());
+	const shas = [1, 2, 3, 4, 5, 6, 7].map(shaN);
+	await analyzer.analyzeNewCommits("ws1", "parent", shas);
+	await analyzer.settle("ws1");
+	expect(analyzer.list("ws1").shas.sort()).toEqual(shas.slice(-AUTO_ANALYZE_CAP).sort());
+});
+
+test("the auto trigger skips merge commits and counts the cap after the filter", async () => {
+	const merges = new Set([shaN(7), shaN(6)]);
+	const analyzer = createCommitAnalyzer(deps({ isMerge: (_root, sha) => merges.has(sha) }));
+	const shas = [1, 2, 3, 4, 5, 6, 7].map(shaN);
+	await analyzer.analyzeNewCommits("ws1", "parent", shas);
+	await analyzer.settle("ws1");
+	expect(analyzer.list("ws1").shas.sort()).toEqual([1, 2, 3, 4, 5].map(shaN).sort());
+});
+
+test("a merge commit stays available on demand", async () => {
+	const analyzer = createCommitAnalyzer(deps({ isMerge: () => true }));
+	expect((await analyzer.analyzeCommit("ws1", A, "parent", "manual"))?.sha).toBe(A);
+});
+
+test("an unreadable sidecar fails before any model call is spent", async () => {
+	const path = analysisSidecarPath(root, "ws1");
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, "{not json");
+	const analyzer = createCommitAnalyzer(deps());
+	expect(await analyzer.analyzeCommit("ws1", A, "parent", "manual")).toBeNull();
+	expect(calls).toEqual([]);
+	expect(published).toEqual([
+		{ workspaceId: "ws1", sha: A, status: "failed", code: "COMMIT_ANALYSIS_SIDECAR_UNREADABLE" },
+	]);
+});
+
+test("the record notes the checkout the children could read", async () => {
+	const analyzer = createCommitAnalyzer(deps({ headOf: () => "c".repeat(40) }));
+	expect((await analyzer.analyzeCommit("ws1", A, "parent", "manual"))?.checkout).toBe(
+		"c".repeat(40),
+	);
+	const without = createCommitAnalyzer(deps({ headOf: () => null }));
+	expect((await without.analyzeCommit("ws1", B, "parent", "manual"))?.checkout).toBeUndefined();
 });

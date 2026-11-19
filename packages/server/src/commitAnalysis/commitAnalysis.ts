@@ -14,10 +14,11 @@ import {
 	MAPPER_SYSTEM_PROMPT,
 	MAPPER_TOOLS,
 } from "./roles";
-import { readAnalyses, readAnalysis, writeAnalysisOnce } from "./store";
+import { readAnalyses, readAnalysis, sidecarReadable, writeAnalysisOnce } from "./store";
 
 const log = logger("commit-analysis");
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
+export const AUTO_ANALYZE_CAP = 5;
 
 export type CommitSubagentRunner = (
 	workspaceId: string,
@@ -47,6 +48,8 @@ export interface CommitAnalysisDeps {
 	) => Promise<CommitPackage | null>;
 	publish: (payload: CommitAnalyzedPayload) => void;
 	now: () => number;
+	isMerge?: (worktreePath: string, sha: string) => boolean;
+	headOf?: (workspaceId: string) => string | null;
 	timeoutMs?: number;
 }
 
@@ -122,6 +125,8 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 		if (!root) throw new AnalysisFailure("COMMIT_ANALYSIS_NO_WORKSPACE");
 		const stored = readAnalysis(root, workspaceId, sha);
 		if (stored) return stored;
+		if (!sidecarReadable(root, workspaceId))
+			throw new AnalysisFailure("COMMIT_ANALYSIS_SIDECAR_UNREADABLE");
 		const pkg = await deps.readCommit(workspaceId, root, sha);
 		if (!pkg) throw new AnalysisFailure("COMMIT_ANALYSIS_UNKNOWN_COMMIT");
 		const existing = readAnalysis(root, workspaceId, pkg.sha);
@@ -184,11 +189,16 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 		const analysis = parseCommitAnalysis(analyzerRun.finalText);
 		const architecture = parseArchitectureImpact(mapperRun.finalText);
 		if (!analysis || !architecture) throw new AnalysisFailure("COMMIT_ANALYSIS_INVALID_OUTPUT");
+		let checkout: string | null = null;
+		try {
+			checkout = deps.headOf?.(workspaceId) ?? null;
+		} catch {}
 		const record: CommitAnalysisRecord = {
 			sha: pkg.sha,
 			subject: pkg.subject,
 			analyzedAt: deps.now(),
 			...(model ? { model: `${model.provider}/${model.id}` } : {}),
+			...(checkout ? { checkout } : {}),
 			analysis,
 			architecture,
 		};
@@ -235,8 +245,15 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 				const stored = readAnalyses(root, workspaceId);
 				const tried = setOf(attempted, workspaceId);
 				const queued = setOf(pending, workspaceId);
-				for (const sha of new Set(shas)) {
-					if (stored[sha] || tried.has(sha) || queued.has(sha)) continue;
+				const eligible = [...new Set(shas)].filter((sha) => {
+					if (Object.hasOwn(stored, sha) || tried.has(sha) || queued.has(sha)) return false;
+					try {
+						return !deps.isMerge?.(root, sha);
+					} catch {
+						return true;
+					}
+				});
+				for (const sha of eligible.slice(-AUTO_ANALYZE_CAP)) {
 					void analyzer.analyzeCommit(workspaceId, sha, parentSessionId, "auto");
 				}
 			} catch (error) {

@@ -130,3 +130,8 @@ test("unknown extra keys are tolerated, not rejected", () => {
 	expect(isCommitAnalysis({ ...analysis, extra: "ignored" })).toBe(true);
 	expect(isCommitAnalysisRecord({ ...record, extra: { nested: true } })).toBe(true);
 });
+
+test("the checkout note is optional and must be non-empty when present", () => {
+	expect(isCommitAnalysisRecord({ ...record, checkout: "c".repeat(40) })).toBe(true);
+	expect(isCommitAnalysisRecord({ ...record, checkout: "" })).toBe(false);
+});
