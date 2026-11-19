@@ -1,6 +1,5 @@
 export type * from "./commitAnalysis";
 export {
-	COMMIT_RISK_SEVERITIES,
 	isArchitectureImpact,
 	isCommitAnalysis,
 	isCommitAnalysisRecord,

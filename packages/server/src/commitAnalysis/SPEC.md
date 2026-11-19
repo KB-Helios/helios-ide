@@ -21,9 +21,8 @@ fenced JSON strictly against the `contracts` validators, and store the pair once
   `roles.ts` (tool sets, prompts, output contracts), `parse.ts` (fenced-JSON extraction + strict
   parsers), `commitPackage.ts` (git read of one commit + task text), `commitAnalysis.ts`
   (`createCommitAnalyzer`: per-workspace serial chain, dedupe, run, persist, publish).
-- **Public surface (barrel):** `createCommitAnalyzer`, `CommitAnalyzer`, `CommitAnalysisDeps`,
-  `CommitSubagentRunner`, `readAnalysis`, `readAnalyses`, `parseCommitAnalysis`,
-  `parseArchitectureImpact`, `readCommitPackage`.
+- **Public surface (barrel):** `createCommitAnalyzer`, `CommitAnalyzer`, `CommitSubagentRunner`,
+  `readCommitPackage`.
 - **Allowed deps:** `contracts`, `shared/paths`, `shared/codedError`, `git` (`gitStatus`, `gitAsync`,
   `resolveCommitOid`, `readCommitSubject`), `persistence` (workspace lookup), `log`; `agent` for types
   only.

@@ -8,7 +8,7 @@ export interface CommitPackage {
 	truncated: boolean;
 }
 
-export const PATCH_CHAR_CAP = 120_000;
+const PATCH_CHAR_CAP = 120_000;
 
 export function capPatch(raw: string, cap = PATCH_CHAR_CAP): { patch: string; truncated: boolean } {
 	if (raw.length <= cap) return { patch: raw, truncated: false };
