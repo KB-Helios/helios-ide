@@ -65,8 +65,11 @@ Member (child session): `swarm_post`, `swarm_board`, `swarm_done`, registered at
   Failures go back to the member; after `maxFixRounds` (3) they escalate to the coordinator. Only then is
   the member `done` and reported ready to land.
 - **Landing and removal.** `swarm_land` applies the worktree's diff to the coordinator's tree uncommitted
-  (`git apply`, falling back to `--3way`); the parent or host owns committing. `swarm_remove` refuses
-  unlanded changes without `force`, kills the child and removes the worktree (the branch is kept when it
+  with an all-or-nothing `git apply` — never `--3way`, whose failed merge would leave conflict markers
+  and staged entries in the user's tree; a conflict leaves the tree untouched and is reported to the
+  coordinator. The parent or host owns committing. `swarm_remove` first stops
+  the member, then inspects its worktree (an inspection error aborts the removal) and refuses unlanded
+  changes without `force`; new work after landing clears `landed`. It then kills the child and removes the worktree (the branch is kept when it
   holds unlanded work).
 - **Repo context.** Members get the definition prompt, the swarm bridge (brief, roster, protocol), project
   context files (`contextFiles: true`) and the curated child extensions (spec tools, skills, A2A). The

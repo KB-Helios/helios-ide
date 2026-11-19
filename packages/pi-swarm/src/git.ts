@@ -202,22 +202,19 @@ export async function worktreeDiff(cwd: string): Promise<{ patch: string; stat: 
 	return { patch, stat: stat.trim() };
 }
 
+/** All-or-nothing: never `--3way`, which leaves conflict markers and staged entries on failure. */
 export async function applyPatch(
 	target: string,
 	patch: string,
-): Promise<{ ok: true; mode: "clean" | "3way" } | { ok: false; error: string }> {
-	if (!patch.trim()) return { ok: true, mode: "clean" };
-	const plain = await run("git", ["apply", "--whitespace=nowarn", "-"], {
+): Promise<{ ok: true } | { ok: false; error: string }> {
+	if (!patch.trim()) return { ok: true };
+	const applied = await run("git", ["apply", "--whitespace=nowarn", "-"], {
 		cwd: target,
 		input: patch,
 	});
-	if (plain.code === 0) return { ok: true, mode: "clean" };
-	const threeWay = await run("git", ["apply", "--3way", "--whitespace=nowarn", "-"], {
-		cwd: target,
-		input: patch,
-	});
-	if (threeWay.code === 0) return { ok: true, mode: "3way" };
-	return { ok: false, error: (threeWay.stderr || plain.stderr).trim() };
+	return applied.code === 0
+		? { ok: true }
+		: { ok: false, error: (applied.stderr || applied.stdout).trim() };
 }
 
 /** Commits everything in the worktree to its branch (used where the result is a branch, e.g. A2A). */

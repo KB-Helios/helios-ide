@@ -21,6 +21,7 @@ import { BUILTIN_AGENTS } from "pi-subagents";
 import { Board, COORDINATOR, parseMentions } from "./board.ts";
 import { detectGates, runProjectGates } from "./gates.ts";
 import {
+	applyPatch,
 	changedFiles,
 	createWorktree,
 	GIT_ENV,
@@ -260,7 +261,7 @@ test("a worker in its own worktree passes ownership, gates and review, then land
 		"export const a = 1;\n",
 	);
 	const worktree = member.worktree?.path ?? "";
-	await swarm.remove("alpha");
+	await swarm.remove("@alpha");
 	expect(existsSync(worktree)).toBe(false);
 	expect(member.status).toBe("killed");
 	await swarm.dispose();
@@ -299,5 +300,26 @@ test("swarms with the same long title get distinct worktrees", async () => {
 	} finally {
 		await removeWorktree(first, { deleteBranch: true });
 		await removeWorktree(second, { deleteBranch: true });
+	}
+});
+
+test("a conflicting land leaves the target tree and index untouched", async () => {
+	const patch = [
+		"diff --git a/README.md b/README.md",
+		"--- a/README.md",
+		"+++ b/README.md",
+		"@@ -1 +1 @@",
+		"-hi",
+		"+hello",
+		"",
+	].join("\n");
+	writeFileSync(join(repo, "README.md"), "changed by the coordinator\n");
+	try {
+		const result = await applyPatch(repo, patch);
+		expect(result.ok).toBe(false);
+		expect(readFileSync(join(repo, "README.md"), "utf8")).toBe("changed by the coordinator\n");
+		expect(git(repo, "diff", "--cached", "--name-only").trim()).toBe("");
+	} finally {
+		git(repo, "checkout", "--", "README.md");
 	}
 });

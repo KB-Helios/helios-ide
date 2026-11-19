@@ -597,14 +597,14 @@ export class Swarm {
 	async land(name: string): Promise<string> {
 		const member = this.board.require(name);
 		if (!member.worktree)
-			return `@${name} works in the shared tree; its changes are already there.`;
+			return `@${member.name} works in the shared tree; its changes are already there.`;
 		const { patch, stat } = await worktreeDiff(member.worktree.path);
 		if (!patch.trim()) return `@${name} has no changes to land.`;
 		const applied = await applyPatch(this.deps.cwd, patch);
 		if (!applied.ok) {
 			this.post(
 				"gates",
-				`Landing @${name} failed — conflicts with the coordinator's tree:\n${applied.error}`,
+				`Landing @${member.name} failed — it conflicts with the coordinator's tree, which was left unchanged. Resolve it by hand from branch ${member.worktree.branch}:\n${applied.error}`,
 				"gate",
 				[COORDINATOR],
 			);
@@ -613,7 +613,7 @@ export class Swarm {
 		member.landed = true;
 		this.post(
 			"gates",
-			`Landed @${name} from ${member.worktree.branch} into the coordinator's working tree${applied.mode === "3way" ? " (three-way merge; check the index)" : ""}, uncommitted.\n${stat}`,
+			`Landed @${member.name} from ${member.worktree.branch} into the coordinator's working tree, uncommitted.\n${stat}`,
 			"system",
 			[],
 		);
@@ -628,19 +628,19 @@ export class Swarm {
 
 	async remove(name: string, force = false): Promise<string> {
 		const member = this.board.require(name);
-		if (member.status === "killed") return `@${name} was already removed.`;
-		const files = member.worktree ? await changedFiles(member.worktree.path).catch(() => []) : [];
+		if (member.status === "killed") return `@${member.name} was already removed.`;
+		const child = this.handles.get(member.name);
+		await child?.abort("removed").catch(() => {});
+		const files = member.worktree ? await changedFiles(member.worktree.path) : [];
 		if (files.length && !member.landed && !force)
 			throw new Error(
-				`@${name} has ${files.length} unlanded changed file(s). swarm_land it first, or pass force to discard them.`,
+				`Stopped @${member.name}, but it has ${files.length} unlanded changed file(s). swarm_land it first, or pass force to discard them.`,
 			);
 		member.status = "killed";
 		delete member.activity;
-		const child = this.handles.get(name);
-		this.handles.delete(name);
+		this.handles.delete(member.name);
 		if (child) {
 			forgetMember(child.sessionId);
-			await child.abort("removed").catch(() => {});
 			await child.dispose().catch(() => {});
 		}
 		if (member.worktree && this.deps.repo)
@@ -648,8 +648,8 @@ export class Swarm {
 				{ ...member.worktree, repo: this.deps.repo },
 				{ deleteBranch: files.length === 0 || !!member.landed },
 			);
-		this.post(COORDINATOR, `Removed @${name}.`, "system", []);
-		return `Removed @${name}.`;
+		this.post(COORDINATOR, `Removed @${member.name}.`, "system", []);
+		return `Removed @${member.name}.`;
 	}
 
 	finish(summary: string): void {
@@ -663,24 +663,31 @@ export class Swarm {
 		if (this.status !== "running" || this.disposed) throw new Error("This swarm has finished.");
 	}
 
-	/** Every member asleep, nobody mid-pipeline, coordinator idle, work not finished. */
-	private isQuiet(): boolean {
+	/** Every member asleep, nobody mid-pipeline, work not finished. */
+	private membersQuiet(): boolean {
 		if (this.status !== "running" || this.disposed) return false;
 		const live = [...this.board.members.values()].filter((m) => m.status !== "killed");
 		if (live.length === 0) return false;
 		if (this.busy.size || this.pendingWake.size) return false;
 		if (live.some((m) => m.status === "active" || m.phase === "gating" || m.phase === "reviewing"))
 			return false;
-		if (live.every((m) => m.phase === "done")) return false;
+		return !live.every((m) => m.phase === "done");
+	}
+
+	private coordinatorQuiet(): boolean {
 		return this.deps.isCoordinatorIdle() && this.board.coordinatorCursor >= this.board.posts.length;
 	}
 
 	private scheduleMonitor(): void {
 		if (this.monitorTimer) clearTimeout(this.monitorTimer);
-		if (!this.isQuiet() || this.monitorFiredAt === this.board.posts.length) return;
+		if (!this.membersQuiet() || this.monitorFiredAt === this.board.posts.length) return;
 		this.monitorTimer = setTimeout(() => {
 			this.monitorTimer = undefined;
-			if (!this.isQuiet() || this.monitorFiredAt === this.board.posts.length) return;
+			if (!this.membersQuiet() || this.monitorFiredAt === this.board.posts.length) return;
+			if (!this.coordinatorQuiet()) {
+				this.scheduleMonitor();
+				return;
+			}
 			const open = [...this.board.members.values()]
 				.filter((m) => m.status !== "killed" && m.phase !== "done")
 				.map((m) => `@${m.name} (${m.status}, ${m.phase})`);
