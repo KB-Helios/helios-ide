@@ -19,7 +19,7 @@ import {
 import { createDelegationService, type DelegationService } from "pi-delegation";
 import { BUILTIN_AGENTS } from "pi-subagents";
 import { Board, COORDINATOR, parseMentions } from "./board.ts";
-import { detectGates, runProjectGates } from "./gates.ts";
+import { detectGates, runGates, runProjectGates } from "./gates.ts";
 import {
 	applyPatch,
 	changedFiles,
@@ -331,3 +331,12 @@ test("process output is decoded once, so a character split across chunks survive
 	const result = await run(process.execPath, ["-e", script], { cwd: repo });
 	expect(result.stdout).toBe("é");
 });
+
+test("a timed-out shell gate is stopped together with the processes it started", async () => {
+	const node = JSON.stringify(process.execPath);
+	const grandchild = `require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'inherit'});setInterval(()=>{},1000)`;
+	const started = Date.now();
+	const [result] = await runGates([`${node} -e "${grandchild}"`], repo, { timeoutMs: 500 });
+	expect(result?.ok).toBe(false);
+	expect(Date.now() - started).toBeLessThan(15_000);
+}, 30_000);

@@ -359,7 +359,7 @@ export class Swarm {
 		member.activity = "starting";
 		delete member.error;
 		delete member.landed;
-		if (member.phase === "needs-fixes") member.phase = "working";
+		member.phase = "working";
 		this.busy.add(member.name);
 		const maxTurns = this.maxTurns.get(member.name);
 		const settled = child
@@ -456,6 +456,7 @@ export class Swarm {
 				if (member.gates.some((g) => !g.ok))
 					problems.push(`Quality gates failed:\n${describeGates(member.gates)}`);
 			}
+			if (isKilled(member) || this.disposed) return;
 			if (
 				problems.length === 0 &&
 				this.config.review &&
@@ -605,8 +606,12 @@ export class Swarm {
 		const member = this.board.require(name);
 		if (!member.worktree)
 			return `@${member.name} works in the shared tree; its changes are already there.`;
+		if (member.status === "active" || member.phase !== "done")
+			throw new Error(
+				`@${member.name} is ${member.status === "active" ? "still working" : `in phase "${member.phase}"`}: only work that passed ownership, gates and review can be landed. Wait for its gate report.`,
+			);
 		const { patch, stat } = await worktreeDiff(member.worktree.path);
-		if (!patch.trim()) return `@${name} has no changes to land.`;
+		if (!patch.trim()) return `@${member.name} has no changes to land.`;
 		const applied = await applyPatch(this.deps.cwd, patch);
 		if (!applied.ok) {
 			this.post(

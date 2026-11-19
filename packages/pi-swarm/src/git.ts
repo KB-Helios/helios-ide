@@ -38,30 +38,41 @@ export function run(
 ): Promise<ExecResult> {
 	const started = Date.now();
 	return new Promise((resolve, reject) => {
+		if (options.signal?.aborted) {
+			reject(options.signal.reason);
+			return;
+		}
 		const child = spawn(command, [...args], {
 			cwd: options.cwd,
 			shell: options.shell ?? false,
 			windowsHide: true,
+			detached: process.platform !== "win32",
 			env: { ...process.env, ...GIT_ENV },
-			...(options.signal ? { signal: options.signal } : {}),
 		});
 		const stdout: Buffer[] = [];
 		const stderr: Buffer[] = [];
 		child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
 		child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
-		const timer =
-			options.timeoutMs !== undefined
-				? setTimeout(() => child.kill("SIGTERM"), options.timeoutMs)
-				: undefined;
-		child.on("error", (error) => {
+		let killing: Promise<void> | undefined;
+		const stop = () => {
+			killing ??= killTree(child.pid);
+		};
+		const timer = options.timeoutMs !== undefined ? setTimeout(stop, options.timeoutMs) : undefined;
+		options.signal?.addEventListener("abort", stop, { once: true });
+		const cleanup = () => {
 			if (timer) clearTimeout(timer);
+			options.signal?.removeEventListener("abort", stop);
+		};
+		child.on("error", (error) => {
+			cleanup();
 			reject(error);
 		});
 		let settled = false;
-		const finish = (code: number | null) => {
+		const finish = async (code: number | null) => {
 			if (settled) return;
 			settled = true;
-			if (timer) clearTimeout(timer);
+			cleanup();
+			if (killing) await killing;
 			resolve({
 				code,
 				stdout: Buffer.concat(stdout).toString("utf8"),
@@ -76,6 +87,39 @@ export function run(
 		if (options.input !== undefined) child.stdin?.end(options.input);
 		else child.stdin?.end();
 	});
+}
+
+function groupAlive(pid: number): boolean {
+	try {
+		process.kill(-pid, 0);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** Stops a command and everything it started (a gate's shell spawns the real test/build processes). */
+async function killTree(pid: number | undefined): Promise<void> {
+	if (pid === undefined) return;
+	if (process.platform === "win32") {
+		await new Promise<void>((resolve) => {
+			const killer = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true });
+			killer.on("close", () => resolve());
+			killer.on("error", () => resolve());
+		});
+		return;
+	}
+	try {
+		process.kill(-pid, "SIGTERM");
+	} catch {
+		return;
+	}
+	for (let waited = 0; waited < 3000 && groupAlive(pid); waited += 100)
+		await new Promise((resolve) => setTimeout(resolve, 100));
+	if (groupAlive(pid))
+		try {
+			process.kill(-pid, "SIGKILL");
+		} catch {}
 }
 
 async function git(cwd: string, args: readonly string[], input?: string): Promise<string> {
