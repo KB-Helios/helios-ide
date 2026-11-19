@@ -27,6 +27,7 @@ import {
 	SPEECH_PROTOCOL_VERSION,
 	SPEECH_SOCKET_ROUTE,
 	SUBAGENT_ROSTER_PROTOCOL_VERSION,
+	SWARM_PROTOCOL_VERSION,
 	TEXT_SEARCH_PROTOCOL_VERSION,
 	USER_FONTS_ROUTE,
 	USER_THEMES_PROTOCOL_VERSION,
@@ -89,6 +90,7 @@ import {
 	setSubagentConcurrencyResolver,
 	setSubagentRosterPublisher,
 	setSubagentsEnabledResolver,
+	setSwarmPublisher,
 	setTitleToolHost,
 	settleCredentialWritesForShutdown,
 	settleSessionsForShutdown,
@@ -197,6 +199,7 @@ import {
 	syncWorkspaceBranch,
 	type WorkspaceLifecycleEvent,
 } from "../workspaces";
+import { isA2ARoute, observeA2ATask, serveA2A } from "./a2aInbound";
 import { createArtifactEventMapper } from "./artifactEvents";
 import { seesChats } from "./chats";
 import {
@@ -485,6 +488,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 					? undefined
 					: new Response("ws upgrade failed", { status: 400 });
 			}
+			if (isA2ARoute(url.pathname)) {
+				return serveA2A(req);
+			}
 			if (url.pathname === "/health") {
 				return new Response("ok");
 			}
@@ -540,6 +546,8 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 				ws.subscribe(WS_CHANNELS.sessionResourcesChanged);
 				if (ws.data.protocolVersion >= SUBAGENT_ROSTER_PROTOCOL_VERSION)
 					ws.subscribe(WS_CHANNELS.subagentRosterChanged);
+				if (ws.data.protocolVersion >= SWARM_PROTOCOL_VERSION)
+					ws.subscribe(WS_CHANNELS.swarmChanged);
 				ws.subscribe(WS_CHANNELS.sessionState);
 				ws.subscribe(WS_CHANNELS.providerLogin);
 				ws.subscribe(WS_CHANNELS.providerChanged);
@@ -1170,6 +1178,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 			workspaceId: payload.workspaceId,
 		});
 	});
+	setSwarmPublisher((payload) => {
+		publishScoped(WS_CHANNELS.swarmChanged, payload, { workspaceId: payload.workspaceId });
+	});
 
 	const turnTracker = new TurnTracker((sessionId) => {
 		const workspaceId = getSessionWorkspaceId(sessionId);
@@ -1194,6 +1205,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 		runObservation.observe(payload.sessionId, payload.event);
 		observePrBabysitSessionEvent(payload.sessionId, payload.event);
 		observeContinuation(payload.sessionId, payload.event);
+		observeA2ATask(payload.sessionId, payload.event);
 		void turnTracker.observe(payload.sessionId, payload.event);
 		const artifactEvent = artifactSessionEvent(payload.sessionId, payload.event);
 		if (artifactEvent) {
@@ -1397,6 +1409,7 @@ function restoreSeamDefaults(): void {
 	setMcpStatusPublisher(() => {});
 	setSessionResourcesPublisher(() => {});
 	setSubagentRosterPublisher(() => {});
+	setSwarmPublisher(null);
 	setTurnPublisher(() => {});
 	setArtifactsPublisher(null);
 	setSessionPublisher(() => {});

@@ -78,6 +78,8 @@ import type {
 	SubagentRoster,
 	SurveyInvitationResponse,
 	SurveySubmitParams,
+	SwarmDiff,
+	SwarmSnapshot,
 	Template,
 	TemplateInfo,
 	TemplateScope,
@@ -150,9 +152,11 @@ export type TemplateReadLocation =
 	| { projectId: string; workspaceId?: never }
 	| { workspaceId?: never; projectId?: never };
 
-export const PROTOCOL_VERSION = 128;
+export const PROTOCOL_VERSION = 129;
 /** `commit.*` methods and the `commit.analyzed` channel. */
-export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 128;
+export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 129;
+/** `swarm.get` / `swarm.diff` and the `swarm.changed` channel: a chat's swarm board. */
+export const SWARM_PROTOCOL_VERSION = 128;
 /** `subagent.roster` and the `subagent.rosterChanged` channel: the workspace-wide subagent roster. */
 export const SUBAGENT_ROSTER_PROTOCOL_VERSION = 127;
 /** `wiki.*` methods: the repo wiki reader, its build prompt and the GitHub Pages publish. */
@@ -569,6 +573,8 @@ export const WS_METHODS = {
 	backgroundCommandOutput: "backgroundCommand.output",
 	backgroundCommandStop: "backgroundCommand.stop",
 	subagentRoster: "subagent.roster",
+	swarmGet: "swarm.get",
+	swarmDiff: "swarm.diff",
 	subagentStop: "subagent.stop",
 	subagentStopAll: "subagent.stopAll",
 	modelList: "model.list",
@@ -646,6 +652,7 @@ export const WS_CHANNELS = {
 	sessionDeleted: "session.deleted",
 	sessionResourcesChanged: "session.resourcesChanged",
 	subagentRosterChanged: "subagent.rosterChanged",
+	swarmChanged: "swarm.changed",
 	sessionState: "session.state",
 	providerLogin: "provider.login",
 	providerChanged: "provider.changed",
@@ -1420,6 +1427,14 @@ export interface WsMethodMap {
 	"subagent.roster": {
 		params: { workspaceId: string };
 		result: SubagentRoster;
+	};
+	"swarm.get": {
+		params: { workspaceId: string; sessionId: string };
+		result: SwarmSnapshot | null;
+	};
+	"swarm.diff": {
+		params: { workspaceId: string; sessionId: string; member: string };
+		result: SwarmDiff;
 	};
 	"subagent.stop": {
 		params: { workspaceId: string; parentSessionId: string; childSessionId: string };

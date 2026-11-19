@@ -1,0 +1,49 @@
+{
+	"name": "@thinkrail/pi-a2a",
+	"version": "0.0.0",
+	"private": true,
+	"description": "A pi extension that lets the agent discover and delegate tasks to remote Agent2Agent (A2A) agents, plus a transport-neutral A2A JSON-RPC server handler for hosts that expose pi agents over A2A.",
+	"license": "Apache-2.0",
+	"type": "module",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-coding-agent",
+		"extension",
+		"a2a",
+		"agent2agent"
+	],
+	"author": "ThinkRail",
+	"files": [
+		"index.ts",
+		"src/**/*.ts",
+		"!src/**/*.test.ts",
+		"README.md",
+		"LICENSE"
+	],
+	"exports": {
+		".": "./index.ts",
+		"./index.ts": "./index.ts",
+		"./protocol": "./src/protocol.ts",
+		"./package.json": "./package.json"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"test": "bun test"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "catalog:",
+		"@types/bun": "catalog:",
+		"typebox": "catalog:",
+		"typescript": "catalog:"
+	}
+}

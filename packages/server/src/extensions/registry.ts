@@ -1,3 +1,4 @@
+import a2a from "@thinkrail/ext-a2a/server";
 import askUserQuestion from "@thinkrail/ext-ask-user-question/server";
 import lspSearch from "@thinkrail/ext-lsp-search/server";
 import visualize from "@thinkrail/ext-visualize/server";
@@ -14,4 +15,5 @@ export const serverExtensions: readonly ServerExtensionEntry[] = [
 	{ specifier: "@thinkrail/ext-ask-user-question/server", extension: askUserQuestion },
 	{ specifier: "@thinkrail/ext-web-access/server", extension: webAccess },
 	{ specifier: "@thinkrail/ext-lsp-search/server", extension: lspSearch },
+	{ specifier: "@thinkrail/ext-a2a/server", extension: a2a },
 ];

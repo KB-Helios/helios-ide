@@ -1481,6 +1481,16 @@ outlast, drops it and calls the sender's `onDropped`. Like a text keeper, a host
 for a turn still preparing (a pre-turn compaction) is queued once more by an edit in that window; a
 second continuation call joins the first, so the repeat costs one turn, nothing else.
 
+## Swarm owner
+
+Every parent session gets a [[module-pi-swarm]] owner (`swarm.ts` `swarmFor`) next to its subagents
+owner, over the same workspace `DelegationService`, with worktrees under
+`<dataDir>/swarm-worktrees/<workspaceId>` and coordinator delivery gated by the session's
+`canDeliverCompletion`. Members are ordinary delegation children (they count against the per-chat
+subagent limit and appear in the roster); `swarmMemberExtension` is in the curated child set so only
+members get board tools. `onChange` publishes the full snapshot on `swarm.changed`; `swarm.get` and
+`swarm.diff` read it. The owner is disposed with the session's resources. Board state is in memory.
+
 ## Session titles
 
 `agentSessionManager` is the only durable chat-title writer. Its `renameSession(sessionId,

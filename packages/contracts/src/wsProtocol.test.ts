@@ -769,8 +769,8 @@ test("the repo wiki methods are pinned to v126", () => {
 	expect(WS_METHODS.wikiPublish).toBe("wiki.publish");
 });
 
-test("commit analysis methods and channel are pinned to v128", () => {
-	expect(COMMIT_ANALYSIS_PROTOCOL_VERSION).toBe(128);
+test("commit analysis methods and channel are pinned to v129", () => {
+	expect(COMMIT_ANALYSIS_PROTOCOL_VERSION).toBe(129);
 	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(COMMIT_ANALYSIS_PROTOCOL_VERSION);
 	expect(WS_METHODS.commitAnalyze).toBe("commit.analyze");
 	expect(WS_METHODS.commitAnalysis).toBe("commit.analysis");

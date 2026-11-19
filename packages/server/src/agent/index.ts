@@ -138,6 +138,13 @@ export {
 export { isProjectSkillPath, mayHoldProjectSkills } from "./skillSources";
 export { setSubagentRosterPublisher } from "./subagentRoster";
 export {
+	disposeSessionSwarm,
+	readSessionSwarm,
+	readSwarmMemberDiff,
+	setSwarmPublisher,
+	swarmFor,
+} from "./swarm";
+export {
 	SET_TITLE_TOOL_NAME,
 	type SetTitleParams,
 	setTitleToolHost,

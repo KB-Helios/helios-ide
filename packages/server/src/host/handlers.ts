@@ -62,6 +62,8 @@ import {
 	readBackgroundCommandOutput,
 	readCacheWarmingSetting,
 	readChildTranscript,
+	readSessionSwarm,
+	readSwarmMemberDiff,
 	refreshAvailableModels,
 	refreshSubagentConcurrency,
 	refreshSubagentTools,
@@ -1511,6 +1513,19 @@ const handlers: WsHandlers = {
 		const p = resourceParams(params, ["workspaceId"]);
 		resourceCwd(p.workspaceId);
 		return subagentRosterFor(p.workspaceId).read();
+	},
+	"swarm.get": (params) => {
+		const p = resourceParams(params, ["workspaceId", "sessionId"]);
+		resourceCwd(p.workspaceId);
+		return readSessionSwarm(p.workspaceId, p.sessionId);
+	},
+	"swarm.diff": async (params) => {
+		const { member, ...ids } = (params ?? {}) as { member?: unknown };
+		if (typeof member !== "string" || !/^[a-z][a-z0-9-]{0,39}$/.test(member))
+			throw new Error("Invalid swarm member");
+		const p = resourceParams(ids, ["workspaceId", "sessionId"]);
+		resourceCwd(p.workspaceId);
+		return readSwarmMemberDiff(p.workspaceId, p.sessionId, member);
 	},
 	"subagent.stop": async (params) => {
 		const p = resourceParams(params, ["workspaceId", "parentSessionId", "childSessionId"]);

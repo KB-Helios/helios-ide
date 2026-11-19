@@ -20,6 +20,7 @@ describe("server extension registry", () => {
 			"@thinkrail/ext-ask-user-question/server",
 			"@thinkrail/ext-web-access/server",
 			"@thinkrail/ext-lsp-search/server",
+			"@thinkrail/ext-a2a/server",
 		]);
 		expect(new Set(specifiers).size).toBe(specifiers.length);
 		for (const entry of serverExtensions) {
@@ -32,6 +33,7 @@ describe("server extension registry", () => {
 			"ask-user-question",
 			"web-access",
 			"lsp-search",
+			"a2a",
 		]);
 	});
 
@@ -40,7 +42,7 @@ describe("server extension registry", () => {
 			registryInlineExtensions("extensions", undefined, serverExtensions, session).map((inline) =>
 				typeof inline === "function" ? "fn" : inline.name,
 			);
-		expect(names()).toEqual(["web-access", "lsp-search"]);
+		expect(names()).toEqual(["web-access", "lsp-search", "a2a"]);
 		expect(
 			names({
 				expectToolResponse: () => {},
@@ -52,12 +54,12 @@ describe("server extension registry", () => {
 					artifactsDir: "",
 				},
 			}),
-		).toEqual(["visualize", "ask-user-question", "web-access", "lsp-search"]);
+		).toEqual(["visualize", "ask-user-question", "web-access", "lsp-search", "a2a"]);
 		expect(
 			registryInlineExtensions("childExtensions").map((inline) =>
 				typeof inline === "function" ? "fn" : inline.name,
 			),
-		).toEqual(["web-access", "lsp-search"]);
+		).toEqual(["web-access", "lsp-search", "a2a"]);
 	});
 });
 

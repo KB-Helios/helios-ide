@@ -50,7 +50,7 @@
         "@thinkrail/shared": "workspace:*",
       },
       "devDependencies": {
-        "@tauri-apps/cli": "^2",
+        "@tauri-apps/cli": "2.12.5",
         "@types/bun": "catalog:",
         "electrobun": "2.0.5",
         "resedit": "catalog:",
@@ -279,6 +279,29 @@
         "typebox": "*",
       },
     },
+    "packages/pi-swarm": {
+      "name": "pi-swarm",
+      "version": "0.0.0",
+      "dependencies": {
+        "@thinkrail/pi-a2a": "workspace:*",
+        "pi-delegation": "workspace:*",
+        "pi-subagents": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-agent-core": "catalog:",
+        "@earendil-works/pi-ai": "catalog:",
+        "@earendil-works/pi-coding-agent": "catalog:",
+        "@types/bun": "catalog:",
+        "typebox": "catalog:",
+        "typescript": "catalog:",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-agent-core": "*",
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
+      },
+    },
     "packages/pi-thinkrail-workflow": {
       "name": "pi-thinkrail-workflow",
       "version": "0.0.0",
@@ -344,12 +367,14 @@
         "@posthog/core": "1.60.1",
         "@stroncium/procfs": "1.2.1",
         "@thinkrail/contracts": "workspace:*",
+        "@thinkrail/ext-a2a": "workspace:*",
         "@thinkrail/ext-ask-user-question": "workspace:*",
         "@thinkrail/ext-lsp-search": "workspace:*",
         "@thinkrail/ext-visualize": "workspace:*",
         "@thinkrail/ext-web-access": "workspace:*",
         "@thinkrail/extension-api": "workspace:*",
         "@thinkrail/locales": "workspace:*",
+        "@thinkrail/pi-a2a": "workspace:*",
         "@thinkrail/shared": "workspace:*",
         "bun-pty": "0.5.2",
         "jsonc-parser": "3.3.1",
@@ -357,6 +382,7 @@
         "pi-delegation": "workspace:*",
         "pi-spec-graph": "workspace:*",
         "pi-subagents": "workspace:*",
+        "pi-swarm": "workspace:*",
         "pi-thinkrail-workflow": "workspace:*",
         "pi-todos": "workspace:*",
         "pino": "10.4.0",
@@ -436,6 +462,20 @@
         "typescript": "catalog:",
       },
     },
+    "pi-extensions/a2a": {
+      "name": "@thinkrail/pi-a2a",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": "catalog:",
+        "@types/bun": "catalog:",
+        "typebox": "catalog:",
+        "typescript": "catalog:",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "*",
+        "typebox": "*",
+      },
+    },
     "pi-extensions/ask-user-question": {
       "name": "@thinkrail/pi-ask-user-question",
       "version": "0.2.0",
@@ -470,6 +510,19 @@
         "@earendil-works/pi-coding-agent": "*",
         "@earendil-works/pi-tui": "*",
         "typebox": "*",
+      },
+    },
+    "thinkrail-extensions/a2a": {
+      "name": "@thinkrail/ext-a2a",
+      "version": "0.0.0",
+      "dependencies": {
+        "@thinkrail/extension-api": "workspace:*",
+        "@thinkrail/pi-a2a": "workspace:*",
+      },
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": "catalog:",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
       },
     },
     "thinkrail-extensions/ask-user-question": {
@@ -1297,6 +1350,8 @@
 
     "@thinkrail/desktop": ["@thinkrail/desktop@workspace:apps/desktop"],
 
+    "@thinkrail/ext-a2a": ["@thinkrail/ext-a2a@workspace:thinkrail-extensions/a2a"],
+
     "@thinkrail/ext-ask-user-question": ["@thinkrail/ext-ask-user-question@workspace:thinkrail-extensions/ask-user-question"],
 
     "@thinkrail/ext-hint-mode": ["@thinkrail/ext-hint-mode@workspace:thinkrail-extensions/hint-mode"],
@@ -1310,6 +1365,8 @@
     "@thinkrail/extension-api": ["@thinkrail/extension-api@workspace:packages/extension-api"],
 
     "@thinkrail/locales": ["@thinkrail/locales@workspace:packages/locales"],
+
+    "@thinkrail/pi-a2a": ["@thinkrail/pi-a2a@workspace:pi-extensions/a2a"],
 
     "@thinkrail/pi-ask-user-question": ["@thinkrail/pi-ask-user-question@workspace:pi-extensions/ask-user-question"],
 
@@ -2412,6 +2469,8 @@
     "pi-spec-graph": ["pi-spec-graph@workspace:packages/spec-graph"],
 
     "pi-subagents": ["pi-subagents@workspace:packages/pi-subagents"],
+
+    "pi-swarm": ["pi-swarm@workspace:packages/pi-swarm"],
 
     "pi-thinkrail-workflow": ["pi-thinkrail-workflow@workspace:packages/pi-thinkrail-workflow"],
 

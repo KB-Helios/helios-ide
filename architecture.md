@@ -33,7 +33,7 @@ apps/web        UI client (mobile-first)                           ── depend
 apps/desktop    Electrobun local-host launcher                     ── depends on ─▶ packages/server, packages/contracts, packages/shared, packages/locales
 apps/website    public landing + blog + /vibecoding (Cloudflare Pages) ── depends on ─▶ packages/website-analytics
 packages/website-analytics  dependency-free browser analytics policy for the public website
-packages/server createServer(): Bun.serve(HTTP+WS) + AgentSessionManager (in-process pi) ── depends on ─▶ packages/contracts, packages/locales, packages/shared, packages/pi-background-commands, packages/pi-delegation, packages/pi-subagents, packages/extension-api/server, thinkrail-extensions/*/server
+packages/server createServer(): Bun.serve(HTTP+WS) + AgentSessionManager (in-process pi) ── depends on ─▶ packages/contracts, packages/locales, packages/shared, packages/pi-background-commands, packages/pi-delegation, packages/pi-subagents, packages/pi-swarm, pi-extensions/a2a, packages/extension-api/server, thinkrail-extensions/*/server
 packages/contracts  the wire (types plus tiny pure runtime)
 packages/locales    UI string catalogs (bundled en.json) + pure catalog rules; ./react holds the one i18next
                     instance ── depends on ─▶ nothing in the workspace (i18next, react-i18next)
@@ -49,6 +49,10 @@ packages/pi-background-commands portable explicit session-owned background comma
                     (bundled into every ThinkRail parent session by packages/server)
 packages/pi-subagents          portable pure-pi extension: Agent + get_subagent_result tools over
                     pi-delegation (bundled into every ThinkRail parent session by packages/server)
+packages/pi-swarm              portable pure-pi extension: /swarm — a coordinator, named members on one
+                    @mention board, per-member git worktrees, quality gates + read-only review before
+                    handoff, A2A members (bundled into every ThinkRail parent session; its member tools
+                    ride the curated child set) ── depends on ─▶ pi-delegation, pi-subagents, pi-extensions/a2a
 packages/pi-thinkrail-workflow pi extension: the workflow skill system + its always-on routing rule
                     (bundled into every session; workspace-internal, not portable)
 pi-extensions/*     portable pi packages published to npm as @thinkrail/pi-<name>; work in vanilla pi
@@ -525,3 +529,17 @@ dependency. This keeps test process drivers outside both launchers and the serve
   an existing terminal's stdio (the `update`/`uninstall` CLI subcommands, the build script), shell
   probes that are no-ops on win32 (`shellEnv`), and the file-manager reveal (`explorer.exe` honors the
   hide flag by opening its folder window invisibly).
+25. **Swarms are a delegation consumer with a board, not a second runtime; A2A is the interop edge.**
+   `/swarm` ([[module-pi-swarm]]) turns a chat into a coordinator over named delegation children that talk
+   only on one ordered @mention board; idle members cost nothing because a member is woken by
+   `runQueued`/`steer` only when mentioned. Isolation is the delegation core's `WorkspaceProvider` seam
+   filled with per-member git worktrees (dependency folders linked, never copied); a member's work is
+   handed back only after ownership, the project's own gates and a separate read-only reviewer pass, and
+   the coordinator lands it uncommitted. Agent2Agent ([[module-pi-a2a]]) is both directions: an outbound
+   pi extension (tools for parents and children, remote agents as swarm members) and an inbound host
+   endpoint (`/.well-known/agent-card.json`, `/a2a`) that is **off unless a bearer token is configured**
+   and turns each task into a new worktree workspace + visible chat whose result returns as a committed
+   branch and diff ([[submodule-server-host]] `a2aInbound.ts`). Rejected: a subprocess or second agent
+   runtime per worker (Decision 1), private worker-to-worker channels (the board is the single ordered
+   record), and an always-on inbound endpoint (it would expose a code-executing agent to any local
+   process).

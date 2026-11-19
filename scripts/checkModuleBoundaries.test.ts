@@ -14,6 +14,7 @@ const modules = {
 	"packages/pi-background-commands": "pi-background-commands",
 	"packages/pi-subagents": "pi-subagents",
 	"packages/pi-dag": "pi-dag",
+	"packages/pi-swarm": "pi-swarm",
 	"pi-extensions/visualize": "@thinkrail/pi-visualize",
 	"packages/server": "@thinkrail/server",
 	"apps/web": "@thinkrail/web",

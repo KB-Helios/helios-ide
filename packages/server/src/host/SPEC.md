@@ -979,6 +979,21 @@ enabled/confirmed choice before entering analytics attribution.
   Per-row backfill/review failures are logged and detached list/timer passes always catch their terminal
   rejection; lifecycle maintenance may degrade, but can never become an unhandled host-fatal promise.
 
+## Inbound A2A (`a2aInbound.ts`)
+
+`/.well-known/agent-card.json`, `/.well-known/agent.json` and `/a2a` (JSON-RPC: `message/send`,
+`tasks/get`, `tasks/cancel`) let an external orchestrator assign coding tasks. **Off unless a token
+exists** (`THINKRAIL_A2A_TOKEN` or `<dataDir>/a2a/token`): without one every route is 404; with one the
+card is public and every RPC needs `Authorization: Bearer <token>` (constant-time compare). A task picks
+an open project (`metadata.projectId`, or the only one), creates a new workspace (its own git worktree
+and branch) and a visible chat, and sends the task as a host message. When the chat's run settles the
+host runs the project's gates and a read-only reviewer subagent; problems go back to the chat for up to
+two fix rounds. Then it commits the worktree to its branch and completes the task with artifacts:
+the agent's summary, a data part (branch, commit, base, workspace, session, gate and review results) and
+the `base..HEAD` diff as `text/x-diff`. A message carrying `taskId` continues that task's chat;
+`tasks/cancel` aborts the chat's run. Task records are in memory (lost on restart; the workspace and
+branch survive). Streaming and push notifications are unsupported.
+
 ## Get right
 
 - Every registered WS command is debug-traced by **method name only** (`ws <method>` / `ws <method>

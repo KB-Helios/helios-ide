@@ -888,6 +888,14 @@ test("extension.list reflects disabledExtensions written through settings.update
 			],
 			hasChildExtensions: true,
 		},
+		{
+			name: "a2a",
+			title: "Agent2Agent (A2A)",
+			description: expect.any(String),
+			enabled: true,
+			tools: ["a2a_agents", "a2a_send", "a2a_task"],
+			hasChildExtensions: true,
+		},
 	]);
 	await handleRequest(
 		"settings.update",
@@ -899,6 +907,7 @@ test("extension.list reflects disabledExtensions written through settings.update
 		{ name: "ask-user-question", enabled: true },
 		{ name: "web-access", enabled: false },
 		{ name: "lsp-search", enabled: true },
+		{ name: "a2a", enabled: true },
 	]);
 	await handleRequest("settings.update", { config: { disabledExtensions: [] } }, CTX);
 	expect(await handleRequest("extension.list", {}, CTX)).toMatchObject([
@@ -906,6 +915,7 @@ test("extension.list reflects disabledExtensions written through settings.update
 		{ name: "ask-user-question", enabled: true },
 		{ name: "web-access", enabled: true },
 		{ name: "lsp-search", enabled: true },
+		{ name: "a2a", enabled: true },
 	]);
 });
 

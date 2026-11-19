@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DefaultPackageManager, SettingsManager } from "@earendil-works/pi-coding-agent";
 import { SPEC_SECTION } from "pi-spec-graph";
+import { swarmMemberExtension } from "pi-swarm";
 import { type HostSessionServices, registryInlineExtensions, workspaceFiles } from "../extensions";
 import { artifactsGuard } from "./artifactsGuard";
 import {
@@ -740,14 +741,15 @@ describe("registry extensions", () => {
 
 	it("keeps the curated child set and appends registry children", () => {
 		const children = childExtensionFactories("w1");
-		expect(children).toHaveLength(3 + registryInlineExtensions("childExtensions").length);
+		expect(children).toHaveLength(4 + registryInlineExtensions("childExtensions").length);
 		expect(children[0]).toBe(headlessSearchPolicy);
 		expect(typeof children[1]).toBe("function");
 		expect(children[2]).toBe(skillCatalog);
+		expect(children[3]).toBe(swarmMemberExtension);
 		const names = (inlines: typeof children) =>
 			inlines.map((inline) => (typeof inline === "function" ? "fn" : inline.name));
-		expect(names(children.slice(3))).toEqual(names(registryInlineExtensions("childExtensions")));
-		expect(names(children.slice(3))).toEqual(["web-access", "lsp-search"]);
+		expect(names(children.slice(4))).toEqual(names(registryInlineExtensions("childExtensions")));
+		expect(names(children.slice(4))).toEqual(["web-access", "lsp-search", "a2a"]);
 	});
 
 	it("loads web access with its skill and drops both while the extension is off", async () => {
