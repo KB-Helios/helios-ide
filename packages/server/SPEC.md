@@ -95,6 +95,7 @@ internals**. The edges between them are owned here (see the dependency graph), n
 | `spec` | the worktree's spec-graph snapshot (`spec.graph`) + project-level `projectHasSpecs`, via `pi-spec-graph/core` | [spec/SPEC.md](src/spec/SPEC.md) |
 | `wiki` | the repo knowledge-graph wiki: read what Graphify left in `graphify-out/wiki`, the build prompt for the `wiki-builder` subagent, and the GitHub Pages publish (`wiki.*`) | [wiki/SPEC.md](src/wiki/SPEC.md) |
 | `todos` | a chat's per-session TODO plan read/write (`todo.*`), via `pi-todos/core` | [todos/SPEC.md](src/todos/SPEC.md) |
+| `commitAnalysis` | per-commit analyzer + architecture mapper: two hidden, read-only children per sha, one write-once sidecar record per sha, `commit.analyze` / `commit.analysis` / `commit.analysisList` | [commitAnalysis/SPEC.md](src/commitAnalysis/SPEC.md) |
 | `reviews` | draft review comments on files/diffs: store + anchoring + context-package render | [reviews/SPEC.md](src/reviews/SPEC.md) |
 | `watch` | per-worktree fs watcher → debounced `workspace.fsChanged` invalidation push | [watch/SPEC.md](src/watch/SPEC.md) |
 | `terminal` | workspace-scoped `bun-pty` terminals | [terminal/SPEC.md](src/terminal/SPEC.md) |
@@ -119,7 +120,7 @@ the host from env via `bootHost` for dev/e2e.
 
 `host` is the **only composition root** — it wires each feature's handlers into the WS registry.
 
-- `host` → `projects`, `workspaces`, `git`, `github`, `branch-review`, `pr`, `fs`, `spec`, `wiki`, `todos`, `reviews`, `changes`, `turns`, `watch`, `terminal`, `dialog`, `editors`, `agent`, `auth`, `assist`, `settings`, `environment`, `locales`, `themes`, `fonts`, `speech`, `history`, `search`, `templates`, `analytics`, `feedback`, `artifacts`, `trash` (a chat's folder), `log`, `persistence` (`dataDir`, for the crash report; `pr-babysit.json` as the babysit store backend), `pr-babysit` (composed in `host/prBabysit.ts`, which supplies the agent seam), `images` (the `/images` route, its source seam, and forgetting a deleted chat)
+- `host` → `projects`, `workspaces`, `git`, `github`, `branch-review`, `pr`, `fs`, `spec`, `wiki`, `todos`, `commitAnalysis`, `reviews`, `changes`, `turns`, `watch`, `terminal`, `dialog`, `editors`, `agent`, `auth`, `assist`, `settings`, `environment`, `locales`, `themes`, `fonts`, `speech`, `history`, `search`, `templates`, `analytics`, `feedback`, `artifacts`, `trash` (a chat's folder), `log`, `persistence` (`dataDir`, for the crash report; `pr-babysit.json` as the babysit store backend), `pr-babysit` (composed in `host/prBabysit.ts`, which supplies the agent seam), `images` (the `/images` route, its source seam, and forgetting a deleted chat)
 - `search` → `contracts`, `git` (`gitAsyncStream` for `ls-files` and `grep`), `log`; `history`, `spec` and `todos` for types only — `host/search.ts` injects every reader (projects, workspace records, the history index's `sessions()`, spec snapshots, stored plans, the file check `fs.readableFileSize` and the text check `fs.classifyBytes`), the Default provisioning (`workspaces.listWorkspaces`) and the root watch (`watch.ensureWatch`, prewarm); it opens no file itself but the bounded text search's direct read of a chat folder's walked files (`git grep` reads a repository's) — files and specs preview client-side over `fs.readFile`
 - `workspaces` → `projects`, `git`, `persistence`
 - `branch-review` → `git`, `subprocess`
@@ -137,9 +138,10 @@ the host from env via `bootHost` for dev/e2e.
 - `git`, `spec`, `watch`, `terminal`, `settings`, `locales`, `themes`, `fonts`, `analytics`, `feedback` → `persistence` (`locales` also → `@thinkrail/locales` root, external-style: catalog validation and file naming) (`spec` also → `pi-spec-graph/core`, external; `analytics` also → the pi-ai built-in provider/model catalog + `posthog-node`, external—the identity-bucketing vocabulary and delivery SDK)
 - `log` → `persistence` (`dataDir`) — and **any feature module (+ `host`) may → `log`**: it is the one
   cross-cutting edge, like `persistence`, exempt from the never-each-other rule (today: `host`,
-  `agent`, `workspaces`, `watch`, `git`, `todos`, `reviews`, `analytics`, `resourceHistory`, `artifacts`, `fonts`, `speech`, `search`). `persistence` never imports
+  `agent`, `workspaces`, `watch`, `git`, `todos`, `reviews`, `analytics`, `resourceHistory`, `artifacts`, `fonts`, `speech`, `search`, `commitAnalysis`). `persistence` never imports
   `log` (would cycle); `initLogging` is called only from `host`'s `bootHost`
 - `todos` → `workspaces` (worktree path lookup) + `pi-todos/core` (external, value-imported, pi-free)
+- `commitAnalysis` → `git` (`gitStatus`, `gitAsync`, `resolveCommitOid`, `readCommitSubject`), `log`; the child runner, model choice, worktree lookup and publisher are injected by `host/commitAnalysis.ts`
 - `reviews` → `workspaces` (worktree path lookup), `persistence` (data dir), `git` (the review's baseSha
   resolve, plus the diff range + blob read behind a base-side anchor), `fs` (the shared byte
   classification + sha-256 an anchor's `contentHash` is). The `review.send*` flows are

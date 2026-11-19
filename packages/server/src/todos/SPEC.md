@@ -42,6 +42,9 @@ host (the chat-plan UX this feeds: [[submodule-web-chat]]'s "Chat TODO plan").
 *observes* the transitions to attach an item's code changes, so the plan becomes a durable review map.
 `host/server.ts` tees `isTodoToolEnd` off the session event stream and fires
 `maybeAttachChangeArtifacts(workspaceId, sessionId)` off the publish path (`void` — it runs git writes).
+Resolves with the shas the reconcile committed or listed since the window's head, de-duplicated. If the
+reconcile throws midway, it resolves with the shas that landed before the throw; `[]` when none landed.
+The host hands these shas to `commitAnalysis`.
 Reconciles are **serialized per workspace** (a promise chain) so two quick `todo_*` ends can't race the
 index mid-commit. Every `maybeAttachChangeArtifacts` call first inspects the fresh plan and synchronously
 captures any newly `in_progress` window **before enqueueing**; that stays true when an older reconcile

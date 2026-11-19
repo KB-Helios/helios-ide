@@ -26,6 +26,7 @@ import { seedArtifactsDir } from "@thinkrail/shared/artifactsDir";
 import { CodedError } from "@thinkrail/shared/codedError";
 import {
 	DELETE_CLAIM_PREFIX,
+	WORKSPACE_COMMITS_DIR,
 	WORKSPACE_CONTEXT_DIR,
 	WORKSPACE_TODOS_DIR,
 } from "@thinkrail/shared/paths";
@@ -47,6 +48,7 @@ const STORAGE_ID = /^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,198}[A-Za-z0-9])?$/;
 const STORE_VERSION = 1;
 const CONTEXT_PREFIX = `${WORKSPACE_CONTEXT_DIR}/`;
 const SCAFFOLD = `${WORKSPACE_CONTEXT_DIR}/.gitignore`;
+const HOST_STATE_DIRS = [WORKSPACE_TODOS_DIR, WORKSPACE_COMMITS_DIR];
 const MAX_ARTIFACT_SCAN_ENTRIES = 5_000;
 const COPY_LIMITS = { perFile: 100 * 1024 * 1024, perWorkspace: 1024 * 1024 * 1024 };
 let copyLimits = COPY_LIMITS;
@@ -146,7 +148,7 @@ function publish(workspaceId: string): void {
 
 export function isArtifactPath(path: string): boolean {
 	if (!path.startsWith(CONTEXT_PREFIX) || path === SCAFFOLD) return false;
-	return path !== WORKSPACE_TODOS_DIR && !path.startsWith(`${WORKSPACE_TODOS_DIR}/`);
+	return !HOST_STATE_DIRS.some((dir) => path === dir || path.startsWith(`${dir}/`));
 }
 
 export function touchesArtifacts(path: string): boolean {

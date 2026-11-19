@@ -3,7 +3,9 @@ import {
 	RiArrowDownSLine as ChevronDown,
 	RiGitCommitLine as GitCommitHorizontal,
 	RiGitPullRequestLine as GitCompare,
+	RiLoader4Line as Loader,
 	RiRobot2Line as Robot,
+	RiShieldCheckLine as ShieldCheck,
 } from "@remixicon/react";
 import type { GitCommit, GitDiffScope } from "@thinkrail/contracts";
 import { useT } from "@thinkrail/locales/react";
@@ -22,6 +24,7 @@ import { useNow } from "@/components/useNow";
 import { relativeTime, turnTimeLabel } from "@/lib";
 import { getTransport } from "../transport";
 import { scopeLabel, scopeTitle, turnScope } from "./changesModel";
+import { useCommitAnalysisIndex, useLoadCommitAnalysisIndex } from "./useCommitAnalyses";
 import { useWorkspaceTurns } from "./useWorkspaceTurns";
 
 export function ChangesScopeMenu({
@@ -35,6 +38,8 @@ export function ChangesScopeMenu({
 }) {
 	const t = useT();
 	const now = useNow();
+	useLoadCommitAnalysisIndex(workspaceId);
+	const analyses = useCommitAnalysisIndex(workspaceId);
 	const [open, setOpen] = useState(false);
 	const [commits, setCommits] = useState<GitCommit[] | null>(null);
 	const [hasUncommitted, setHasUncommitted] = useState<boolean | null>(null);
@@ -195,6 +200,19 @@ export function ChangesScopeMenu({
 											: ""}
 									</span>
 								</span>
+								{analyses.shas.has(commit.sha) ? (
+									<ShieldCheck
+										data-testid="changes-scope-commit-analyzed"
+										aria-label={t("changes.commitAnalysis.badge")}
+										className="ml-auto size-14 shrink-0 text-text-muted"
+									/>
+								) : analyses.pending.has(commit.sha) ? (
+									<Loader
+										data-testid="changes-scope-commit-analyzing"
+										aria-label={t("changes.commitAnalysis.badgePending")}
+										className="ml-auto size-14 shrink-0 animate-spin text-text-muted"
+									/>
+								) : null}
 							</DropdownMenuItem>
 						);
 					})

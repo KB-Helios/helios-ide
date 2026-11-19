@@ -1523,6 +1523,21 @@ review now), `prBabysit.get`, `prBabysit.queueFinding`, `prBabysit.postFinding`,
 session state; and the workspace-scoped `prBabysit.changed` channel carrying `PrBabysitEvent` (the whole
 state after each change, `null` once forgotten). Errors use the `PR_BABYSIT_*` codes.
 
+## Commit analysis
+
+`commitAnalysis.ts` (re-exported by the barrel) owns the wire vocabulary of AI commit analysis:
+`CommitAnalysis` (intent, summary, risk flags, file notes), `ArchitectureImpact` (module impact,
+boundary violations, dependency-edge changes) and `CommitAnalysisRecord` (which also notes the `checkout` HEAD the analysis could read), with validators that
+reject malformed model output before it reaches the UI.
+
+From **`COMMIT_ANALYSIS_PROTOCOL_VERSION`** (v129): `commit.analyze` `{ workspaceId, sha, sessionId? }`
+(`sessionId` is optional; the host picks a live chat when it is absent) answers `stored` or `queued`
+before the run finishes, or refuses with `COMMIT_ANALYSIS_NOT_LISTED` (the sha is not on the branch's listed
+range) or `COMMIT_ANALYSIS_NO_SESSION` (no live chat to parent the run); `commit.analysis` `{ workspaceId, sha }` returns the record or `null`;
+`commit.analysisList` `{ workspaceId }` returns the analysed shas and those still pending. A record
+is immutable per sha. The workspace-scoped `commit.analyzed` channel carries `CommitAnalyzedPayload`
+(`completed` or `failed` with a code) once a run settles.
+
 ## Get right
 
 - **Mirrors are not version-pinned in comments.** A shape re-declared here because its real home is

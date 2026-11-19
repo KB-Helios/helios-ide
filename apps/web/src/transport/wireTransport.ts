@@ -2,6 +2,7 @@ import type {
 	Ack,
 	AppConfig,
 	ChatContinuation,
+	CommitAnalyzedPayload,
 	ExtUiRequest,
 	HostUpdateNotice,
 	KeybindingOverrides,
@@ -28,6 +29,7 @@ import type {
 } from "@thinkrail/contracts";
 import {
 	CHANGE_MUTATIONS_PROTOCOL_VERSION,
+	COMMIT_ANALYSIS_PROTOCOL_VERSION,
 	EXTENSION_SETTINGS_PROTOCOL_VERSION,
 	FEEDBACK_SURVEY_PROTOCOL_VERSION,
 	FONTS_PROTOCOL_VERSION,
@@ -47,8 +49,8 @@ import {
 	WORKSPACE_CREATION_PROTOCOL_VERSION,
 	WS_CHANNELS,
 } from "@thinkrail/contracts";
-import { currentLocale } from "@thinkrail/locales/react";
-import { isChatsContainer, isConnectedGeneration, useAppStore } from "../store";
+import { currentLocale, t } from "@thinkrail/locales/react";
+import { isChatsContainer, isConnectedGeneration, toast, useAppStore } from "../store";
 import { githubStarToast } from "./githubStar";
 import { createPiEventBatcher, shouldFlushPiEventsBefore } from "./piEventBatcher";
 import { WsTransport } from "./transport";
@@ -116,6 +118,10 @@ export function supportsRichAnchors(protocolVersion: number | null): boolean {
 
 export function supportsTurnChanges(protocolVersion: number | null): boolean {
 	return protocolVersion !== null && protocolVersion >= TURN_CHANGES_PROTOCOL_VERSION;
+}
+
+export function supportsCommitAnalysis(protocolVersion: number | null): boolean {
+	return protocolVersion !== null && protocolVersion >= COMMIT_ANALYSIS_PROTOCOL_VERSION;
 }
 
 export function supportsTextSearch(protocolVersion: number | null): boolean {
@@ -490,6 +496,16 @@ export function initTransport(): WsTransport {
 	transport.subscribe(WS_CHANNELS.prBabysitChanged, (data) => {
 		const event = data as PrBabysitEvent;
 		useAppStore.getState().installPrBabysitState(event.workspaceId, event.state);
+	});
+
+	transport.subscribe(WS_CHANNELS.commitAnalyzed, (data) => {
+		if (!supportsCommitAnalysis(useAppStore.getState().protocolVersion)) return;
+		const event = data as CommitAnalyzedPayload;
+		void getTransport()
+			.request("commit.analysisList", { workspaceId: event.workspaceId })
+			.then((index) => useAppStore.getState().installCommitAnalysisIndex(event.workspaceId, index))
+			.catch(() => {});
+		if (event.status === "failed") toast.error(t("changes.commitAnalysis.failed"));
 	});
 
 	transport.subscribe(WS_CHANNELS.feedbackInterview, () => {

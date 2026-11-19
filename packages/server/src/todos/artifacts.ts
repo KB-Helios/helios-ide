@@ -90,7 +90,10 @@ function captureNewWorkWindow(workspaceId: string, sessionId: string): void {
 	writeBaselines(root, sessionId, baselines);
 }
 
-export function maybeAttachChangeArtifacts(workspaceId: string, sessionId: string): Promise<void> {
+export function maybeAttachChangeArtifacts(
+	workspaceId: string,
+	sessionId: string,
+): Promise<string[]> {
 	try {
 		captureNewWorkWindow(workspaceId, sessionId);
 	} catch {
@@ -109,7 +112,8 @@ export async function settleChangeArtifacts(workspaceId: string): Promise<void> 
 	}
 }
 
-async function runReconcile(workspaceId: string, sessionId: string): Promise<void> {
+async function runReconcile(workspaceId: string, sessionId: string): Promise<string[]> {
+	const produced = new Set<string>();
 	try {
 		const root = getWorkspace(workspaceId).worktreePath;
 		const store = new TodoStore(root, sessionId);
@@ -119,14 +123,23 @@ async function runReconcile(workspaceId: string, sessionId: string): Promise<voi
 			sessionId,
 			async () =>
 				(await gitStatus(workspaceId, { kind: "uncommitted" })).changes.map((c) => c.path),
-			({ subject, paths }) => gitCommitPaths(workspaceId, subject, paths),
+			({ subject, paths }) => {
+				const committed = gitCommitPaths(workspaceId, subject, paths);
+				if (committed) produced.add(committed.sha);
+				return committed;
+			},
 			() => gitHeadSha(workspaceId),
 			false,
-			(head) => listCommitsSince(workspaceId, head),
+			async (head) => {
+				const listed = await listCommitsSince(workspaceId, head);
+				for (const { sha } of listed) produced.add(sha);
+				return listed;
+			},
 		);
 	} catch {
 		log.warn(`todo change-artifacts skipped (${workspaceId}/${sessionId})`);
 	}
+	return [...produced];
 }
 
 function hasChangeSet(artifacts: TodoArtifact[] | undefined): boolean {

@@ -23,6 +23,7 @@ export {
 	respondToTool,
 	runHostUpdate,
 	supportsChangeMutations,
+	supportsCommitAnalysis,
 	supportsExtensionSettings,
 	supportsFonts,
 	supportsHostUpdateRun,

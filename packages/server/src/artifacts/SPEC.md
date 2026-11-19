@@ -14,7 +14,7 @@ tags: [artifacts, persistence, public-surface-checked]
 The host-owned index behind the Artifacts tool: what an agent left in a workspace, who wrote it, and a
 kept copy of each file so nothing in the artifacts folder disappears unless the user removes it. An
 **artifact** is a regular file under the worktree's `.thinkrail/context/` (`WORKSPACE_CONTEXT_DIR`), except
-the seeded `.gitignore` and the TODO state under `todos/`. An **ignored output** is a gitignored file or
+the seeded `.gitignore`, the TODO state under `todos/`, and the commit-analysis sidecars under `commits/` (host state, not artifacts). An **ignored output** is a gitignored file or
 folder elsewhere in a git worktree that appeared or changed while an agent ran. The index is host state,
 not a web derivation: only the host sees every run (attended or not), can keep copies, and serves every
 client the same answer.
