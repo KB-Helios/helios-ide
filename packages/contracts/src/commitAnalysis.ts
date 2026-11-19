@@ -69,37 +69,44 @@ type Obj = Record<string, unknown>;
 
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === "string";
-const isOptStr = (v: unknown): boolean => v === undefined || isStr(v);
+const isText = (v: unknown): v is string => isStr(v) && v.trim() !== "";
+const isOptText = (v: unknown): boolean => v === undefined || isText(v);
 const arrayOf = (v: unknown, item: (x: unknown) => boolean): boolean =>
 	Array.isArray(v) && v.every(item);
 
 const isRiskFlag = (v: unknown): v is CommitRiskFlag =>
 	isObj(v) &&
 	(COMMIT_RISK_SEVERITIES as readonly unknown[]).includes(v.severity) &&
-	isStr(v.title) &&
-	isStr(v.detail) &&
-	isOptStr(v.path);
+	isText(v.title) &&
+	isText(v.detail) &&
+	isOptText(v.path);
 
-const isFileNote = (v: unknown): v is CommitFileNote => isObj(v) && isStr(v.path) && isStr(v.note);
+const isFileNote = (v: unknown): v is CommitFileNote =>
+	isObj(v) && isText(v.path) && isText(v.note);
 
 const isModuleImpact = (v: unknown): v is ArchitectureModuleImpact =>
 	isObj(v) &&
-	isStr(v.spec) &&
-	isStr(v.module) &&
-	arrayOf(v.paths, isStr) &&
+	isText(v.spec) &&
+	isText(v.module) &&
+	arrayOf(v.paths, isText) &&
 	typeof v.surfaceChanged === "boolean";
 
 const isBoundaryViolation = (v: unknown): v is ArchitectureBoundaryViolation =>
-	isObj(v) && isStr(v.from) && isStr(v.to) && isStr(v.path) && isStr(v.rule) && isStr(v.detail);
+	isObj(v) &&
+	isText(v.from) &&
+	isText(v.to) &&
+	isText(v.path) &&
+	isText(v.rule) &&
+	isText(v.detail);
 
 const isEdgeChange = (v: unknown): v is ArchitectureEdgeChange =>
-	isObj(v) && isStr(v.from) && isStr(v.to) && (v.change === "added" || v.change === "removed");
+	isObj(v) && isText(v.from) && isText(v.to) && (v.change === "added" || v.change === "removed");
 
 export function isCommitAnalysis(v: unknown): v is CommitAnalysis {
 	return (
 		isObj(v) &&
-		isStr(v.intent) &&
-		isStr(v.summary) &&
+		isText(v.intent) &&
+		isText(v.summary) &&
 		arrayOf(v.riskFlags, isRiskFlag) &&
 		arrayOf(v.fileNotes, isFileNote)
 	);
@@ -121,7 +128,9 @@ export function isCommitAnalysisRecord(v: unknown): v is CommitAnalysisRecord {
 		FULL_OID.test(v.sha) &&
 		isStr(v.subject) &&
 		typeof v.analyzedAt === "number" &&
-		isOptStr(v.model) &&
+		Number.isFinite(v.analyzedAt) &&
+		v.analyzedAt >= 0 &&
+		(v.model === undefined || isText(v.model)) &&
 		isCommitAnalysis(v.analysis) &&
 		isArchitectureImpact(v.architecture)
 	);
