@@ -340,3 +340,24 @@ test("a timed-out shell gate is stopped together with the processes it started",
 	expect(result?.ok).toBe(false);
 	expect(Date.now() - started).toBeLessThan(15_000);
 }, 30_000);
+
+test("a seeded worktree starts from the coordinator's landed state without touching its index", async () => {
+	writeFileSync(join(repo, "src", "landed.ts"), "export const landed = true;\n");
+	const root = tmp("swarm-seeded-");
+	const worktree = await createWorktree({
+		repo,
+		root,
+		swarm: "seed",
+		swarmId: "s1",
+		member: "next",
+		seed: true,
+	});
+	try {
+		expect(existsSync(join(worktree.path, "src", "landed.ts"))).toBe(true);
+		expect(await changedFiles(worktree.path)).toEqual([]);
+		expect(git(repo, "diff", "--cached", "--name-only").trim()).toBe("");
+	} finally {
+		await removeWorktree(worktree, { deleteBranch: true });
+		rmSync(join(repo, "src", "landed.ts"), { force: true });
+	}
+});

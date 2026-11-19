@@ -54,7 +54,7 @@ Member (child session): `swarm_post`, `swarm_board`, `swarm_done`, registered at
   coordinator is idle with nothing unread and work is not done, it posts once per quiet period to
   `@coordinator`.
 - **Isolation.** Workers default to their own git worktree on branch `swarm/<swarm>/<member>` from HEAD
-  under `worktreeRoot`, passed to the core as a `WorkspaceProvider` cwd; `node_modules` folders within
+  under `worktreeRoot`; the coordinator's uncommitted state (including work landed from other members) is committed on the branch first as its baseline — built in a throwaway index, never the user's — so dependent workers see landed contracts and their own diff excludes them. It is passed to the core as a `WorkspaceProvider` cwd; `node_modules` folders within
   three levels are linked in (junctions on Windows) and **unlinked before removal** so a forced worktree
   removal can never follow them. Verifiers, scouts and reviewers share the coordinator's tree. `setup`
   commands run in each new worktree.

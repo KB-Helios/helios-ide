@@ -1,13 +1,16 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import {
 	existsSync,
 	lstatSync,
 	mkdirSync,
 	readdirSync,
 	rmdirSync,
+	rmSync,
 	symlinkSync,
 	unlinkSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 
 /** fsmonitor daemons detach but inherit our pipes; never start one from a host-driven git call. */
@@ -34,6 +37,7 @@ export function run(
 		signal?: AbortSignal;
 		timeoutMs?: number;
 		shell?: boolean;
+		env?: Record<string, string>;
 	},
 ): Promise<ExecResult> {
 	const started = Date.now();
@@ -47,7 +51,7 @@ export function run(
 			shell: options.shell ?? false,
 			windowsHide: true,
 			detached: process.platform !== "win32",
-			env: { ...process.env, ...GIT_ENV },
+			env: { ...process.env, ...GIT_ENV, ...options.env },
 		});
 		const stdout: Buffer[] = [];
 		const stderr: Buffer[] = [];
@@ -116,14 +120,27 @@ async function killTree(pid: number | undefined): Promise<void> {
 	}
 	for (let waited = 0; waited < 3000 && groupAlive(pid); waited += 100)
 		await new Promise((resolve) => setTimeout(resolve, 100));
-	if (groupAlive(pid))
-		try {
-			process.kill(-pid, "SIGKILL");
-		} catch {}
+	if (!groupAlive(pid)) return;
+	try {
+		process.kill(-pid, "SIGKILL");
+	} catch {
+		return;
+	}
+	for (let waited = 0; waited < 5000 && groupAlive(pid); waited += 50)
+		await new Promise((resolve) => setTimeout(resolve, 50));
 }
 
-async function git(cwd: string, args: readonly string[], input?: string): Promise<string> {
-	const result = await run("git", args, { cwd, ...(input !== undefined ? { input } : {}) });
+async function git(
+	cwd: string,
+	args: readonly string[],
+	input?: string,
+	env?: Record<string, string>,
+): Promise<string> {
+	const result = await run("git", args, {
+		cwd,
+		...(input !== undefined ? { input } : {}),
+		...(env ? { env } : {}),
+	});
 	if (result.code !== 0)
 		throw new Error(`git ${args.join(" ")} failed: ${(result.stderr || result.stdout).trim()}`);
 	return result.stdout;
@@ -151,7 +168,35 @@ export interface Worktree {
 	repo: string;
 }
 
-/** A fresh worktree on a new branch from HEAD, with the repository's dependency folders linked in. */
+/**
+ * The repository's uncommitted state (tracked edits and untracked, non-ignored files) as a patch against
+ * HEAD, built in a throwaway index so the user's own index is never touched.
+ */
+export async function uncommittedPatch(repo: string): Promise<string> {
+	const env = { GIT_INDEX_FILE: join(tmpdir(), `swarm-index-${randomUUID()}`) };
+	try {
+		await git(repo, ["read-tree", "HEAD"], undefined, env);
+		await git(repo, ["add", "-A"], undefined, env);
+		return await git(repo, ["diff", "--cached", "--binary", "HEAD"], undefined, env);
+	} finally {
+		rmSync(env.GIT_INDEX_FILE, { force: true });
+	}
+}
+
+async function commitAll(cwd: string, message: string): Promise<void> {
+	await git(cwd, ["add", "-A"]);
+	const identity =
+		(await run("git", ["config", "user.email"], { cwd })).code === 0
+			? []
+			: ["-c", "user.name=ThinkRail", "-c", "user.email=agents@thinkrail.invalid"];
+	await git(cwd, [...identity, "commit", "--no-verify", "-m", message]);
+}
+
+/**
+ * A fresh worktree on a new branch from HEAD, with the repository's dependency folders linked in. With
+ * `seed`, the coordinator's uncommitted state (including work landed from other members) is committed
+ * on the branch first as its baseline, so the member starts from it and its own diff excludes it.
+ */
 export async function createWorktree(options: {
 	repo: string;
 	root: string;
@@ -159,13 +204,22 @@ export async function createWorktree(options: {
 	swarm: string;
 	swarmId: string;
 	member: string;
+	seed?: boolean;
 }): Promise<Worktree> {
-	const base = (await git(options.repo, ["rev-parse", "HEAD"])).trim();
+	let base = (await git(options.repo, ["rev-parse", "HEAD"])).trim();
 	const dir = `${slug(options.swarm)}-${slug(options.swarmId)}`;
 	const path = join(options.root, dir, options.member);
 	const branch = `swarm/${dir}/${options.member}`;
 	mkdirSync(dirname(path), { recursive: true });
 	await git(options.repo, ["worktree", "add", "-b", branch, path, base]);
+	if (options.seed) {
+		const patch = await uncommittedPatch(options.repo);
+		if (patch.trim()) {
+			await git(path, ["apply", "--whitespace=nowarn", "-"], patch);
+			await commitAll(path, "swarm: coordinator baseline");
+			base = (await git(path, ["rev-parse", "HEAD"])).trim();
+		}
+	}
 	linkDependencies(options.repo, path);
 	return { path, branch, base, repo: options.repo };
 }
@@ -265,12 +319,7 @@ export async function applyPatch(
 /** Commits everything in the worktree to its branch (used where the result is a branch, e.g. A2A). */
 export async function commitWorktree(cwd: string, message: string): Promise<string | undefined> {
 	if ((await changedFiles(cwd)).length === 0) return undefined;
-	await git(cwd, ["add", "-A"]);
-	const identity =
-		(await run("git", ["config", "user.email"], { cwd })).code === 0
-			? []
-			: ["-c", "user.name=ThinkRail", "-c", "user.email=agents@thinkrail.invalid"];
-	await git(cwd, [...identity, "commit", "--no-verify", "-m", message]);
+	await commitAll(cwd, message);
 	return (await git(cwd, ["rev-parse", "HEAD"])).trim();
 }
 

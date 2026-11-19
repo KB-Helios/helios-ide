@@ -287,6 +287,7 @@ export class Swarm {
 				root: this.deps.worktreeRoot,
 				swarm: this.config.title,
 				swarmId: this.id.slice(0, 8),
+				seed: true,
 				member: member.name,
 			});
 			member.worktree = { path: worktree.path, branch: worktree.branch, base: worktree.base };
