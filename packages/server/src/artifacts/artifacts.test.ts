@@ -97,6 +97,12 @@ test("classifies artifact paths: the scaffold and the TODO state are not artifac
 	expect(touchesArtifacts("src")).toBe(false);
 });
 
+test("the commit-analysis sidecar dir is host state, not an artifact", () => {
+	expect(isArtifactPath(`${CONTEXT}/commits/ws1.analysis.json`)).toBe(false);
+	expect(isArtifactPath(`${CONTEXT}/commits`)).toBe(false);
+	expect(isArtifactPath(`${CONTEXT}/notes.md`)).toBe(true);
+});
+
 test("lists context files newest first and skips the TODO state", async () => {
 	write(`${CONTEXT}/todos/s1.json`, "{}");
 	write(`${CONTEXT}/old.md`, "old");

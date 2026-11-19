@@ -30,7 +30,7 @@ bundled into `apps/web`. Exposed through explicit subpath exports, not a barrel.
   `THINKRAIL_WINDOWS_BRAND` / `HELIOS_WINDOWS_BRAND`, the default and Tauri-sidecar product identities, and
   `windowsIconPath`, the ICO they embed;
   `@thinkrail/shared/paths` → the worktree-relative path conventions (`WORKSPACE_INTERNAL_DIR`,
-  `WORKSPACE_CONTEXT_DIR`, `WORKSPACE_TODOS_DIR`, `DELETE_CLAIM_PREFIX`);
+  `WORKSPACE_CONTEXT_DIR`, `WORKSPACE_TODOS_DIR`, `WORKSPACE_COMMITS_DIR`, `DELETE_CLAIM_PREFIX`);
   `@thinkrail/shared/artifactsDir` → `seedArtifactsDir(root)`, the one way anything in the host creates the
   artifacts folder: each path part is created non-recursively and must be a real directory (a link is
   refused, never followed), and the self-ignoring `*` `.gitignore` is written only when absent
@@ -182,7 +182,8 @@ paste into the folder, and extensions
   tree), `WORKSPACE_CONTEXT_DIR` (its `context/` folder — the workspace's artifacts: temp docs and
   everything the agent produces for the user, kept until the user removes them, see
   [[submodule-server-artifacts]]), and `WORKSPACE_TODOS_DIR` (`context/todos/` — the chat TODO plans, one
-  JSON per session; host state, not artifacts), and `DELETE_CLAIM_PREFIX` (`.thinkrail-delete-` — the name
+  JSON per session; host state, not artifacts), `WORKSPACE_COMMITS_DIR` (`context/commits/` — the per-workspace
+  commit-analysis sidecars; host state, not artifacts), and `DELETE_CLAIM_PREFIX` (`.thinkrail-delete-` — the name
   `fs` gives an entry it has claimed for the trash, which the artifacts scan must not mistake for a
   rename). The pi-free `pi-todos/core` can't import this package (it stays vanilla-`pi`-installable),
   so it keeps a local mirror of the todos path; this module is the host-side source of truth. Distinct
