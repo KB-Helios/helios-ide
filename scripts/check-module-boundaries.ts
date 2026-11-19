@@ -29,6 +29,10 @@ const MODULE_RULES: readonly ModuleRule[] = [
 	{ root: "packages/pi-subagents", allowed: ["packages/pi-delegation"] },
 	{ root: "packages/pi-dag", allowed: ["packages/pi-delegation"] },
 	{
+		root: "packages/pi-swarm",
+		allowed: ["packages/pi-delegation", "packages/pi-subagents", "pi-extensions/a2a"],
+	},
+	{
 		root: "packages/server",
 		allowed: [
 			"packages/contracts",
@@ -38,6 +42,8 @@ const MODULE_RULES: readonly ModuleRule[] = [
 			"packages/pi-delegation",
 			"packages/pi-background-commands",
 			"packages/pi-subagents",
+			"packages/pi-swarm",
+			"pi-extensions/a2a",
 			"packages/pi-thinkrail-workflow",
 			"packages/pi-todos",
 			"packages/extension-api",

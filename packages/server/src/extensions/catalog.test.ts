@@ -51,6 +51,14 @@ describe("listExtensionCatalog", () => {
 				],
 				hasChildExtensions: true,
 			},
+			{
+				name: "a2a",
+				title: "Agent2Agent (A2A)",
+				description: expect.any(String),
+				enabled: true,
+				tools: ["a2a_agents", "a2a_send", "a2a_task"],
+				hasChildExtensions: true,
+			},
 		]);
 		const [visualize, ask] = await listExtensionCatalog(new Set(["visualize", "retired"]));
 		expect(visualize?.enabled).toBe(false);

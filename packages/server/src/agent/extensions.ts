@@ -21,6 +21,7 @@ import type {
 	SlashCommandInfo,
 } from "@thinkrail/contracts";
 import specGraphExtension, { SPEC_SECTION } from "pi-spec-graph";
+import { swarmMemberExtension } from "pi-swarm";
 import {
 	extensionSkillRoots,
 	type HostSessionServices,
@@ -414,6 +415,7 @@ export function childExtensionFactories(workspaceId: string): InlineExtension[] 
 		headlessSearchPolicy,
 		...(specsEnabledFor(workspaceId) ? [specGraphExtension] : []),
 		skillCatalog,
+		swarmMemberExtension,
 		...registryInlineExtensions("childExtensions", isExtensionDisabled),
 	];
 }

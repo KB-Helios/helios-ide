@@ -46,6 +46,7 @@ import {
 	useAppStore,
 	workspaceName,
 } from "@/store";
+import { SwarmTrigger } from "@/swarm";
 import { errorText, getTransport, hostUrl, watchMcpWorkspace, wsErrorCode } from "@/transport";
 import type { ResultTarget } from "./ChatActions";
 import { ChatHeader } from "./ChatHeader";
@@ -849,6 +850,7 @@ export default function ChatView({
 						resources.visible ? (
 							<span className="flex shrink-0 items-center gap-2">
 								<AgentsTrigger workspaceId={workspaceId} />
+								<SwarmTrigger workspaceId={workspaceId} sessionId={sessionId} />
 								<ResourcesButton
 									ref={resourcesTrigger}
 									activeCount={

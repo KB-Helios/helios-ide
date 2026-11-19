@@ -323,6 +323,16 @@ projects/workspaces feature owns `git worktree` creation; merge-back semantics l
 provider's `dispose` (`resultAddendum` tells the parent where work landed), never in the core.
 (Pattern validated by gotgenes' ADR-0002 seam + companion worktrees package.)
 
+**Implemented (2026-11, first consumer [[module-pi-swarm]]).** `prepare({ parentSessionId, baseCwd,
+roleName? })` runs *before* the child session exists (a resource child passes its resource id as
+`parentSessionId`) — this settles the sequencing caveat below: the provider never learns the child id.
+The returned `cwd` is the child's cwd for its session manager, settings and resource loading. The
+provider's `dispose(outcome)` runs once, at child teardown, with the last run's status (`aborted` if
+none); a non-empty `resultAddendum` is appended to the final snapshot text. A failed `prepare` rejects
+`createChild` before anything exists; a failure after `prepare` (assembly, parent closed, released
+resource) calls `dispose({ status: "aborted" })`. A reopened resource child keeps the resource's current
+cwd and owns no provider. The core never creates, merges or removes worktrees itself.
+
 ## Portability & embedding (user-settled, 2026-08)
 
 The layer must **work under vanilla pi** — no ThinkRail. `pi-delegation` itself is a library; the
