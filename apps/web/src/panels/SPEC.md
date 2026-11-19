@@ -2666,6 +2666,17 @@ menu has closed, because a closing menu returns focus to its row; disabled
   of `--numstat`), folder counts are summed client-side. Both views share `ChangesPanel`'s `openDiff` + `isActive`.
   The **List shows the full worktree-relative path** — muted directory prefix (which yields first when the
   row overflows) + the status-colored basename, so the name a user scans stays visible.
+- **Changes: Agent filter.** The panel toolbar's **Agent** `ToggleSegment` (`changes-filter-agent`, `store.changesFilter`,
+  app-wide and session-only like `changesView`) narrows both views to the files an agent run touched. The set is
+  derived, never stored: `changesModel.agentChangedFiles(changes, turns)` keeps the entries of the scope's
+  `git.status` list whose path appears in any host-recorded `TurnChangeSet` of the workspace (`turnsByWorkspace`,
+  read through `useAgentChanges`), so a file the agent wrote and the user then reverted, or one already committed
+  outside the scope, is simply absent. The set is the host's own record of each run's tree diff, so a change the
+  agent made through the shell counts as well as one made through `edit` / `write`. The segment is disabled while
+  the filter is off and the workspace has no agent-touched file in the scope (it can always be switched off), a
+  filtered-empty list says so (`changes-agent-empty`) instead of showing the plain empty state, and the
+  remembered scroll position is keyed by the filter as well as the scope so the two lists never restore each
+  other's offset. The Changes **review tab** is unaffected: it reviews its whole scope.
 - **Browsing reuses one tab per center group: preview versus keep.** Each workspace view has one local
   preview identity per frame group; its label is italic and carries `data-preview="true"`. Single-clicking a file/spec/change row or
   following a rendered-document/chat artifact link opens into the browser's last-focused destination group

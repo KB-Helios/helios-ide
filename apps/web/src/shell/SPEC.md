@@ -44,7 +44,12 @@ workbench engine (every tab, split, tool, terminal and preset keeps working):
   **Sidebar toggle** (`toggle-sidebar`, the `view.toggleLeft` chord action) and then the location strip
   as a quiet thread title. Trailing (`topbar-actions`): the **Review Changes** control (`open-review`,
   only with an active workspace; it shows the workspace's `+N −M` git line totals when known and toggles
-  the right side, landing on the Files tool's Changed mode — All files in a chat without a project), the **Terminal toggle** (`toggle-terminal`, the bottom panel), wiki,
+  the right side, landing on the Files tool's Changed mode — All files in a chat without a project), the
+  **agent files pill** just before it (`agent-changes-pill`: "N files changed" for the files an agent run
+  touched that still differ in the current Changes scope — the Changes panel's *Agent* filter, so the
+  number is exactly the length of the list the click lands on; hidden at zero, in a chat without a project
+  and on narrow viewports, and it only ever reveals — `revealAgentChanges` — so it never closes the side
+  the Review Changes control owns), the **Terminal toggle** (`toggle-terminal`, the bottom panel), wiki,
   search, the JetBrains quota, connection status and Settings.
 - **Thread Sidebar** — the Projects tool on the left side of the default Codex preset
   ([[submodule-web-shell-layout]], *Presets*). Its header carries a **New thread** action and a **Search**

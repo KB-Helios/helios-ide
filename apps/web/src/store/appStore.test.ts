@@ -3741,6 +3741,38 @@ test("revealChanges and requestChangesView reveal Files in Changed mode", () => 
 	expect(useAppStore.getState().filesMode).toBe("changed");
 });
 
+test("revealAgentChanges reveals Files in Changed mode narrowed to the agent's files, in one write", () => {
+	useAppStore.setState({ filesMode: "all", changesFilter: "all", layoutIntents: [] });
+	const writes: Array<{ filesMode: string; changesFilter: string }> = [];
+	const stop = useAppStore.subscribe((state) =>
+		writes.push({ filesMode: state.filesMode, changesFilter: state.changesFilter }),
+	);
+	useAppStore.getState().revealAgentChanges("w1");
+	stop();
+
+	expect(writes).toEqual([{ filesMode: "changed", changesFilter: "agent" }]);
+	expect(useAppStore.getState().layoutIntents).toMatchObject([
+		{ kind: "reveal-tool", workspaceId: "w1", tool: "files" },
+	]);
+});
+
+test("the Changes filter is a reading preference that other reveals and the toggle respect", () => {
+	useAppStore.setState({ filesMode: "all", changesFilter: "agent", layoutIntents: [] });
+	useAppStore.getState().revealChanges("w1");
+	useAppStore.getState().requestChangesView("w1", "src/a.ts");
+	expect(useAppStore.getState().changesFilter).toBe("agent");
+
+	useAppStore.getState().setChangesFilter("all");
+	expect(useAppStore.getState().changesFilter).toBe("all");
+
+	const removedBefore = useAppStore.getState().removedWorkspaceIds;
+	useAppStore.setState({ removedWorkspaceIds: { gone: true }, layoutIntents: [] });
+	useAppStore.getState().revealAgentChanges("gone");
+	expect(useAppStore.getState().changesFilter).toBe("all");
+	expect(useAppStore.getState().layoutIntents).toEqual([]);
+	useAppStore.setState({ removedWorkspaceIds: removedBefore });
+});
+
 test("requestChangesView / requestSpecView pair independent path requests with reveal intents", () => {
 	useAppStore.setState({ changesRequest: null, specRequest: null, layoutIntents: [] });
 

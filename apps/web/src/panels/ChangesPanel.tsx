@@ -33,6 +33,7 @@ import { DiffStatBadge } from "./DiffStatBadge";
 import { openChangesTab, openDiffInTab } from "./openTabs";
 import { RememberedScrollArea } from "./RememberedScrollArea";
 import { Tree, useTreeItem } from "./treeNavigation";
+import { useAgentChanges } from "./useAgentChanges";
 import { ViewedMark } from "./ViewedMark";
 
 function selectReviewTab(
@@ -60,6 +61,9 @@ export function ChangesPanel({
 	const changesRequest = useAppStore((s) => s.changesRequest);
 	const changesView = useAppStore((s) => s.changesView);
 	const setChangesView = useAppStore((s) => s.setChangesView);
+	const agentOnly = useAppStore((s) => s.changesFilter === "agent");
+	const setChangesFilter = useAppStore((s) => s.setChangesFilter);
+	const agentChanges = useAgentChanges(workspaceId, status?.changes);
 	const setDiffScope = useAppStore((s) => s.setDiffScope);
 	const scope = useAppStore((s) => selectDiffScope(s, workspaceId));
 	const workspace = useAppStore((s) => selectWorkspaceById(s, workspaceId));
@@ -153,6 +157,7 @@ export function ChangesPanel({
 				? activeDiffTab.path === path && scopeKey(activeDiffTab.scope) === scopeKey(scope)
 				: highlighted === path;
 	const isViewed = (path: string) => viewed.has(path);
+	const visibleChanges = agentOnly ? agentChanges : (status?.changes ?? []);
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
@@ -185,6 +190,13 @@ export function ChangesPanel({
 					) : null}
 				</div>
 				<ToggleSegment
+					testid="changes-filter-agent"
+					label={t("changes.panel.agent")}
+					active={agentOnly}
+					disabled={!agentOnly && agentChanges.length === 0}
+					onClick={() => setChangesFilter(agentOnly ? "all" : "agent")}
+				/>
+				<ToggleSegment
 					testid="changes-toggle-list"
 					label={t("changes.panel.list")}
 					active={changesView === "list"}
@@ -198,10 +210,10 @@ export function ChangesPanel({
 				/>
 			</div>
 			<RememberedScrollArea
-				key={`${changesView}:${viewKey}`}
+				key={`${changesView}:${viewKey}:${agentOnly}`}
 				workspaceId={workspaceId}
 				view={changesView === "tree" ? "changedTree" : "changedList"}
-				scope={viewKey}
+				scope={agentOnly ? `${viewKey}:agent` : viewKey}
 				className="min-h-0 flex-1"
 				viewportClassName="p-panel-inset"
 			>
@@ -220,9 +232,16 @@ export function ChangesPanel({
 					<p data-testid="changes-empty" className="px-8 py-4 tr-text-metadata text-text-muted">
 						{t("changes.empty")}
 					</p>
+				) : visibleChanges.length === 0 ? (
+					<p
+						data-testid="changes-agent-empty"
+						className="px-8 py-4 tr-text-metadata text-text-muted"
+					>
+						{t("changes.panel.agentEmpty")}
+					</p>
 				) : changesView === "tree" ? (
 					<ChangesTree
-						changes={status.changes}
+						changes={visibleChanges}
 						onOpen={(path, intent, claimPreview) => openDiff(path, intent, undefined, claimPreview)}
 						isActive={isActive}
 						isViewed={isViewed}
@@ -233,7 +252,7 @@ export function ChangesPanel({
 					/>
 				) : (
 					<ChangesList
-						changes={status.changes}
+						changes={visibleChanges}
 						openDiff={openDiff}
 						isActive={isActive}
 						isViewed={isViewed}

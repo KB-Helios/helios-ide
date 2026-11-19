@@ -246,6 +246,8 @@ export function isFileComparison<T extends { kind: string; before?: string | und
 export type ChangesLayout = "stacked" | "single";
 export type MarkdownOutlineSide = "left" | "right";
 type FilesMode = "all" | "changed";
+/** The Changes panel's narrowing: every change in scope, or only the files an agent run touched. */
+export type ChangesFilter = "all" | "agent";
 export type FilesScrollView = "all" | "changedList" | "changedTree";
 export interface FilesTreeView {
 	expanded: readonly string[];
@@ -1409,6 +1411,8 @@ interface AppState {
 	setChangesView: (view: "list" | "tree") => void;
 	filesMode: FilesMode;
 	setFilesMode: (mode: FilesMode) => void;
+	changesFilter: ChangesFilter;
+	setChangesFilter: (filter: ChangesFilter) => void;
 	fileClipboard: FileClipboard | null;
 	setFileClipboard: (clipboard: FileClipboard | null) => void;
 	filesTreeByWorkspace: Record<string, FilesTreeView>;
@@ -1613,6 +1617,7 @@ interface AppState {
 	requestToolView: (workspaceId: string, tool: LayoutToolId) => void;
 	requestChangesView: (workspaceId: string, path: string | null, scope?: GitDiffScope) => void;
 	revealChanges: (workspaceId: string) => void;
+	revealAgentChanges: (workspaceId: string) => void;
 	clearChangesRequest: () => void;
 	requestChatLocation: (req: ChatLocationRequest) => void;
 	clearChatLocation: () => void;
@@ -2607,6 +2612,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 	reviewFocusRequest: null,
 	changesView: "tree",
 	filesMode: "all",
+	changesFilter: "all",
 	fileClipboard: null,
 	filesTreeByWorkspace: {},
 	changesLayout: "stacked",
@@ -3592,6 +3598,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 		),
 	setChangesView: (view) => set({ changesView: view }),
 	setFilesMode: (filesMode) => set({ filesMode }),
+	setChangesFilter: (changesFilter) => set({ changesFilter }),
 	setFileClipboard: (fileClipboard) => set({ fileClipboard }),
 	hydrateFilesTree: (filesTreeByWorkspace) => set({ filesTreeByWorkspace }),
 	setFilesTreeExpanded: (workspaceId, paths, expanded) =>
@@ -4967,6 +4974,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 		}),
 	revealChanges: (workspaceId) =>
 		set((s) => (s.removedWorkspaceIds[workspaceId] ? {} : revealChangedFilesPatch(s, workspaceId))),
+	revealAgentChanges: (workspaceId) =>
+		set((s) =>
+			s.removedWorkspaceIds[workspaceId]
+				? {}
+				: { ...revealChangedFilesPatch(s, workspaceId), changesFilter: "agent" },
+		),
 	clearChangesRequest: () => set({ changesRequest: null }),
 	requestChatLocation: (req) =>
 		set((state) => {

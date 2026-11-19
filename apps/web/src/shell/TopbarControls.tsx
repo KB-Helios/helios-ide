@@ -1,4 +1,5 @@
 import {
+	RiFileEditLine,
 	RiLayoutRightFill,
 	RiLayoutRightLine,
 	RiSideBarFill,
@@ -8,6 +9,7 @@ import {
 } from "@remixicon/react";
 import { useT } from "@thinkrail/locales/react";
 import { Button, IconButton } from "@thinkrail/ui/button";
+import { useAgentChanges } from "../panels/useAgentChanges";
 import { useGitStatus } from "../panels/useGitStatus";
 import { useAppStore } from "../store";
 import { useKeybindingLabel } from "./keybindingState";
@@ -46,22 +48,53 @@ function useSideVisible(side: "right" | "bottom"): boolean {
 	});
 }
 
-/** Sum of the active workspace's changed lines, or `null` while unknown / for a chat. */
-function useDiffTotals(workspaceId: string | null): { added: number; removed: number } | null {
+interface ReviewSummary {
+	/** Sum of the changed lines, or `null` while unknown / for a chat. */
+	totals: { added: number; removed: number } | null;
+	/** How many of the scope's changed files an agent run touched. */
+	agentFiles: number;
+}
+
+/** One `git.status` read feeds both the line totals and the agent-touched file count. */
+function useReviewSummary(workspaceId: string | null): ReviewSummary {
 	const { status } = useGitStatus(workspaceId);
-	if (!status) return null;
+	const agentFiles = useAgentChanges(workspaceId, status?.changes).length;
+	if (!status) return { totals: null, agentFiles };
 	let added = 0;
 	let removed = 0;
 	for (const change of status.changes) {
 		added += change.added ?? 0;
 		removed += change.removed ?? 0;
 	}
-	return { added, removed };
+	return { totals: { added, removed }, agentFiles };
+}
+
+/**
+ * The "N files changed" pill: how many of the changed files an agent run touched. Clicking it only reveals
+ * (the Files tool in Changed mode, narrowed to those files), so it never closes the side Review Changes owns.
+ */
+function AgentChangesPill({ workspaceId, count }: { workspaceId: string; count: number }) {
+	const t = useT();
+	return (
+		<Button
+			variant="soft-primary"
+			size="m"
+			iconLeft={RiFileEditLine}
+			tooltip={t("shell.topbar.agentFilesReview")}
+			className="rounded-full max-sm:hidden"
+			data-testid="agent-changes-pill"
+			data-count={count}
+			onClick={() => useAppStore.getState().revealAgentChanges(workspaceId)}
+		>
+			<span className="tabular-nums">{t("shell.topbar.agentFiles", { count })}</span>
+		</Button>
+	);
 }
 
 /**
  * Review Changes: opens the right side on the Review tool, or hides the right side when it is shown.
- * It carries the workspace's `+N −M` line totals when git status is known.
+ * It carries the workspace's `+N −M` line totals when git status is known, and is preceded by the
+ * agent files pill while an agent run's changes are still in the scope.
  */
 export function ReviewChangesButton({
 	workspaceId,
@@ -76,33 +109,36 @@ export function ReviewChangesButton({
 	const t = useT();
 	const open = useSideVisible("right");
 	const shortcut = useKeybindingLabel("view.toggleRight");
-	const totals = useDiffTotals(gitWorkspaceId);
+	const { totals, agentFiles } = useReviewSummary(gitWorkspaceId);
 	const hasChanges = totals !== null && (totals.added > 0 || totals.removed > 0);
 	const label = open ? t("shell.topbar.hideReview") : t("shell.topbar.openReview");
 	return (
-		<Button
-			variant="ghost"
-			size="m"
-			iconLeft={open ? RiLayoutRightFill : RiLayoutRightLine}
-			selected={open}
-			aria-pressed={open}
-			aria-label={label}
-			tooltip={label}
-			tooltipShortcut={shortcut ? [shortcut] : undefined}
-			className="max-sm:hidden"
-			data-testid="open-review"
-			data-workspace-id={workspaceId}
-			onClick={onToggle}
-		>
-			{hasChanges ? (
-				<span className="tabular-nums">
-					<span className="text-feedback-success">+{totals.added}</span>{" "}
-					<span className="text-feedback-error">−{totals.removed}</span>
-				</span>
-			) : (
-				t("shell.topbar.review")
-			)}
-		</Button>
+		<>
+			{agentFiles > 0 ? <AgentChangesPill workspaceId={workspaceId} count={agentFiles} /> : null}
+			<Button
+				variant="ghost"
+				size="m"
+				iconLeft={open ? RiLayoutRightFill : RiLayoutRightLine}
+				selected={open}
+				aria-pressed={open}
+				aria-label={label}
+				tooltip={label}
+				tooltipShortcut={shortcut ? [shortcut] : undefined}
+				className="max-sm:hidden"
+				data-testid="open-review"
+				data-workspace-id={workspaceId}
+				onClick={onToggle}
+			>
+				{hasChanges ? (
+					<span className="tabular-nums">
+						<span className="text-feedback-success">+{totals.added}</span>{" "}
+						<span className="text-feedback-error">−{totals.removed}</span>
+					</span>
+				) : (
+					t("shell.topbar.review")
+				)}
+			</Button>
+		</>
 	);
 }
 
