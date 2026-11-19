@@ -25,5 +25,6 @@ test("renderCommitTask names the sha, files, truncation, and the contract last",
 	expect(text).toContain("feat: x");
 	expect(text).toContain("src/a.ts (modified, +3 -1)");
 	expect(text).toContain("truncated");
+	expect(text).toContain("untrusted");
 	expect(text.trimEnd().endsWith("CONTRACT")).toBe(true);
 });
