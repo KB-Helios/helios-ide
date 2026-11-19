@@ -94,6 +94,7 @@ import { ShortcutsDialogHost } from "./ShortcutsDialog";
 import { ReviewChangesButton, SidebarToggle, TerminalToggle } from "./TopbarControls";
 import { hasNativeShortcuts, readSettingsShortcutLabel } from "./useAppShortcuts";
 import { useCollapsibleRegion } from "./useCollapsibleRegion";
+import { useFollowAgent } from "./useFollowAgent";
 import { useGlobalHotkeys } from "./useGlobalHotkeys";
 import { useNativeWindowControls } from "./useNativeWindowControls";
 import { WorkspaceWorkbench } from "./WorkspaceWorkbench";
@@ -252,6 +253,7 @@ function ShellLayout() {
 	useEffect(installRegionTracker, []);
 	useEffect(installFocusRecovery, []);
 	useEffect(installEscapeLeavesField, []);
+	useFollowAgent();
 	useGlobalHotkeys({
 		onProjects: () => toggleLeftSide(homeProjects.toggle),
 		...(hasActiveWorkspace

@@ -370,7 +370,7 @@ treatment.
   cannot look clipped before the menu),
   `FilePane` and `DiffPane` as resource-registry dispatchers over [[module-resource-renderers]] (the bundled
   lazy renderers, Monaco's desktop-file plumbing and Pierre's provider live there), plus lazy
-  `TerminalInstance`.
+  `TerminalInstance`. `FilePane`'s toolbar also carries the **Follow agent** switch and, while following is paused, the **Resume following** pill ([[submodule-web-shell]], *Follow Agent*); it passes `onUserNavigated` to the renderer so the first manual wheel, pointer or key event in the editor pauses the follow.
   The slim header view-toggle segment (the ordered resource
   candidates, `Split|Inline`, `List|Tree`) is the shared `@thinkrail/ui/toggle-segment` `ToggleSegment` — whose active segment reuses the tab
   grammar's `control-bg-selected` (below), never a container surface, so the selected fill survives the

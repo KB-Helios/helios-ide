@@ -1020,6 +1020,8 @@
 	"panels.existingWorktree.loading": "正在读取 Git 工作树",
 	"panels.existingWorktree.openFailed": "未能完成打开已有工作树",
 	"panels.existingWorktree.title": "打开已有工作树",
+	"panels.filePane.followAgent": "跟随智能体",
+	"panels.filePane.followResume": "恢复跟随",
 	"panels.filePane.resourceView": "资源视图",
 	"panels.fileTree.copyPath": "复制路径",
 	"panels.fileTree.copyRelativePath": "复制相对路径",

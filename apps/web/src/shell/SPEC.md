@@ -569,3 +569,27 @@ actions do not rely on it: they focus what they revealed themselves. Neither doe
 focused row unmounts: the chat transcript moves focus to its own list container in the row's unmount
 cleanup, before the browser drops it, so recovery sees focus held and the list keeps its cursor
 ([[submodule-web-chat]], *Transcript keyboard model*).
+
+## Follow Agent
+
+While an agent works, the code view can **follow** it: each file the agent creates or edits opens as a
+preview tab and scrolls to what changed, without taking focus from the conversation. `useFollowAgent`
+(mounted once by `Shell`; pure rules in `followAgent.ts`) is the only owner.
+
+- **Signal.** A chat tab's session in the *active* workspace whose `toolResults` gain a settled (`done`)
+  `edit` or `write`. A tool call id is followed once; the first read of a session only seeds the seen set, so
+  opening a chat or reconnecting never replays history. Nothing follows while the session is not streaming,
+  while `followAgent` is off, or while the workspace is paused.
+- **Where.** `openFileAtLine(…, "preview", { background: true, targetGroupId })`: the tab opens without
+  activating, in a center group that does not hold the running chat (`followTargetGroupId`: a group already
+  showing a file, else any other group, else the layout's own choice). In Agent + Code Split that is the code
+  group; in a single-group layout the preview tab appears beside the chat tab and the chat stays selected.
+- **What line.** `changedLine` reads the file after the mutation and finds the edit's new text (the first
+  line of `newText`, else `1`); a `write` reveals line 1. The reveal carries `flash: true`, so the renderer
+  marks that line with the accent for 1.5 s.
+- **Pausing.** A wheel, pointer or key event inside the editor is manual navigation: it calls
+  `pauseFollow(workspaceId)`, and the file toolbar shows **Resume following**. Enabling the toggle or pressing
+  the pill resumes; a pause never outlives the toggle and is per workspace.
+- **Toggle.** The file toolbar's **Follow agent** switch (`followAgent`, default on, this client only). The
+  toolbar is otherwise hidden for a single-renderer file, so it appears while an agent runs in the workspace or
+  following is paused, never permanently.

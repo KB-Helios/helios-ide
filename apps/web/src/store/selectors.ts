@@ -1559,3 +1559,11 @@ export function prBabysitCounts(session: PrBabysitSessionState | null): {
 export function isOpenPrBabysitItem(item: PrBabysitItem): boolean {
 	return item.status !== "resolved" && item.status !== "dismissed" && item.status !== "pushed";
 }
+
+/** Whether an agent edit in `workspaceId` should be followed right now: following is on and not paused. */
+export function selectFollowActive(
+	state: { followAgent: boolean; followPausedByWorkspace: Record<string, true> },
+	workspaceId: string,
+): boolean {
+	return state.followAgent && !state.followPausedByWorkspace[workspaceId];
+}

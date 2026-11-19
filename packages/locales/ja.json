@@ -910,6 +910,8 @@
 	"panels.existingWorktree.loading": "Git ワークツリーを読み込み中",
 	"panels.existingWorktree.openFailed": "既存のワークツリーを開く処理を完了できませんでした",
 	"panels.existingWorktree.title": "既存のワークツリーを開く",
+	"panels.filePane.followAgent": "エージェントを追う",
+	"panels.filePane.followResume": "追従を再開",
 	"panels.filePane.resourceView": "リソースビュー",
 	"panels.fileTree.copyPath": "パスをコピー",
 	"panels.fileTree.copyRelativePath": "相対パスをコピー",

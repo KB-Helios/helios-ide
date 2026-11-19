@@ -62,6 +62,8 @@ export interface ResourceReveal {
 	line: number;
 	column?: number;
 	length?: number;
+	/** Mark the line with the accent for a moment (Follow Agent). */
+	flash?: boolean;
 	tick: number;
 }
 
@@ -74,6 +76,8 @@ export interface ResourceViewProps {
 	onViewState?(state: unknown): void;
 	reveal?: ResourceReveal;
 	onRevealHandled?(tick: number): void;
+	/** The user took over: a wheel, pointer or key event inside a text view. */
+	onUserNavigated?(): void;
 }
 
 export interface HunkActions {

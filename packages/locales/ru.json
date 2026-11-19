@@ -1159,6 +1159,8 @@
 	"panels.existingWorktree.loading": "Чтение списка Git worktree",
 	"panels.existingWorktree.openFailed": "Не удалось открыть существующий worktree",
 	"panels.existingWorktree.title": "Открыть существующий worktree",
+	"panels.filePane.followAgent": "Следить за агентом",
+	"panels.filePane.followResume": "Возобновить слежение",
 	"panels.filePane.resourceView": "Представление ресурсов",
 	"panels.fileTree.copyPath": "Копировать путь",
 	"panels.fileTree.copyRelativePath": "Копировать относительный путь",

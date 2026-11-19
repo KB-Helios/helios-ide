@@ -43,6 +43,34 @@ function isEditorViewState(value: unknown): value is editor.ICodeEditorViewState
 	return Array.isArray(Reflect.get(value, "cursorState")) && Reflect.has(value, "viewState");
 }
 
+const FLASH_MS = 1500;
+
+type FlashState = { collection: editor.IEditorDecorationsCollection; timer: number } | null;
+
+function clearFlash(flashRef: { current: FlashState }): void {
+	const flash = flashRef.current;
+	if (!flash) return;
+	window.clearTimeout(flash.timer);
+	flash.collection.clear();
+	flashRef.current = null;
+}
+
+/** Marks `line` with the accent for `FLASH_MS`; a newer flash replaces an older one. */
+function flashLine(
+	codeEditor: editor.IStandaloneCodeEditor,
+	flashRef: { current: FlashState },
+	line: number,
+): void {
+	clearFlash(flashRef);
+	const collection = codeEditor.createDecorationsCollection([
+		{
+			range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+			options: { isWholeLine: true, className: "follow-flash-line" },
+		},
+	]);
+	flashRef.current = { collection, timer: window.setTimeout(() => clearFlash(flashRef), FLASH_MS) };
+}
+
 export function warm(host: ResourceHost): void {
 	ensureMonaco(host.code);
 }
@@ -55,6 +83,7 @@ export default function MonacoEditor({
 	onViewState,
 	reveal,
 	onRevealHandled,
+	onUserNavigated,
 }: ResourceViewProps) {
 	const t = useT();
 	const { fileLineWidth, fileLineWidthBounded } = useResourcePreferences();
@@ -74,6 +103,10 @@ export default function MonacoEditor({
 	const threadsRef = useRef<ReturnType<typeof attachReviewThreads> | null>(null);
 	const decorationsRef = useRef<string[]>([]);
 	const freshMountRef = useRef(false);
+	const flashRef = useRef<{
+		collection: editor.IEditorDecorationsCollection;
+		timer: number;
+	} | null>(null);
 	const appliedRef = useRef({ scope, path, text, options });
 	const latestRef = useRef({
 		scope,
@@ -84,6 +117,7 @@ export default function MonacoEditor({
 		viewState,
 		review,
 		onViewState,
+		onUserNavigated,
 	});
 	const [reviewZones, setReviewZones] = useState<MonacoReviewZoneState>({
 		threads: [],
@@ -100,6 +134,7 @@ export default function MonacoEditor({
 			viewState,
 			review,
 			onViewState,
+			onUserNavigated,
 		};
 	});
 
@@ -124,7 +159,13 @@ export default function MonacoEditor({
 			: null;
 		threadsRef.current = threads;
 		commentingRef.current = commenting;
+		const userNavigated = () => latestRef.current.onUserNavigated?.();
+		const userEvents = ["wheel", "pointerdown", "keydown"] as const;
+		for (const type of userEvents)
+			container.addEventListener(type, userNavigated, { passive: true });
 		return () => {
+			for (const type of userEvents) container.removeEventListener(type, userNavigated);
+			clearFlash(flashRef);
 			const saved = codeEditor.saveViewState();
 			if (saved) latestRef.current.onViewState?.(saved);
 			menuIcons.dispose();
@@ -197,6 +238,7 @@ export default function MonacoEditor({
 	const revealColumn = reveal?.column;
 	const revealLength = reveal?.length;
 	const revealTick = reveal?.tick;
+	const revealFlash = reveal?.flash === true;
 	const revealHandled = useEffectEvent((tick: number) => onRevealHandled?.(tick));
 	useLayoutEffect(() => {
 		const codeEditor = editorRef.current;
@@ -209,8 +251,9 @@ export default function MonacoEditor({
 			endLineNumber: revealLine,
 			endColumn: column + (revealLength ?? 0),
 		});
+		if (revealFlash) flashLine(codeEditor, flashRef, revealLine);
 		revealHandled(revealTick);
-	}, [revealLine, revealColumn, revealLength, revealTick]);
+	}, [revealLine, revealColumn, revealLength, revealFlash, revealTick]);
 
 	return (
 		<>

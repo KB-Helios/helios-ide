@@ -156,14 +156,22 @@ function PierreFileSurface({
 	usePierreFocus(rootRef, virtualizer, [{ review }], placedThreadIds);
 	const revealLine = reveal?.line;
 	const revealTick = reveal?.tick;
+	const revealFlash = reveal?.flash === true;
 	const revealHandled = useEffectEvent((tick: number) => onRevealHandled?.(tick));
 	useEffect(() => {
 		if (revealLine === undefined || revealTick === undefined) return;
 		let frame = 0;
+		let flashTimer = 0;
 		let attempts = 0;
 		const attempt = () => {
 			if (virtualizer.revealLine(revealLine)) {
 				setSelectedLines({ start: revealLine, end: revealLine });
+				if (revealFlash) {
+					flashTimer = window.setTimeout(
+						() => setSelectedLines((current) => (current?.start === revealLine ? null : current)),
+						1500,
+					);
+				}
 				revealHandled(revealTick);
 				return;
 			}
@@ -171,8 +179,11 @@ function PierreFileSurface({
 			if (attempts < 30) frame = requestAnimationFrame(attempt);
 		};
 		attempt();
-		return () => cancelAnimationFrame(frame);
-	}, [virtualizer, revealLine, revealTick]);
+		return () => {
+			cancelAnimationFrame(frame);
+			window.clearTimeout(flashTimer);
+		};
+	}, [virtualizer, revealLine, revealFlash, revealTick]);
 
 	return (
 		<PierreScroller

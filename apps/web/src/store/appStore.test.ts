@@ -47,6 +47,7 @@ import {
 	selectCurrentRouteChatTarget,
 	selectDiffScope,
 	selectFilesTreeView,
+	selectFollowActive,
 	selectReadyCompletionAck,
 	selectSkillsStale,
 	selectUnnamedChatFirstPrompts,
@@ -5454,6 +5455,28 @@ test("requestNewWorkspace holds one prompt-seeded request until the shell clears
 	const cleared = useAppStore.getState();
 	useAppStore.getState().clearNewWorkspaceRequest();
 	expect(useAppStore.getState()).toBe(cleared);
+});
+
+test("Follow Agent pauses per workspace, resumes, and turning it back on clears every pause", () => {
+	const s = () => useAppStore.getState();
+	useAppStore.setState({ followAgent: true, followPausedByWorkspace: {} });
+	expect(selectFollowActive(s(), "ws1")).toBe(true);
+	s().pauseFollow("ws1");
+	expect(selectFollowActive(s(), "ws1")).toBe(false);
+	expect(selectFollowActive(s(), "ws2")).toBe(true);
+	const paused = s();
+	s().pauseFollow("ws1");
+	expect(s()).toBe(paused);
+	s().resumeFollow("ws1");
+	expect(selectFollowActive(s(), "ws1")).toBe(true);
+	s().pauseFollow("ws1");
+	s().pauseFollow("ws2");
+	s().setFollowAgent(false);
+	s().pauseFollow("ws3");
+	expect(s().followPausedByWorkspace).toEqual({ ws1: true, ws2: true });
+	s().setFollowAgent(true);
+	expect(s().followPausedByWorkspace).toEqual({});
+	expect(selectFollowActive(s(), "ws1")).toBe(true);
 });
 
 test("revealFileTab stamps a reveal on the file tab, repeats through tick, and switches the renderer when asked", () => {

@@ -574,7 +574,7 @@ re-read while a server starts. The state vocabulary and the attention/active pre
   shell — the composer's isolated-worktree mode ([[submodule-web-chat]]) — asks the shell to open its one
   `NewWorkspaceDialog` for the context project seeded with a prompt; the shell consumes the request (opening
   the dialog, then clearing it) and a request the shell cannot honour, because a creation is already open, is
-  dropped rather than queued. The request carries no project: the dialog resolves it as it does for `Mod+N`. The ephemeral **`shortcutsOpen`** plus **`openShortcuts()`** /
+  dropped rather than queued. The request carries no project: the dialog resolves it as it does for `Mod+N`. The ephemeral **`followAgent`** (default `true`) and per-workspace **`followPausedByWorkspace`**, with **`setFollowAgent`** (turning it on clears every pause), **`pauseFollow(workspaceId)`** (a no-op while following is off or already paused) and **`resumeFollow(workspaceId)`**, are the whole state of Follow Agent ([[submodule-web-shell]], *Follow Agent*); **`selectFollowActive(state, workspaceId)`** is the one derivation of "follows now". The ephemeral **`shortcutsOpen`** plus **`openShortcuts()`** /
   **`closeShortcuts()`** is the keyboard-shortcuts dialog's render flag ([[submodule-web-shell]]), so its
   chord, the rail icon and the palette row open the one instance; its filter and section order stay
   component state. The

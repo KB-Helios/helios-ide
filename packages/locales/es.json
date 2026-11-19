@@ -996,6 +996,8 @@
 	"panels.existingWorktree.loading": "Leyendo los worktrees de Git",
 	"panels.existingWorktree.openFailed": "No se pudo terminar de abrir el worktree existente",
 	"panels.existingWorktree.title": "Abrir un worktree existente",
+	"panels.filePane.followAgent": "Seguir al agente",
+	"panels.filePane.followResume": "Reanudar seguimiento",
 	"panels.filePane.resourceView": "Vista de recursos",
 	"panels.fileTree.copyPath": "Copiar ruta",
 	"panels.fileTree.copyRelativePath": "Copiar ruta relativa",

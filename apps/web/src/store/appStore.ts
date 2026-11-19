@@ -177,6 +177,7 @@ export interface FileReveal {
 	line: number;
 	column?: number;
 	length?: number;
+	flash?: boolean;
 	tick: number;
 }
 export interface FileClipboard {
@@ -1200,6 +1201,8 @@ interface AppState {
 	searchOpen: boolean;
 	searchSession: number;
 	newWorkspaceRequest: { initialPrompt: string } | null;
+	followAgent: boolean;
+	followPausedByWorkspace: Record<string, true>;
 	shortcutsOpen: boolean;
 	doubleShiftSearch: boolean;
 	theme: ThemeId;
@@ -1596,6 +1599,9 @@ interface AppState {
 	closeSearch: () => void;
 	requestNewWorkspace: (initialPrompt: string) => void;
 	clearNewWorkspaceRequest: () => void;
+	setFollowAgent: (on: boolean) => void;
+	pauseFollow: (workspaceId: string) => void;
+	resumeFollow: (workspaceId: string) => void;
 	openShortcuts: () => void;
 	closeShortcuts: () => void;
 	setDoubleShiftSearch: (enabled: boolean) => void;
@@ -2623,6 +2629,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 	searchOpen: false,
 	searchSession: 0,
 	newWorkspaceRequest: null,
+	followAgent: true,
+	followPausedByWorkspace: {},
 	shortcutsOpen: false,
 	doubleShiftSearch: true,
 	theme: DEFAULT_CONFIG.theme,
@@ -4893,6 +4901,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 	requestNewWorkspace: (initialPrompt) => set({ newWorkspaceRequest: { initialPrompt } }),
 	clearNewWorkspaceRequest: () =>
 		set((state) => (state.newWorkspaceRequest ? { newWorkspaceRequest: null } : state)),
+	setFollowAgent: (on) =>
+		set((state) =>
+			state.followAgent === on && (!on || Object.keys(state.followPausedByWorkspace).length === 0)
+				? state
+				: { followAgent: on, followPausedByWorkspace: on ? {} : state.followPausedByWorkspace },
+		),
+	pauseFollow: (workspaceId) =>
+		set((state) =>
+			!state.followAgent || state.followPausedByWorkspace[workspaceId]
+				? state
+				: { followPausedByWorkspace: { ...state.followPausedByWorkspace, [workspaceId]: true } },
+		),
+	resumeFollow: (workspaceId) =>
+		set((state) =>
+			state.followPausedByWorkspace[workspaceId]
+				? { followPausedByWorkspace: omitKey(state.followPausedByWorkspace, workspaceId) }
+				: state,
+		),
 	openShortcuts: () => set((state) => (state.shortcutsOpen ? state : { shortcutsOpen: true })),
 	closeShortcuts: () => set((state) => (state.shortcutsOpen ? { shortcutsOpen: false } : state)),
 	setDoubleShiftSearch: (doubleShiftSearch) =>

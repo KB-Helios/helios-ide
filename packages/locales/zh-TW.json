@@ -947,6 +947,8 @@
 	"panels.existingWorktree.loading": "正在讀取 Git 工作樹",
 	"panels.existingWorktree.openFailed": "無法完成現有工作樹的開啟作業",
 	"panels.existingWorktree.title": "開啟現有工作樹",
+	"panels.filePane.followAgent": "跟隨代理程式",
+	"panels.filePane.followResume": "恢復跟隨",
 	"panels.filePane.resourceView": "資源檢視",
 	"panels.fileTree.empty": "空白",
 	"panels.files.all": "全部",

@@ -1,0 +1,75 @@
+import { useEffect } from "react";
+import { followFileAtLine } from "../panels/openTabs";
+import { selectFollowActive, useAppStore } from "../store";
+import { getTransport } from "../transport";
+import {
+	changedLine,
+	type FileMutation,
+	followTargetGroupId,
+	newFileMutations,
+} from "./followAgent";
+import { collectCenterGroups } from "./layout";
+
+async function follow(
+	workspaceId: string,
+	chatTabId: string,
+	mutation: FileMutation,
+): Promise<void> {
+	try {
+		const { content } = await getTransport().request("fs.readFile", {
+			workspaceId,
+			path: mutation.path,
+		});
+		const state = useAppStore.getState();
+		if (state.activeWorkspaceId !== workspaceId || !selectFollowActive(state, workspaceId)) return;
+		const document = state.layoutDocumentsByWorkspace[workspaceId];
+		const groups = document ? collectCenterGroups(document.center) : [];
+		await followFileAtLine(
+			workspaceId,
+			mutation.path,
+			changedLine(content, mutation),
+			followTargetGroupId(groups, chatTabId),
+		);
+	} catch {
+		// The file may be gone again by the time we read it; there is nothing to follow.
+	}
+}
+
+/**
+ * Follow Agent ([[submodule-web-shell]], *Follow Agent*): shows the files the active workspace's agent
+ * creates or edits, as they settle. Mounted once by the shell.
+ */
+export function useFollowAgent(): void {
+	useEffect(() => {
+		const seen = new Set<string>();
+		const primed = new Set<string>();
+		const scan = (
+			state: ReturnType<typeof useAppStore.getState>,
+			previous: typeof state | null,
+		) => {
+			const workspaceId = state.activeWorkspaceId;
+			if (!workspaceId) return;
+			for (const tab of state.tabsByWorkspace[workspaceId] ?? []) {
+				if (tab.kind !== "chat") continue;
+				const runtime = state.sessions[tab.sessionId];
+				if (!runtime) continue;
+				const fresh = newFileMutations(runtime.turns, runtime.toolResults, seen);
+				if (!primed.has(tab.sessionId)) {
+					primed.add(tab.sessionId);
+					for (const mutation of fresh) seen.add(mutation.toolCallId);
+					continue;
+				}
+				if (previous && runtime.toolResults === previous.sessions[tab.sessionId]?.toolResults) {
+					continue;
+				}
+				const following = runtime.isStreaming && selectFollowActive(state, workspaceId);
+				for (const mutation of fresh) {
+					seen.add(mutation.toolCallId);
+					if (following) void follow(workspaceId, tab.id, mutation);
+				}
+			}
+		};
+		scan(useAppStore.getState(), null);
+		return useAppStore.subscribe(scan);
+	}, []);
+}

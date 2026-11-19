@@ -1028,6 +1028,8 @@
 	"panels.existingWorktree.loading": "Odczytywanie drzew roboczych Git",
 	"panels.existingWorktree.openFailed": "Nie udało się dokończyć otwierania istniejącego drzewa roboczego",
 	"panels.existingWorktree.title": "Otwórz istniejące drzewo robocze",
+	"panels.filePane.followAgent": "Śledź agenta",
+	"panels.filePane.followResume": "Wznów śledzenie",
 	"panels.filePane.resourceView": "Widok zasobów",
 	"panels.fileTree.empty": "Puste",
 	"panels.files.all": "Wszystkie",
