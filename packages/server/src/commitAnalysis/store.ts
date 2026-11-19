@@ -64,7 +64,8 @@ export function readAnalysis(
 	workspaceId: string,
 	sha: string,
 ): CommitAnalysisRecord | null {
-	return readAnalyses(root, workspaceId)[sha] ?? null;
+	const analyses = readAnalyses(root, workspaceId);
+	return Object.hasOwn(analyses, sha) ? (analyses[sha] ?? null) : null;
 }
 
 export function writeAnalysisOnce(

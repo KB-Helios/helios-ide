@@ -33,6 +33,13 @@ test("writes once per sha and reads back", () => {
 	expect(existsSync(`${analysisSidecarPath(root, "ws1")}.tmp`)).toBe(false);
 });
 
+test("an inherited property name is never a stored analysis", () => {
+	writeAnalysisOnce(root, "ws1", record(A));
+	for (const name of ["__proto__", "constructor", "toString"]) {
+		expect(readAnalysis(root, "ws1", name)).toBeNull();
+	}
+});
+
 test("a corrupt file or a malformed entry reads as absent", () => {
 	const path = analysisSidecarPath(root, "ws1");
 	mkdirSync(dirname(path), { recursive: true });
