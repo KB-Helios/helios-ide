@@ -293,3 +293,15 @@ test("the record notes the checkout the children could read", async () => {
 	const without = createCommitAnalyzer(deps({ headOf: () => null }));
 	expect((await without.analyzeCommit("ws1", B, "parent", "manual"))?.checkout).toBeUndefined();
 });
+
+test("an invalid entry already stored under the sha fails the analysis instead of reporting success", async () => {
+	const path = analysisSidecarPath(root, "ws1");
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, JSON.stringify({ version: 1, items: { [A]: { sha: A } } }));
+	const analyzer = createCommitAnalyzer(deps());
+	expect(await analyzer.analyzeCommit("ws1", A, "parent", "manual")).toBeNull();
+	expect(analyzer.get("ws1", A)).toBeNull();
+	expect(published).toEqual([
+		{ workspaceId: "ws1", sha: A, status: "failed", code: "COMMIT_ANALYSIS_WRITE_FAILED" },
+	]);
+});

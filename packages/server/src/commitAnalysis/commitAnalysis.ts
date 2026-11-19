@@ -203,7 +203,9 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 			architecture,
 		};
 		writeAnalysisOnce(root, workspaceId, record);
-		return readAnalysis(root, workspaceId, pkg.sha) ?? record;
+		const saved = readAnalysis(root, workspaceId, pkg.sha);
+		if (!saved) throw new AnalysisFailure("COMMIT_ANALYSIS_WRITE_FAILED");
+		return saved;
 	}
 
 	const publish = (payload: CommitAnalyzedPayload) => {
