@@ -33,6 +33,19 @@ const GROUP_TONE: Record<AgentGroupId, string> = {
 	done: "text-text-muted",
 };
 
+function groupLabel(t: ReturnType<typeof useT>, group: AgentGroupId): string {
+	switch (group) {
+		case "failed":
+			return t("agents.group.failed");
+		case "working":
+			return t("agents.group.working");
+		case "queued":
+			return t("agents.group.queued");
+		default:
+			return t("agents.group.done");
+	}
+}
+
 function AgentRow({
 	row,
 	group,
@@ -74,7 +87,7 @@ function AgentRow({
 					<span className="truncate text-text-muted">{row.task}</span>
 				</div>
 				<div className="flex min-w-0 flex-wrap items-center gap-x-8 tr-text-metadata text-text-muted">
-					<span className={cn(GROUP_TONE[group])}>{t(`agents.group.${group}`)}</span>
+					<span className={cn(GROUP_TONE[group])}>{groupLabel(t, group)}</span>
 					{detail ? <span className="truncate">{detail}</span> : null}
 					<span className="truncate">{row.parentTitle || t("agents.row.untitledChat")}</span>
 					{row.durationMs !== undefined ? <span>{formatAgentElapsed(row.durationMs)}</span> : null}
@@ -123,9 +136,9 @@ export function AgentsTrigger({ workspaceId }: { workspaceId: string }) {
 			<PopoverContent align="end" className="w-[min(32rem,92vw)] p-0" data-testid="agents-popover">
 				<div className="max-h-96 overflow-y-auto py-4">
 					{groups.map((group) => (
-						<section key={group.id} aria-label={t(`agents.group.${group.id}`)}>
+						<section key={group.id} aria-label={groupLabel(t, group.id)}>
 							<h3 className="px-12 pt-8 tr-text-metadata text-text-muted">
-								{t(`agents.group.${group.id}`)} ({group.rows.length})
+								{groupLabel(t, group.id)} ({group.rows.length})
 							</h3>
 							<ul>
 								{group.rows.map((row) => (
