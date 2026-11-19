@@ -1532,7 +1532,8 @@ reject malformed model output before it reaches the UI.
 
 From **`COMMIT_ANALYSIS_PROTOCOL_VERSION`** (v127): `commit.analyze` `{ workspaceId, sha, sessionId? }`
 (`sessionId` is optional; the host picks a live chat when it is absent) answers `stored` or `queued`
-before the run finishes; `commit.analysis` `{ workspaceId, sha }` returns the record or `null`;
+before the run finishes, or refuses with `COMMIT_ANALYSIS_NOT_LISTED` (the sha is not on the branch's listed
+range) or `COMMIT_ANALYSIS_NO_SESSION` (no live chat to parent the run); `commit.analysis` `{ workspaceId, sha }` returns the record or `null`;
 `commit.analysisList` `{ workspaceId }` returns the analysed shas and those still pending. A record
 is immutable per sha. The workspace-scoped `commit.analyzed` channel carries `CommitAnalyzedPayload`
 (`completed` or `failed` with a code) once a run settles.

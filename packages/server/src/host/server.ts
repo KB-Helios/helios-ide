@@ -13,6 +13,7 @@ import type {
 } from "@thinkrail/contracts";
 import {
 	ARTIFACTS_PROTOCOL_VERSION,
+	COMMIT_ANALYSIS_PROTOCOL_VERSION,
 	CONTINUATION_PROTOCOL_VERSION,
 	FEEDBACK_SURVEY_PROTOCOL_VERSION,
 	FONTS_PROTOCOL_VERSION,
@@ -196,6 +197,11 @@ import {
 } from "../workspaces";
 import { createArtifactEventMapper } from "./artifactEvents";
 import { seesChats } from "./chats";
+import {
+	commitAnalyzer,
+	disposeCommitAnalysis,
+	setCommitAnalyzedPublisher,
+} from "./commitAnalysis";
 import { continueToolHost, observeContinuation, setContinuationPublisher } from "./continuations";
 import {
 	BLOB_PREFIX,
@@ -564,6 +570,8 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 				if (speech) ws.subscribe(WS_CHANNELS.speechChanged);
 				if (ws.data.protocolVersion >= PR_BABYSIT_PROTOCOL_VERSION)
 					ws.subscribe(WS_CHANNELS.prBabysitChanged);
+				if (ws.data.protocolVersion >= COMMIT_ANALYSIS_PROTOCOL_VERSION)
+					ws.subscribe(WS_CHANNELS.commitAnalyzed);
 				const hostPlatform: HostPlatform =
 					process.platform === "darwin" || process.platform === "win32"
 						? process.platform
@@ -1060,6 +1068,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 	setReviewFailedPublisher((payload) => {
 		publishScoped(WS_CHANNELS.reviewFailed, payload);
 	});
+	setCommitAnalyzedPublisher((payload) => {
+		publishScoped(WS_CHANNELS.commitAnalyzed, payload, { workspaceId: payload.workspaceId });
+	});
 	setReviewCommentHandler((sessionId, commentId, note) => {
 		const capture = additionalCapture();
 		const resolved = resolveCommentFromAgent(sessionId, commentId, note);
@@ -1194,7 +1205,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 			const observeCompletion = taskObservation.toolFinished(payload.sessionId, payload.event);
 			if (isChatWorkspaceId(workspaceId)) void observeCompletion();
 			else
-				void maybeAttachChangeArtifacts(workspaceId, payload.sessionId).then(async () => {
+				void maybeAttachChangeArtifacts(workspaceId, payload.sessionId).then(async (shas) => {
+					if (shas.length > 0)
+						void commitAnalyzer().analyzeNewCommits(workspaceId, payload.sessionId, shas);
 					await observeCompletion();
 					await maybeAutoReReview(workspaceId, payload.sessionId);
 				});
@@ -1363,6 +1376,7 @@ function restoreSeamDefaults(): void {
 	setRepoMetaPublisher(null);
 	setReviewPublisher(() => {});
 	setReviewFailedPublisher(() => {});
+	disposeCommitAnalysis();
 	setReviewCommentHandler(null);
 	setRequestReviewHandler(null);
 	setTitleToolHost(null);

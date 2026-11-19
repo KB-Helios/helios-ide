@@ -156,6 +156,7 @@ import {
 	type PushTargetStatus,
 	prefetchBranch,
 	remoteRefOidAsync,
+	resolveListedCommit,
 } from "../git";
 import { githubAuthStatus, githubRefresh } from "../github";
 import { clampLimit, getHistoryIndex } from "../history";
@@ -298,6 +299,7 @@ import {
 	recoverChatSession,
 	seesChats,
 } from "./chats";
+import { commitAnalyzer, requestCommitAnalysis } from "./commitAnalysis";
 import { continuationStatus, startContinuation } from "./continuations";
 import { nudgeBaseRefWorkspaces } from "./fsNudge";
 import { buildHistoryScope } from "./historyScope";
@@ -867,6 +869,7 @@ const handlers: WsHandlers = {
 			forgetWorkspaceChanges(ws.id);
 			forgetWorkspaceTurns(ws.id);
 			prBabysitEngine().forget(ws.id);
+			commitAnalyzer().forget(ws.id);
 			removeWorkspaceArtifacts(ws.id);
 			stopWatch(ws.id);
 			closeWorkspaceTerminals(ws.id);
@@ -933,15 +936,12 @@ const handlers: WsHandlers = {
 		if (p.action !== "retry" && p.action !== "dismiss") throw new Error("Unknown item action");
 		return prBabysitEngine().itemAction(p.workspaceId, p.itemId, p.action);
 	},
-	"commit.analyze": () => {
-		throw new CodedError("COMMIT_ANALYSIS_UNAVAILABLE", "Commit analysis is not available yet");
+	"commit.analyze": (p) => requestCommitAnalysis(p.workspaceId, p.sha, p.sessionId),
+	"commit.analysis": (p) => {
+		const sha = resolveListedCommit(p.workspaceId, p.sha) ?? p.sha;
+		return commitAnalyzer().get(p.workspaceId, sha);
 	},
-	"commit.analysis": () => {
-		throw new CodedError("COMMIT_ANALYSIS_UNAVAILABLE", "Commit analysis is not available yet");
-	},
-	"commit.analysisList": () => {
-		throw new CodedError("COMMIT_ANALYSIS_UNAVAILABLE", "Commit analysis is not available yet");
-	},
+	"commit.analysisList": (p) => commitAnalyzer().list(p.workspaceId),
 	"pr.reopen": async (p) => {
 		recordWorkspaceActivity(p.workspaceId);
 		await reopenPr(p);
@@ -1852,6 +1852,9 @@ const REPOSITORY_ONLY_METHODS: ReadonlySet<WsMethodName> = new Set<WsMethodName>
 	"prBabysit.postFinding",
 	"prBabysit.approvePush",
 	"prBabysit.itemAction",
+	"commit.analyze",
+	"commit.analysis",
+	"commit.analysisList",
 	"review.get",
 	"review.commentAdd",
 	"review.commentUpdate",

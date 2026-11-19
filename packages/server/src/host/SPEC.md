@@ -874,6 +874,24 @@ channel fan-out, and the process-boot wrapper both launchers share.
   `workspace.fsChanged` publisher also
   calls `invalidateRoot(worktreePath)` so a watched workspace's file list and spec snapshot refresh on the
   next keystroke. `fs.readFile` forwards `maxBytes` to `fs`.
+- **Commit analysis composition (`commitAnalysis.ts`):** `commitAnalyzer()` is a lazy singleton built over
+  `createCommitAnalyzer`, which the host feeds with `runReviewSubagent` (or the test runner from
+  `installCommitAnalysisRunnerForTests`), the model choice (`reviewModel` / `reviewEffort`, else
+  `resolveNewChatModel({})`), `loadWorkspaces` for the worktree path, `readCommitPackage` and the scoped
+  publisher. **Trigger:** in `server.ts`'s piEvent tee, for a non-chat workspace, `maybeAttachChangeArtifacts`
+  resolves with the shas its reconcile committed or adopted, and `analyzeNewCommits` is called on them with
+  `void`, before `observeCompletion` and `maybeAutoReReview`. It is detached and never awaited, so the
+  event fan-out is not delayed, and it resolves rather than rejects. **On demand:** `commit.analyze`
+  (`requestCommitAnalysis`) canonicalises the sha through `resolveListedCommit` (not on the branch's listed
+  range → `COMMIT_ANALYSIS_NOT_LISTED`), returns `stored` when a record exists, and otherwise queues with the
+  caller's `sessionId` as parent when it is live in that workspace, else the workspace's first live chat
+  (none → `COMMIT_ANALYSIS_NO_SESSION`); the children are hidden children of that parent, so their usage is
+  recorded against it. `commit.analysis` answers a record or `null` (the canonical sha when listed, else the
+  raw sha); `commit.analysisList` answers the analysed and pending shas. All three are
+  `REPOSITORY_ONLY_METHODS`. The `commit.analyzed` push is `publishScoped` to the workspace and subscribed
+  only by sockets at `COMMIT_ANALYSIS_PROTOCOL_VERSION` or later. `workspace.remove` calls
+  `commitAnalyzer().forget(ws.id)`, and boot teardown calls `disposeCommitAnalysis()`, which resets the
+  singleton, the runner and the publisher.
 
 **Artifacts wiring** ([[submodule-server-artifacts]]): the `workspace.fsChanged` publisher hands every
 batch to `noteArtifactPathsChanged` (it reconciles when the batch is truncated or touches
