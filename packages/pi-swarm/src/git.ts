@@ -45,14 +45,10 @@ export function run(
 			env: { ...process.env, ...GIT_ENV },
 			...(options.signal ? { signal: options.signal } : {}),
 		});
-		let stdout = "";
-		let stderr = "";
-		child.stdout?.on("data", (chunk: Buffer) => {
-			stdout += chunk.toString();
-		});
-		child.stderr?.on("data", (chunk: Buffer) => {
-			stderr += chunk.toString();
-		});
+		const stdout: Buffer[] = [];
+		const stderr: Buffer[] = [];
+		child.stdout?.on("data", (chunk: Buffer) => stdout.push(chunk));
+		child.stderr?.on("data", (chunk: Buffer) => stderr.push(chunk));
 		const timer =
 			options.timeoutMs !== undefined
 				? setTimeout(() => child.kill("SIGTERM"), options.timeoutMs)
@@ -66,7 +62,12 @@ export function run(
 			if (settled) return;
 			settled = true;
 			if (timer) clearTimeout(timer);
-			resolve({ code, stdout, stderr, durationMs: Date.now() - started });
+			resolve({
+				code,
+				stdout: Buffer.concat(stdout).toString("utf8"),
+				stderr: Buffer.concat(stderr).toString("utf8"),
+				durationMs: Date.now() - started,
+			});
 		};
 		child.on("close", finish);
 		child.on("exit", (code) => {

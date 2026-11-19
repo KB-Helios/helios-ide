@@ -28,6 +28,7 @@ import {
 	matchesAny,
 	ownershipViolations,
 	removeWorktree,
+	run,
 } from "./git.ts";
 import { swarmMemberExtension } from "./memberExtension.ts";
 import { reviewVerdict } from "./prompts.ts";
@@ -322,4 +323,11 @@ test("a conflicting land leaves the target tree and index untouched", async () =
 	} finally {
 		git(repo, "checkout", "--", "README.md");
 	}
+});
+
+test("process output is decoded once, so a character split across chunks survives", async () => {
+	const script =
+		"process.stdout.write(Buffer.from([0xc3]));setTimeout(()=>process.stdout.write(Buffer.from([0xa9])),50);";
+	const result = await run(process.execPath, ["-e", script], { cwd: repo });
+	expect(result.stdout).toBe("é");
 });

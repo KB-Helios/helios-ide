@@ -118,6 +118,9 @@ export class Swarm {
 	private monitorTimer: ReturnType<typeof setTimeout> | undefined;
 	private monitorFiredAt = -1;
 	private readonly busy = new Set<string>();
+	/** Each member's in-flight run, settled once its outcome is handled. */
+	private readonly runs = new Map<string, Promise<void>>();
+	private readonly maxTurns = new Map<string, number>();
 	private disposed = false;
 
 	readonly config: SwarmConfig;
@@ -346,6 +349,7 @@ export class Swarm {
 		member.childSessionId = child.sessionId;
 		this.handles.set(member.name, child);
 		rememberMember(child.sessionId, { swarm: this, member: member.name });
+		if (mapping.maxTurns !== undefined) this.maxTurns.set(member.name, mapping.maxTurns);
 	}
 
 	private startRun(member: Member, task: string): void {
@@ -357,8 +361,10 @@ export class Swarm {
 		delete member.landed;
 		if (member.phase === "needs-fixes") member.phase = "working";
 		this.busy.add(member.name);
-		child
+		const maxTurns = this.maxTurns.get(member.name);
+		const settled = child
 			.runQueued(task, {
+				...(maxTurns !== undefined ? { maxTurns } : {}),
 				onUpdate: (details) => {
 					if (details.activity && details.activity !== member.activity) {
 						member.activity = details.activity;
@@ -374,6 +380,7 @@ export class Swarm {
 						errorMessage: error instanceof Error ? error.message : String(error),
 					} as RunOutcome),
 			);
+		this.runs.set(member.name, settled);
 		this.changed();
 	}
 
@@ -631,6 +638,7 @@ export class Swarm {
 		if (member.status === "killed") return `@${member.name} was already removed.`;
 		const child = this.handles.get(member.name);
 		await child?.abort("removed").catch(() => {});
+		await this.runs.get(member.name);
 		const files = member.worktree ? await changedFiles(member.worktree.path) : [];
 		if (files.length && !member.landed && !force)
 			throw new Error(
