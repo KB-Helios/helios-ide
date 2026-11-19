@@ -50,6 +50,7 @@
 	"changes.commitAnalysis.summary": "Summary",
 	"changes.commitAnalysis.surfaceChanged": "public surface changed",
 	"changes.commitAnalysis.title": "Commit analysis · {{shortSha}}",
+	"changes.commitAnalysis.violationEdge": "{{from}} → {{to}}",
 	"changes.empty": "No changes in this scope.",
 	"changes.guide.apply": "Apply fixes",
 	"changes.guide.applyTitle": "Send every open finding to the agent",

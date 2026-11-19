@@ -499,6 +499,7 @@ export function initTransport(): WsTransport {
 	});
 
 	transport.subscribe(WS_CHANNELS.commitAnalyzed, (data) => {
+		if (!supportsCommitAnalysis(useAppStore.getState().protocolVersion)) return;
 		const event = data as CommitAnalyzedPayload;
 		void getTransport()
 			.request("commit.analysisList", { workspaceId: event.workspaceId })

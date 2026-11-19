@@ -45,6 +45,12 @@ describe("CommitAnalysisView", () => {
 		expect(html).toContain('data-severity="high"');
 		expect(html).toContain("packages/server/src/pr/SPEC.md");
 		expect(html).toContain('data-testid="commit-analysis-violation"');
+		const row = html.slice(
+			html.indexOf('data-testid="commit-analysis-violation"'),
+			html.indexOf("</li>", html.indexOf('data-testid="commit-analysis-violation"')),
+		);
+		expect(row).toContain("pr → host");
+		expect(row).toContain("Forbidden: host");
 		expect(html).not.toContain("<input");
 		expect(html).not.toContain("<textarea");
 	});

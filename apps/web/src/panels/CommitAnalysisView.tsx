@@ -112,7 +112,13 @@ export function CommitAnalysisView({ record }: { record: CommitAnalysisRecord })
 							data-testid="commit-analysis-violation"
 							className="flex flex-col gap-2"
 						>
-							<span className="tr-text-emphasis text-feedback-error">{violation.rule}</span>
+							<span className="tr-text-emphasis text-feedback-error">
+								{t("changes.commitAnalysis.violationEdge", {
+									from: violation.from,
+									to: violation.to,
+								})}
+							</span>
+							<span>{violation.rule}</span>
 							<span className="text-text-muted">{violation.detail}</span>
 							<code className="tr-text-metadata">{violation.path}</code>
 						</li>
