@@ -49,6 +49,7 @@ export interface CommitAnalysisDeps {
 	publish: (payload: CommitAnalyzedPayload) => void;
 	now: () => number;
 	isMerge?: (worktreePath: string, sha: string) => boolean;
+	resolveParent?: (workspaceId: string, preferred: string) => string | null;
 	headOf?: (workspaceId: string) => string | null;
 	timeoutMs?: number;
 }
@@ -84,6 +85,7 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 	const chains = new Map<string, Promise<void>>();
 	const pending = new Map<string, Set<string>>();
 	const attempted = new Map<string, Set<string>>();
+	const inFlight = new Map<string, Map<string, Promise<CommitAnalysisRecord | null>>>();
 	const setOf = (map: Map<string, Set<string>>, key: string) => {
 		const existing = map.get(key);
 		if (existing) return existing;
@@ -125,6 +127,10 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 		if (!root) throw new AnalysisFailure("COMMIT_ANALYSIS_NO_WORKSPACE");
 		const stored = readAnalysis(root, workspaceId, sha);
 		if (stored) return stored;
+		const parent = deps.resolveParent
+			? deps.resolveParent(workspaceId, parentSessionId)
+			: parentSessionId;
+		if (!parent) throw new AnalysisFailure("COMMIT_ANALYSIS_NO_SESSION");
 		if (!sidecarReadable(root, workspaceId))
 			throw new AnalysisFailure("COMMIT_ANALYSIS_SIDECAR_UNREADABLE");
 		const pkg = await deps.readCommit(workspaceId, root, sha);
@@ -158,7 +164,7 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 			guarded(
 				deps.runSubagent(
 					workspaceId,
-					parentSessionId,
+					parent,
 					renderCommitTask(pkg, ANALYZER_OUTPUT_CONTRACT),
 					role(ANALYZER_SYSTEM_PROMPT, ANALYZER_TOOLS),
 					signal,
@@ -168,7 +174,7 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 			guarded(
 				deps.runSubagent(
 					workspaceId,
-					parentSessionId,
+					parent,
 					renderCommitTask(pkg, MAPPER_OUTPUT_CONTRACT),
 					role(MAPPER_SYSTEM_PROMPT, MAPPER_TOOLS),
 					signal,
@@ -221,8 +227,10 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 			const stored = storedOf(workspaceId, sha);
 			if (stored) return Promise.resolve(stored);
 			if (source === "auto") setOf(attempted, workspaceId).add(sha);
+			const running = inFlight.get(workspaceId)?.get(sha);
+			if (running) return running;
 			setOf(pending, workspaceId).add(sha);
-			return enqueue(workspaceId, () => runOnce(workspaceId, sha, parentSessionId))
+			const run = enqueue(workspaceId, () => runOnce(workspaceId, sha, parentSessionId))
 				.then(
 					(record) => {
 						publish({ workspaceId, sha, status: "completed" });
@@ -238,7 +246,13 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 				)
 				.finally(() => {
 					pending.get(workspaceId)?.delete(sha);
+					inFlight.get(workspaceId)?.delete(sha);
 				});
+			const runs =
+				inFlight.get(workspaceId) ?? new Map<string, Promise<CommitAnalysisRecord | null>>();
+			inFlight.set(workspaceId, runs);
+			runs.set(sha, run);
+			return run;
 		},
 		async analyzeNewCommits(workspaceId, parentSessionId, shas) {
 			try {
@@ -283,6 +297,7 @@ export function createCommitAnalyzer(deps: CommitAnalysisDeps): CommitAnalyzer {
 		forget(workspaceId) {
 			pending.delete(workspaceId);
 			attempted.delete(workspaceId);
+			inFlight.delete(workspaceId);
 		},
 	};
 	return analyzer;

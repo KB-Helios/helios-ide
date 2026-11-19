@@ -65,6 +65,7 @@ export async function readCommitPackage(
 				"show",
 				"--format=",
 				"--patch",
+				"--diff-merges=first-parent",
 				"--no-color",
 				"--no-ext-diff",
 				"--end-of-options",

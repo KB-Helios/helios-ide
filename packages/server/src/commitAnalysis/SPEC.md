@@ -69,5 +69,10 @@ fenced JSON strictly against the `contracts` validators, and store the pair once
 - **Stale context:** the children read the current checkout, which can be newer than the analyzed
   commit, and a record is immutable. The prompts say so (judge the patch, files are context only), and
   the record stores `checkout`, the HEAD the children could read, which the dialog shows.
-- **Diff input:** `gitStatus(..., { kind: "commit", sha })` file list + one `git show --patch` capped
-  at 120 000 chars; `gitDiffFile` is not used because it returns whole blobs.
+- **Diff input:** `gitStatus(..., { kind: "commit", sha })` file list + one
+  `git show --patch --diff-merges=first-parent` capped at 120 000 chars, so a merge's patch compares
+  against the same first parent as its file list; `gitDiffFile` is not used because it returns whole
+  blobs.
+- **Parent chat:** a run resolves its parent chat when it starts, not when it is queued: the chat that
+  triggered it if still live, else the workspace's first live chat. With none the analysis fails with
+  `COMMIT_ANALYSIS_NO_SESSION`. A second request for a pending sha reuses the in-flight run.

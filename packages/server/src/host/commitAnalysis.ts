@@ -44,6 +44,10 @@ export function commitAnalyzer(): CommitAnalyzer {
 			loadWorkspaces().find((w) => w.id === workspaceId)?.worktreePath ?? null,
 		readCommit: readCommitPackage,
 		isMerge: isMergeCommit,
+		resolveParent: (workspaceId, preferred) => {
+			const live = liveSessionIdsOf(workspaceId);
+			return live.includes(preferred) ? preferred : (live[0] ?? null);
+		},
 		headOf: gitHeadSha,
 		publish: (payload) => publish(payload),
 		now: Date.now,

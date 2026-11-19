@@ -305,3 +305,59 @@ test("an invalid entry already stored under the sha fails the analysis instead o
 		{ workspaceId: "ws1", sha: A, status: "failed", code: "COMMIT_ANALYSIS_WRITE_FAILED" },
 	]);
 });
+
+test("a second request for a pending sha reuses the in-flight run", async () => {
+	let release!: () => void;
+	const gate = new Promise<void>((resolve) => {
+		release = resolve;
+	});
+	const analyzer = createCommitAnalyzer(
+		deps({
+			runSubagent: async (_ws, _parent, task, _role, _signal, info) => {
+				calls.push({ roleName: info?.roleName ?? "", task });
+				await gate;
+				return {
+					status: "completed",
+					finalText: fence(info?.roleName === "commit-analyzer" ? ANALYSIS : IMPACT),
+				};
+			},
+		}),
+	);
+	const first = analyzer.analyzeCommit("ws1", A, "parent", "manual");
+	const second = analyzer.analyzeCommit("ws1", A, "parent", "manual");
+	await Promise.resolve();
+	expect(analyzer.isPending("ws1", A)).toBe(true);
+	release();
+	expect((await first)?.sha).toBe(A);
+	expect(await second).toEqual(await first);
+	expect(calls).toHaveLength(2);
+	expect(published).toHaveLength(1);
+});
+
+test("the parent chat is resolved when the run starts, and no live chat fails the analysis quietly", async () => {
+	const parents: string[] = [];
+	let live: string | null = "chat-2";
+	const analyzer = createCommitAnalyzer(
+		deps({
+			resolveParent: () => live,
+			runSubagent: async (_ws, parent, _task, _role, _signal, info) => {
+				parents.push(parent);
+				return {
+					status: "completed",
+					finalText: fence(info?.roleName === "commit-analyzer" ? ANALYSIS : IMPACT),
+				};
+			},
+		}),
+	);
+	expect((await analyzer.analyzeCommit("ws1", A, "closed-chat", "manual"))?.sha).toBe(A);
+	expect(parents).toEqual(["chat-2", "chat-2"]);
+	live = null;
+	expect(await analyzer.analyzeCommit("ws1", B, "closed-chat", "manual")).toBeNull();
+	expect(published.at(-1)).toEqual({
+		workspaceId: "ws1",
+		sha: B,
+		status: "failed",
+		code: "COMMIT_ANALYSIS_NO_SESSION",
+	});
+	expect(parents).toHaveLength(2);
+});

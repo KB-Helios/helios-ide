@@ -67,3 +67,8 @@ test("mapper output: valid parses; wrong edge kind fails", () => {
 		parseArchitectureImpact(fence({ ...ok, edgesChanged: [{ from: "a", to: "b", change: "x" }] })),
 	).toBeNull();
 });
+
+test("triple backticks inside a JSON string do not end the block", () => {
+	const text = `\`\`\`json\n${JSON.stringify({ intent: "i", summary: "Handles ``` fences", riskFlags: [], fileNotes: [] }, null, 2)}\n\`\`\``;
+	expect(parseCommitAnalysis(text)?.summary).toBe("Handles ``` fences");
+});

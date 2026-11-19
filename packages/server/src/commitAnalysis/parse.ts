@@ -16,7 +16,7 @@ const slash = (path: string) => path.replaceAll("\\", "/");
 
 export function lastFencedJson(text: string | undefined): unknown {
 	if (!text) return null;
-	const blocks = [...text.matchAll(/```json\s*([\s\S]*?)```/gi)];
+	const blocks = [...text.matchAll(/^[ \t]*```json[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```[ \t]*$/gim)];
 	const raw = blocks.at(-1)?.[1];
 	if (raw === undefined) return null;
 	try {
