@@ -2458,6 +2458,17 @@ menu has closed, because a closing menu returns focus to its row; disabled
   Every other failure (timeout, prolonged network outage, git error) leaves the user's chosen scope alone, keeps the
   last good list, and says so once per failing streak: silently swapping the scope on a network blip is a
   worse lie than a stale list. The code exists precisely because "the read failed" cannot distinguish the two.
+- **Commit analysis is a read-only overlay on the commit list.** `useLoadCommitAnalysisIndex` (mounted by
+  `ChangesScopeMenu`, so the index loads once per Changes panel mount on hosts at
+  `COMMIT_ANALYSIS_PROTOCOL_VERSION`) fills `store.commitAnalysesByWorkspace` from `commit.analysisList`, and
+  the `commit.analyzed` channel (wired in `transport/wireTransport.ts`) refetches it, toasting the failure
+  of a `failed` event. A commit row shows a *shield* badge when analysed and a spinning badge while pending
+  (the row still selects the scope; the badge is never a nested button inside the Radix item). When the
+  scope is a commit, the Changes header shows **View analysis** (opens `CommitAnalysisDialog`, which loads
+  `commit.analysis` on open) or **Analyze commit** (`commit.analyze`, disabled while pending). A rejected
+  `commit.analyze` with `COMMIT_ANALYSIS_NO_SESSION` toasts the "open a chat" notice; any other rejection
+  toasts the error text. `CommitAnalysisView` is props-only and read-only: it renders the analyzer and mapper
+  sections from a `CommitAnalysisRecord`, with no store or transport access.
 - **"Never answered", "failed", and "answered empty" are three states, never two.** The panel holds the
   `GitStatus` *and* a failure separately: no status yet reads as **Loading…**, a failure with no list to keep
   renders the error plus a **Retry** (`changes-error` / `changes-retry`, `reload()`), and only a landed answer
