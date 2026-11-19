@@ -169,6 +169,13 @@ function ShellLayout() {
 		return true;
 	};
 
+	const newWorkspaceRequest = useAppStore((s) => s.newWorkspaceRequest);
+	useEffect(() => {
+		if (!newWorkspaceRequest) return;
+		openNewWork(newWorkspaceRequest.initialPrompt);
+		useAppStore.getState().clearNewWorkspaceRequest();
+	}, [newWorkspaceRequest, openNewWork]);
+
 	const homeProjects = useCollapsibleRegion<HTMLDivElement>(PROJECT_HOME_PROJECTS_REGION_ID);
 	// The toggle hides the left side only when it is visible with an unfolded group; otherwise it shows it.
 	const leftSideVisible = useAppStore((s) => {

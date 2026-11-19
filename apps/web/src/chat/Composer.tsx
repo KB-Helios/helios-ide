@@ -1,23 +1,35 @@
 import {
 	RiArrowUpLine as ArrowUp,
+	RiInboxArchiveLine as ArtifactIcon,
+	RiAttachmentLine as Attachment,
 	RiArrowDownSLine as ChevronDown,
 	RiCornerDownLeftLine as EnterKey,
 	RiFileLine as FileIcon,
+	RiFileList3Line as FileList,
 	RiFolderLine as FolderIcon,
 	RiHistoryLine as History,
 	RiSparkling2Line as Sparkles,
 	RiStopFill as StopFill,
+	RiGitBranchLine as Worktree,
 } from "@remixicon/react";
 import type { ComposerGrowthLimit, ThinkingLevel, WireModel } from "@thinkrail/contracts";
 import type { MessageKey } from "@thinkrail/locales";
 import { useT } from "@thinkrail/locales/react";
 import { Button, IconButton } from "@thinkrail/ui/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuRadioGroup,
+	DropdownMenuRadioItem,
+	DropdownMenuTrigger,
+} from "@thinkrail/ui/dropdown-menu";
 import { hasPlatformModifier, isImeComposing, keyCap } from "@thinkrail/ui/keyboard";
 import { useLocalKeys } from "@thinkrail/ui/local-keys";
 import { Popover, PopoverContent, PopoverTrigger } from "@thinkrail/ui/popover";
 import { IconTooltip } from "@thinkrail/ui/tooltip";
 import { cn } from "@thinkrail/ui/utils";
 import {
+	Fragment,
 	forwardRef,
 	type KeyboardEvent,
 	type MouseEvent,
@@ -30,10 +42,19 @@ import {
 } from "react";
 import { LOCAL_KEY_DEFAULTS } from "@/keybindings";
 import {
+	activeContextTrigger,
 	applyTemplateSlotEdit,
 	beginTemplateSlotSession,
+	type ContextCandidate,
+	type ContextKnowledge,
+	ContextPillBackdrop,
+	type ContextTriggerChar,
+	contextCandidateKey,
+	contextTokenCount,
 	finalizeTemplateSlotSession,
+	findContextTokens,
 	highlightSegments,
+	insertContextCandidate,
 	type ParsedTemplate,
 	type SlashCommandItem,
 	SlashCommandMenu,
@@ -66,6 +87,31 @@ import type { ChatAttachment } from "./types";
 import type { ModelPreferences } from "./useModelPreferences";
 
 export type SubmitBehavior = "send" | "steer" | "followUp" | "interrupt";
+
+/** Where the next prompt runs: this chat in the current worktree, or a new isolated worktree. */
+export type ExecutionMode = "workspace" | "worktree";
+
+const EXECUTION_MODE_ORDER: readonly ExecutionMode[] = ["workspace", "worktree"];
+
+const EXECUTION_MODE_COPY: Readonly<
+	Record<ExecutionMode, { name: MessageKey; meaning: MessageKey; icon: typeof FolderIcon }>
+> = {
+	workspace: {
+		name: "chat.composer.execution.workspace",
+		meaning: "chat.composer.execution.workspaceMeaning",
+		icon: FolderIcon,
+	},
+	worktree: {
+		name: "chat.composer.execution.worktree",
+		meaning: "chat.composer.execution.worktreeMeaning",
+		icon: Worktree,
+	},
+};
+
+function ModeIcon({ mode }: { mode: ExecutionMode }) {
+	const Icon = EXECUTION_MODE_COPY[mode].icon;
+	return <Icon />;
+}
 
 export type ComposerSubmitDisposition = { accepted: true } | { accepted: false; reason: string };
 
@@ -145,16 +191,27 @@ const STREAMING_SEND_MODES = [
 	testid: string;
 }[];
 
-export interface MentionCandidate {
-	path: string;
-	name: string;
-	kind: "file" | "dir";
-}
+const CONTEXT_SECTION_LABELS = {
+	file: "chat.composer.context.files",
+	dir: "chat.composer.context.files",
+	artifact: "chat.composer.context.artifacts",
+	spec: "chat.composer.context.specs",
+	skill: "chat.composer.context.skills",
+} as const satisfies Record<ContextCandidate["kind"], MessageKey>;
 
-function activeToken(value: string, caret: number): { token: string; start: number } {
-	const match = /(\S+)$/.exec(value.slice(0, caret));
-	if (!match) return { token: "", start: caret };
-	return { token: match[0], start: caret - match[0].length };
+function contextCandidateIcon(candidate: ContextCandidate) {
+	switch (candidate.kind) {
+		case "dir":
+			return FolderIcon;
+		case "artifact":
+			return ArtifactIcon;
+		case "spec":
+			return FileList;
+		case "skill":
+			return Sparkles;
+		default:
+			return FileIcon;
+	}
 }
 
 function withOffsets(segments: SlotSegment[]): (SlotSegment & { start: number })[] {
@@ -188,7 +245,11 @@ interface ComposerProps {
 	growthLimit: ComposerGrowthLimit;
 	commands: SlashCommandItem[];
 	templatePending: boolean;
-	mentionCandidates: MentionCandidate[];
+	contextCandidates: ContextCandidate[];
+	contextKnowledge: ContextKnowledge;
+	/** `null` hides the selector: a chat without a repository, or a run in flight, cannot isolate. */
+	executionMode: ExecutionMode | null;
+	onExecutionModeChange: (mode: ExecutionMode) => void;
 	recentPrompts: string[];
 	models: WireModel[];
 	modelsRefreshing: boolean;
@@ -196,7 +257,7 @@ interface ComposerProps {
 	currentModel: WireModel | null;
 	thinkingLevel: ThinkingLevel;
 	modelPreferences: ModelPreferences;
-	onMentionQuery: (query: string | null) => void;
+	onContextQuery: (trigger: ContextTriggerChar | null, query: string) => void;
 	onSlashActive: (active: boolean) => void;
 	onSelectModel: (selection: ModelSelection) => void;
 	onSelectThinking: (level: ThinkingLevel) => void;
@@ -236,7 +297,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 		growthLimit,
 		commands,
 		templatePending,
-		mentionCandidates,
+		contextCandidates,
+		contextKnowledge,
+		executionMode,
+		onExecutionModeChange,
 		recentPrompts,
 		models,
 		modelsRefreshing,
@@ -244,7 +308,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 		currentModel,
 		thinkingLevel,
 		modelPreferences,
-		onMentionQuery,
+		onContextQuery,
 		onSlashActive,
 		onSelectModel,
 		onSelectThinking,
@@ -322,18 +386,24 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 		syncBackdropScroll();
 	});
 
-	const { token, start } = activeToken(value, caret);
-	const mentionQuery = token.startsWith("@") ? token.slice(1) : null;
+	const trigger = activeContextTrigger(value, caret);
+	const triggerChar = trigger?.trigger ?? null;
+	const triggerQuery = trigger?.query ?? "";
 	const slashQuery = slashCommandQuery(value);
+	const pillTokens = findContextTokens(value, contextKnowledge);
+	const contextCount = contextTokenCount(value, contextKnowledge) + images.length;
 
-	useEffect(() => onMentionQuery(mentionQuery), [mentionQuery, onMentionQuery]);
+	useEffect(
+		() => onContextQuery(triggerChar, triggerQuery),
+		[triggerChar, triggerQuery, onContextQuery],
+	);
 	useEffect(() => onSlashActive(slashQuery !== null), [slashQuery, onSlashActive]);
 	useEffect(() => {
 		setMentionActiveIndex(0);
 		setMentionDismissed(false);
-	}, [mentionQuery]);
+	}, [triggerChar, triggerQuery]);
 
-	const mentionOpen = !mentionDismissed && mentionQuery !== null && mentionCandidates.length > 0;
+	const mentionOpen = !mentionDismissed && trigger !== null && contextCandidates.length > 0;
 
 	const focusSelection = usePendingSelection(ref, setCaret);
 
@@ -395,15 +465,10 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 		setSlotSession(null);
 	};
 
-	const pickMention = (c: MentionCandidate) => {
-		const before = value.slice(0, start);
-		const after = value.slice(caret);
-		const insert = c.kind === "dir" ? `@${c.path}/` : `@${c.path}`;
-		const suffix = c.kind === "dir" ? "" : " ";
-		replaceDraft(
-			`${before}${insert}${suffix}${after}`,
-			before.length + insert.length + suffix.length,
-		);
+	const pickContext = (candidate: ContextCandidate) => {
+		if (!trigger) return;
+		const next = insertContextCandidate(value, caret, trigger, candidate, contextKnowledge);
+		replaceDraft(next.value, next.caret);
 	};
 
 	const slashCompletion = useSlashCommandCompletion({
@@ -511,7 +576,7 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 			}
 		}
 		if (fixed && mentionOpen) {
-			const menuLen = mentionCandidates.length;
+			const menuLen = contextCandidates.length;
 			if (e.key === "ArrowDown" && !e.shiftKey) {
 				e.preventDefault();
 				setMentionActiveIndex((i) => (i + 1) % menuLen);
@@ -529,8 +594,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 			}
 			if (e.key === "Enter" || e.key === "Tab") {
 				e.preventDefault();
-				const candidate = mentionCandidates[mentionActiveIndex];
-				if (candidate) pickMention(candidate);
+				const candidate = contextCandidates[mentionActiveIndex];
+				if (candidate) pickContext(candidate);
 				return;
 			}
 		}
@@ -613,22 +678,50 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 						MENU_LEFT,
 					)}
 				>
-					{mentionCandidates.map((candidate, index) => (
-						<button
-							key={candidate.path}
-							type="button"
-							data-testid="mention-item"
-							onClick={() => pickMention(candidate)}
-							className={`flex w-full items-center gap-8 rounded-sm px-8 py-4 text-left tr-text-ui focus-visible:focus-ring-inset ${index === mentionActiveIndex ? "bg-control-bg-selected text-text-default" : "text-text-muted"}`}
-						>
-							{candidate.kind === "dir" ? (
-								<FolderIcon className="size-14 shrink-0" />
-							) : (
-								<FileIcon className="size-14 shrink-0" />
-							)}
-							<span className="truncate">{candidate.path}</span>
-						</button>
-					))}
+					{contextCandidates.map((candidate, index) => {
+						const Icon = contextCandidateIcon(candidate);
+						const section = CONTEXT_SECTION_LABELS[candidate.kind];
+						const previous = contextCandidates[index - 1];
+						const startsSection =
+							previous === undefined || CONTEXT_SECTION_LABELS[previous.kind] !== section;
+						return (
+							<Fragment key={contextCandidateKey(candidate)}>
+								{startsSection ? (
+									<div
+										data-testid="mention-section"
+										className="px-8 pt-4 pb-2 text-text-subtle tr-text-metadata"
+									>
+										{t(section)}
+									</div>
+								) : null}
+								<button
+									type="button"
+									data-testid="mention-item"
+									data-kind={candidate.kind}
+									onClick={() => pickContext(candidate)}
+									className={`flex w-full items-center gap-8 rounded-sm px-8 py-4 text-left tr-text-ui focus-visible:focus-ring-inset ${index === mentionActiveIndex ? "bg-control-bg-selected text-text-default" : "text-text-muted"}`}
+								>
+									<Icon className="size-14 shrink-0" />
+									<span className="truncate">
+										{candidate.kind === "spec"
+											? `#${candidate.id}`
+											: candidate.kind === "skill"
+												? `/${candidate.command}`
+												: candidate.path}
+									</span>
+									{candidate.kind === "spec" ? (
+										<span className="min-w-0 truncate text-text-subtle tr-text-metadata">
+											{candidate.title}
+										</span>
+									) : candidate.kind === "skill" && candidate.description ? (
+										<span className="min-w-0 truncate text-text-subtle tr-text-metadata">
+											{candidate.description}
+										</span>
+									) : null}
+								</button>
+							</Fragment>
+						);
+					})}
 				</div>
 			) : slashCompletion.open ? (
 				<SlashCommandMenu
@@ -701,6 +794,64 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 							preferences={modelPreferences}
 							className="max-w-[60vw] px-4 sm:max-w-[320px]"
 						/>
+						{executionMode ? (
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button
+										variant="ghost"
+										size="s"
+										iconLeft={executionMode === "worktree" ? Worktree : FolderIcon}
+										iconRight={ChevronDown}
+										data-testid="execution-mode"
+										data-mode={executionMode}
+										aria-label={t("chat.composer.execution.label")}
+										tooltip={t("chat.composer.execution.label")}
+										className="ml-4 shrink-0"
+									>
+										<span className={WIDE_ONLY}>{t(EXECUTION_MODE_COPY[executionMode].name)}</span>
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent side="top" align="start" className="w-[300px]">
+									<DropdownMenuRadioGroup
+										value={executionMode}
+										onValueChange={(next) => {
+											const chosen = EXECUTION_MODE_ORDER.find((mode) => mode === next);
+											if (chosen) onExecutionModeChange(chosen);
+										}}
+									>
+										{EXECUTION_MODE_ORDER.map((mode) => (
+											<DropdownMenuRadioItem
+												key={mode}
+												value={mode}
+												data-testid={`execution-mode-${mode}`}
+												className="flex-col items-start gap-2"
+											>
+												<span className="flex items-center gap-4 text-text-default">
+													<ModeIcon mode={mode} />
+													{t(EXECUTION_MODE_COPY[mode].name)}
+												</span>
+												<span className="text-text-muted tr-text-metadata">
+													{t(EXECUTION_MODE_COPY[mode].meaning)}
+												</span>
+											</DropdownMenuRadioItem>
+										))}
+									</DropdownMenuRadioGroup>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						) : null}
+						{contextCount > 0 ? (
+							<IconTooltip label={t("chat.composer.contextCount", { count: contextCount })}>
+								<span
+									data-testid="composer-context-count"
+									role="img"
+									aria-label={t("chat.composer.contextCount", { count: contextCount })}
+									className="ml-4 inline-flex shrink-0 items-center gap-2 text-text-muted tr-text-metadata tabular-nums"
+								>
+									<Attachment className="size-12" />
+									{contextCount}
+								</span>
+							</IconTooltip>
+						) : null}
 					</div>
 					<div
 						className={cn(
@@ -736,6 +887,8 @@ export const Composer = forwardRef<ComposerHandle, ComposerProps>(function Compo
 									))}
 								</div>
 							</div>
+						) : !slots && pillTokens.length > 0 ? (
+							<ContextPillBackdrop value={value} tokens={pillTokens} backdropRef={attachBackdrop} />
 						) : null}
 						<textarea
 							ref={ref}

@@ -1199,6 +1199,7 @@ interface AppState {
 	notificationPromptOpen: boolean;
 	searchOpen: boolean;
 	searchSession: number;
+	newWorkspaceRequest: { initialPrompt: string } | null;
 	shortcutsOpen: boolean;
 	doubleShiftSearch: boolean;
 	theme: ThemeId;
@@ -1593,6 +1594,8 @@ interface AppState {
 	closeNotificationPrompt: () => void;
 	openSearch: () => void;
 	closeSearch: () => void;
+	requestNewWorkspace: (initialPrompt: string) => void;
+	clearNewWorkspaceRequest: () => void;
 	openShortcuts: () => void;
 	closeShortcuts: () => void;
 	setDoubleShiftSearch: (enabled: boolean) => void;
@@ -2619,6 +2622,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 	notificationPromptOpen: false,
 	searchOpen: false,
 	searchSession: 0,
+	newWorkspaceRequest: null,
 	shortcutsOpen: false,
 	doubleShiftSearch: true,
 	theme: DEFAULT_CONFIG.theme,
@@ -4886,6 +4890,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 	closeNotificationPrompt: () => set({ notificationPromptOpen: false }),
 	openSearch: () => set((state) => ({ searchOpen: true, searchSession: state.searchSession + 1 })),
 	closeSearch: () => set((state) => (state.searchOpen ? { searchOpen: false } : state)),
+	requestNewWorkspace: (initialPrompt) => set({ newWorkspaceRequest: { initialPrompt } }),
+	clearNewWorkspaceRequest: () =>
+		set((state) => (state.newWorkspaceRequest ? { newWorkspaceRequest: null } : state)),
 	openShortcuts: () => set((state) => (state.shortcutsOpen ? state : { shortcutsOpen: true })),
 	closeShortcuts: () => set((state) => (state.shortcutsOpen ? { shortcutsOpen: false } : state)),
 	setDoubleShiftSearch: (doubleShiftSearch) =>

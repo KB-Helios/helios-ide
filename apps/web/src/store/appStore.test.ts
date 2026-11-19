@@ -5441,6 +5441,21 @@ test("openSearch starts a fresh palette session even when the palette is already
 	expect(useAppStore.getState()).toMatchObject({ searchOpen: false, searchSession: 2 });
 });
 
+test("requestNewWorkspace holds one prompt-seeded request until the shell clears it", () => {
+	useAppStore.setState({ newWorkspaceRequest: null });
+	useAppStore.getState().requestNewWorkspace("add retry");
+	expect(useAppStore.getState().newWorkspaceRequest).toEqual({ initialPrompt: "add retry" });
+	useAppStore.getState().requestNewWorkspace("add retry, then log");
+	expect(useAppStore.getState().newWorkspaceRequest).toEqual({
+		initialPrompt: "add retry, then log",
+	});
+	useAppStore.getState().clearNewWorkspaceRequest();
+	expect(useAppStore.getState().newWorkspaceRequest).toBeNull();
+	const cleared = useAppStore.getState();
+	useAppStore.getState().clearNewWorkspaceRequest();
+	expect(useAppStore.getState()).toBe(cleared);
+});
+
 test("revealFileTab stamps a reveal on the file tab, repeats through tick, and switches the renderer when asked", () => {
 	const s = () => useAppStore.getState();
 	useAppStore.setState({ activeWorkspaceId: "ws1" });

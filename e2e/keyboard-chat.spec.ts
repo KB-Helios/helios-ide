@@ -873,3 +873,74 @@ test.describe("rebound chat keys", () => {
 		}
 	});
 });
+
+test("an @ pick becomes a context pill and counts in the composer footer", async ({ page }) => {
+	await openFixtureProject(page);
+	const session = seedWorkspaceSession(repoCwd(), {
+		name: "Context pills",
+		messages: [{ role: "user", text: "Attach some context.", timestamp: Date.now() }],
+	});
+	try {
+		await enterDefaultWorkspace(page);
+		await openPersistedChat(page, "Context pills");
+
+		const input = page.getByTestId("chat-input");
+		await input.click();
+		await input.pressSequentially("read @READ");
+		const mentions = page.getByTestId("mention-menu");
+		await expect(mentions).toBeVisible();
+		await expect(mentions.getByTestId("mention-section").first()).toBeVisible();
+		await page.keyboard.press("Enter");
+		await expect(mentions).toHaveCount(0);
+
+		await expect(input).toHaveValue(/^read @README\.md $/);
+		const pill = page.getByTestId("context-pill");
+		await expect(pill).toHaveCount(1);
+		await expect(pill).toHaveAttribute("data-kind", "file");
+		await expect(page.getByTestId("composer-context-count")).toHaveText("1");
+
+		await input.fill("");
+		await expect(page.getByTestId("context-pill")).toHaveCount(0);
+		await expect(page.getByTestId("composer-context-count")).toHaveCount(0);
+	} finally {
+		rmSync(session.path, { force: true });
+	}
+});
+
+test("New worktree execution mode opens the workspace dialog seeded with the prompt instead of sending", async ({
+	page,
+}) => {
+	await openFixtureProject(page);
+	const session = seedWorkspaceSession(repoCwd(), {
+		name: "Execution mode",
+		messages: [{ role: "user", text: "Plan the change.", timestamp: Date.now() }],
+	});
+	try {
+		await enterDefaultWorkspace(page);
+		await openPersistedChat(page, "Execution mode");
+
+		const mode = page.getByTestId("execution-mode");
+		await expect(mode).toHaveAttribute("data-mode", "workspace");
+		await mode.click();
+		await page.getByTestId("execution-mode-worktree").click();
+		await expect(mode).toHaveAttribute("data-mode", "worktree");
+
+		const input = page.getByTestId("chat-input");
+		await input.click();
+		await input.fill("Add retry to the webhook");
+		await page.getByTestId("chat-send").click();
+
+		const dialog = page.getByTestId("new-workspace-dialog");
+		await expect(dialog).toBeVisible();
+		await expect(dialog.getByTestId("ws-prompt")).toHaveValue("Add retry to the webhook");
+		await expect(input).toHaveValue("");
+		await expect(mode).toHaveAttribute("data-mode", "workspace");
+		await expect(
+			page.locator('[data-testid="chat-message"][data-role="user"]', {
+				hasText: "Add retry to the webhook",
+			}),
+		).toHaveCount(0);
+	} finally {
+		rmSync(session.path, { force: true });
+	}
+});
