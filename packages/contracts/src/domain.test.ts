@@ -30,6 +30,7 @@ import {
 	LINE_WIDTH_COLUMNS,
 	normalizeFontSettings,
 	parsePiPackageInput,
+	piPackageInstallSource,
 	QUESTION_PANEL_HEIGHT_PERCENT,
 	REQUEST_IMAGE_BASE64_BUDGET,
 	type ResourceRecord,
@@ -466,6 +467,14 @@ describe("parsePiPackageInput", () => {
 	const source = (raw: string) => parsePiPackageInput(raw).source;
 
 	test("pasted pi install lines, gallery and npm URLs and bare names become npm sources", () => {
+		expect(parsePiPackageInput("$ pi install npm:pi-web-search")).toEqual({
+			source: "npm:pi-web-search",
+			local: false,
+		});
+		expect(parsePiPackageInput("$ pi install -l ./tools")).toEqual({
+			source: "./tools",
+			local: true,
+		});
 		expect(parsePiPackageInput("pi install npm:@jals1212/pi-spaces")).toEqual({
 			source: "npm:@jals1212/pi-spaces",
 			local: false,
@@ -555,6 +564,14 @@ describe("parsePiPackageInput", () => {
 			expect(() => parsePiPackageInput(raw)).not.toThrow();
 			expect(source(raw)).toBe(raw);
 		}
+	});
+
+	test("the host input drops a copied prompt but keeps a bare name for pi's folder rule", () => {
+		expect(piPackageInstallSource("$ pi install npm:pi-web-search")).toBe(
+			"pi install npm:pi-web-search",
+		);
+		expect(piPackageInstallSource("  pi-spaces ")).toBe("pi-spaces");
+		expect(piPackageInstallSource('"pi install -l ./tools"')).toBe("pi install -l ./tools");
 	});
 });
 

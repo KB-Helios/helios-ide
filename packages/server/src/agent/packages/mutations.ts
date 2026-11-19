@@ -20,6 +20,7 @@ import {
 	resolveLocalSource,
 	settingsBaseDir,
 } from "./identity";
+import { withPackageOperationTimeout } from "./operationTimeout";
 import { createPiSettings } from "./settingsView";
 
 const UPDATE_CHECK_TTL_MS = 5 * 60_000;
@@ -177,8 +178,11 @@ export function installPiPackage(
 		const local = target.scope === "project";
 		const { settings, packageManager } = openSettings(ctx, target.scope);
 		try {
-			await packageManager.install(source, { local });
+			await withPackageOperationTimeout(packageManager, `Installing ${source}`, () =>
+				packageManager.install(source, { local }),
+			);
 		} catch (error) {
+			if (error instanceof CodedError) throw error;
 			throw new CodedError("PACKAGE_INSTALL_FAILED", messageOf(error));
 		}
 		assertScopeWritable(ctx, target.scope);
@@ -210,8 +214,11 @@ export function removePiPackage(ctx: PiPackageHostContext, target: PiPackageTarg
 		invalidatePiPackageCatalog();
 		updateCache.clear();
 		try {
-			await packageManager.remove(source, { local });
+			await withPackageOperationTimeout(packageManager, `Removing ${source}`, () =>
+				packageManager.remove(source, { local }),
+			);
 		} catch (error) {
+			if (error instanceof CodedError) throw error;
 			throw new CodedError("PACKAGE_REMOVE_FAILED", messageOf(error));
 		}
 	});
@@ -234,12 +241,17 @@ export function updatePiPackages(
 			configured.length > 0 &&
 			configured.every((entry) => requested.has(`${entry.scope}\0${entry.source}`));
 		try {
-			if (coversEverything) {
-				await packageManager.update();
-			} else {
-				for (const target of targets) await packageManager.update(declaredAsInput(ctx, target));
-			}
+			await withPackageOperationTimeout(packageManager, "Updating packages", async () => {
+				if (coversEverything) {
+					await packageManager.update();
+				} else {
+					for (const target of targets) {
+						await packageManager.update(declaredAsInput(ctx, target));
+					}
+				}
+			});
 		} catch (error) {
+			if (error instanceof CodedError) throw error;
 			throw new CodedError("PACKAGE_UPDATE_FAILED", messageOf(error));
 		}
 		invalidatePiPackageCatalog();

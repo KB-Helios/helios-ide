@@ -4,6 +4,7 @@ import {
 	type PiPackageSummary,
 	type PiPackagesCatalog,
 	parsePiPackageInput,
+	piPackageInstallSource,
 	type WsErrorCode,
 } from "@thinkrail/contracts";
 import type { MessageKey } from "@thinkrail/locales";
@@ -77,6 +78,7 @@ const NOTHING_ADDED_CODES: ReadonlySet<WsErrorCode> = new Set<WsErrorCode>([
 	"PACKAGE_OFFLINE",
 	"PACKAGE_UNTRUSTED",
 	"PACKAGE_INSTALL_FAILED",
+	"PACKAGE_OPERATION_TIMEOUT",
 	"PACKAGE_SETTINGS_WRITE_FAILED",
 ]);
 
@@ -393,7 +395,10 @@ export function InstallPackageDialog({
 		if (!trimmed) return;
 		setStep({ kind: "installing", name });
 		try {
-			const summary = await install({ source: source.trim(), scope: effectiveScope });
+			const summary = await install({
+				source: piPackageInstallSource(source),
+				scope: effectiveScope,
+			});
 			setStep({ kind: "installed", summary });
 		} catch (error) {
 			const outcome = installFailureOutcome(error);
@@ -420,7 +425,7 @@ export function InstallPackageDialog({
 					workspaceId={workspaceId}
 					onSourceChange={(next) => {
 						setSource(next);
-						if (parsePiPackageInput(next).local) setScope("project");
+						if (parsePiPackageInput(piPackageInstallSource(next)).local) setScope("project");
 					}}
 					onScopeChange={setScope}
 					onSubmit={() => void submit()}

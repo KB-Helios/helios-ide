@@ -168,7 +168,7 @@ restart and toggle-reload regressions on upgrades.
   Settings → Extensions package catalog and mutations build on pi's public `DefaultPackageManager`
   (`resolve(onMissing)`, `install`, `remove`, `update`, `checkForAvailableUpdates`,
   `listConfiguredPackages`, `addSourceToSettings` / `removeSourceFromSettings`) and `SettingsManager`
-  (`setPackages` / `set*Paths`, `flush`, `drainErrors`, `inMemory`). Eight pi facts the host compensates
+  (`setPackages` / `set*Paths`, `flush`, `drainErrors`, `inMemory`). Nine pi facts the host compensates
   for, each with its gate:
   - `resolve()` without `onMissing` installs a declared-but-missing package, and
     `DefaultResourceLoader.reload()` always calls it that way; the catalog therefore reads with
@@ -201,6 +201,24 @@ restart and toggle-reload regressions on upgrades.
     `clearExtensionCache` is not exported. `advancePiExtensionCache` reloads an empty loader twice
     before the boot runtime and before the install probe. **Gate:** an exported clearer or a per-loader
     cache.
+  - pi's npm/git runner has no timeout or cancellation hook: `runCommand` resolves only on `exit`, and
+    `spawnCommand` (private) inherits the host's stdio. A command that outlives the client's patience
+    pins every later install/remove/update behind the module queue. The host shadows `spawnCommand`
+    per `DefaultPackageManager` instance to track children, bounds install/remove/update at five
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:306ac646d6fee62f4406fa83c3721969035556f94971bd69ad8bba86a108c052 -->
+
+    minutes for the entire mutation batch, kills the live tree (`taskkill /T` on Windows; a `ps`
+    parent-PID snapshot and descendant-first `SIGKILL` on POSIX), and reports `PACKAGE_OPERATION_TIMEOUT`.
+    The cancellation guard remains until the original task settles. pi 1.5.2 still supplies neither a
+    public cancellation hook nor detached process groups, so this adapter remains necessary. The install
+    probe suppresses expired results and is bounded separately at 60 s because pi's loader
+
+<!-- /coderabbit-ai-generated:v1 -->
+    awaits an extension factory with no deadline. **Gate:** a public timeout/cancel hook on
+    `DefaultPackageManager` and a loader deadline. On every bump re-check `spawnCommand` /
+    `runCommand`, and run `agent/packages/operationTimeout.test.ts` and `mutations.test.ts`.
   Also relied on: `SettingsManager.getGlobalSettings` / `getProjectSettings` are the only reads pi's
   package manager makes of declarations, so patching them per instance hides a switched-off package —
   or every package, for a loader that resolves none — from every install-capable resolve

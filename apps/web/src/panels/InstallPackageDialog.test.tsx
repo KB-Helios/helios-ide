@@ -183,6 +183,9 @@ test("only a failure the host raised before persisting means nothing was added",
 	expect(installFailureOutcome(new RequestError("PACKAGE_UNTRUSTED", "trust"))).toBe(
 		"nothingAdded",
 	);
+	expect(
+		installFailureOutcome(new RequestError("PACKAGE_OPERATION_TIMEOUT", "still installing")),
+	).toBe("nothingAdded");
 	expect(installFailureOutcome(new RequestError("PACKAGE_INSTALLED_UNLISTED", "added"))).toBe(
 		"unknown",
 	);
@@ -208,6 +211,8 @@ test("the echo and the display name read gallery links, pasted commands and bare
 		"npm · @jals1212/pi-spaces",
 	);
 	expect(describeSource(t, "pi install npm:@jals1212/pi-spaces")).toBe("npm · @jals1212/pi-spaces");
+	expect(describeSource(t, "$ pi install npm:pi-web-search")).toBe("npm · pi-web-search");
+	expect(sourceDisplayName("$ pi install npm:pi-web-search")).toBe("pi-web-search");
 	expect(describeSource(t, "https://www.npmjs.com/package/@jals1212/pi-spaces/v/0.4.0")).toBe(
 		"npm · @jals1212/pi-spaces, pinned to 0.4.0",
 	);

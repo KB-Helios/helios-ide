@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -12,6 +12,7 @@ import {
 	setPiResourceEnabled,
 	updatePiPackages,
 } from "./mutations";
+import { PACKAGE_OPERATION_TIMEOUT_MS } from "./operationTimeout";
 import { fixtureExtensionSource, writeFixturePiPackage } from "./testFixtures";
 
 const extensionSource = fixtureExtensionSource;
@@ -79,6 +80,72 @@ describe("pi package mutations", () => {
 		});
 		expect(catalog.packages.map((p) => p.name)).toEqual(["@fixture/pi-tools"]);
 		expect(catalog.packages[0]?.identity).toBe(identity);
+	});
+
+	it("times out a stalled install, releases the queue, and lets the next install run", async () => {
+		jest.useFakeTimers();
+		let started = () => {};
+		const began = new Promise<void>((resolve) => {
+			started = resolve;
+		});
+		const install = spyOn(DefaultPackageManager.prototype, "install").mockImplementation(() => {
+			started();
+			return new Promise(() => {});
+		});
+		try {
+			const stalled = installPiPackage(ctx, { source: "npm:@fixture/stalled", scope: "user" });
+			await began;
+			jest.advanceTimersByTime(PACKAGE_OPERATION_TIMEOUT_MS);
+			const error = await stalled.catch((failure) => failure);
+			expect(errorCodeOf(error)).toBe("PACKAGE_OPERATION_TIMEOUT");
+
+			install.mockImplementation(async () => {});
+			const identity = await installPiPackage(ctx, { source: pkg, scope: "user" });
+			expect(identity).toBe(`local:${pkg}`);
+			expect(readSettings(settingsPath).packages).toEqual([relative(agentDir, pkg)]);
+		} finally {
+			install.mockRestore();
+			jest.useRealTimers();
+		}
+	});
+
+	it("uses one deadline across all requested updates", async () => {
+		jest.useFakeTimers();
+		let firstDone = () => {};
+		let secondStarted = () => {};
+		const second = new Promise<void>((resolve) => {
+			secondStarted = resolve;
+		});
+		let calls = 0;
+		const update = spyOn(DefaultPackageManager.prototype, "update").mockImplementation(async () => {
+			calls++;
+			if (calls === 1)
+				await new Promise<void>((resolve) => {
+					firstDone = resolve;
+				});
+			else {
+				secondStarted();
+				await new Promise(() => {});
+			}
+		});
+		try {
+			const operation = updatePiPackages(ctx, [
+				{ source: "npm:a", scope: "user" },
+				{ source: "npm:b", scope: "user" },
+			]);
+			while (calls === 0) await Promise.resolve();
+			jest.advanceTimersByTime(PACKAGE_OPERATION_TIMEOUT_MS / 2);
+			firstDone();
+			await second;
+			jest.advanceTimersByTime(PACKAGE_OPERATION_TIMEOUT_MS / 2);
+			expect(errorCodeOf(await operation.catch((error) => error))).toBe(
+				"PACKAGE_OPERATION_TIMEOUT",
+			);
+			expect(calls).toBe(2);
+		} finally {
+			update.mockRestore();
+			jest.useRealTimers();
+		}
 	});
 
 	it("refuses an unknown local path, an npm install offline, and a repository write without trust", async () => {

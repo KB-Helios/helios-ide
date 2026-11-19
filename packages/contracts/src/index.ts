@@ -58,6 +58,7 @@ export {
 	OTHER_AGENT_SKILL_GROUPS,
 	PLAN_REVIEW_VERDICTS,
 	parsePiPackageInput,
+	piPackageInstallSource,
 	projectRank,
 	QUESTION_PANEL_HEIGHT_PERCENT,
 	RECENT_MODELS_LIMIT,

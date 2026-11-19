@@ -1127,7 +1127,10 @@ re-opened transcripts provider-valid.
     project-scope write, or the first sight of a worktree without the file never fan out a reload. A
     declared-but-missing *enabled* package gets no host install: pi installs it the next time a chat
     loads its resources, as it always did (a disabled one is hidden from pi, so it is never installed);
-    the page lists it as not installed with Remove.
+    the page lists it as not installed with Remove. The install façade also bounds its post-install
+    extension probe at 60 s: the declaration is already persisted, so a package factory that never
+    settles loses its chips for that response instead of keeping the install request (and every later
+    package mutation) waiting.
     **Known limitations, accepted:** several chats reloading at once can each resolve and install the same missing package
     (pre-existing, as in pi CLI with two terminals; settings-first Remove narrows but does not close the
     window for a resolve already in flight); Remove and Update change files on disk at once, so a busy

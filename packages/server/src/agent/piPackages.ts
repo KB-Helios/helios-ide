@@ -8,6 +8,7 @@ import type {
 	PiPackagesCatalog,
 } from "@thinkrail/contracts";
 import { CodedError } from "@thinkrail/shared/codedError";
+import { logger } from "../log";
 import { refreshExtensionTools } from "./agentSessionManager";
 import { bumpPackagesRevision, setInstalledPackagesListener } from "./extensions";
 import { HOST_BUILTIN_EXTENSION_NAMES } from "./mcp";
@@ -55,6 +56,36 @@ setExtensionInfoListener(() => {
 /** Open pages re-list; nothing about what chats load changed (a switch flip, a package pi installed itself). */
 export function publishPiPackagesChanged(): void {
 	publish?.();
+}
+
+const EXTENSION_PROBE_TIMEOUT_MS = 60_000;
+const log = logger("agent");
+
+// pi's loader awaits a factory with no deadline. The install already succeeded by now, so a factory
+// that never settles loses its chips but must not keep the dialog and every later package mutation waiting.
+function probeWithDeadline(
+	task: (signal: AbortSignal) => Promise<void>,
+	source: string,
+): Promise<void> {
+	const expiry = new AbortController();
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			expiry.abort();
+			log.warn(`extension probe for ${source} exceeded ${EXTENSION_PROBE_TIMEOUT_MS}ms`);
+			resolve();
+		}, EXTENSION_PROBE_TIMEOUT_MS);
+		timer.unref?.();
+		task(expiry.signal).then(
+			() => {
+				clearTimeout(timer);
+				resolve();
+			},
+			(error) => {
+				clearTimeout(timer);
+				reject(error);
+			},
+		);
+	});
 }
 
 /** The declared or installed set changed: every registered chat re-decides through the gated reload, pages re-list. */
@@ -114,12 +145,12 @@ export async function piPackagesInstall(
 	try {
 		summary = find(await piPackagesCatalog(target, enabledFromNowOn));
 		if (summary?.installedPath !== undefined) {
-			await probeExtensionInfo(
-				target.cwd ?? getAgentDir(),
-				getAgentDir(),
-				summary.resources
-					.filter((resource) => resource.type === "extensions" && resource.enabled)
-					.map((resource) => resource.path),
+			const paths = summary.resources
+				.filter((resource) => resource.type === "extensions" && resource.enabled)
+				.map((resource) => resource.path);
+			await probeWithDeadline(
+				(signal) => probeExtensionInfo(target.cwd ?? getAgentDir(), getAgentDir(), paths, signal),
+				request.source,
 			);
 			invalidatePiPackageCatalog();
 			summary = find(await piPackagesCatalog(target, enabledFromNowOn));

@@ -6,6 +6,7 @@ import { DefaultPackageManager } from "@earendil-works/pi-coding-agent";
 import { invalidatePiPackageCatalog, listPiPackageCatalog } from "./catalog";
 import {
 	forgetExtensionInfo,
+	knownExtensionInfo,
 	probeExtensionInfo,
 	recordLoadedExtensions,
 	setExtensionInfoListener,
@@ -80,6 +81,20 @@ describe("listPiPackageCatalog", () => {
 		if (originalOffline === undefined) delete process.env.PI_OFFLINE;
 		else process.env.PI_OFFLINE = originalOffline;
 		rmSync(root, { recursive: true, force: true });
+	});
+
+	it("does not publish probe results after expiry, and records a probe that finishes in time", async () => {
+		const path = join(agentDir, "extensions", "probe-expiry.ts");
+		writeFileSync(path, extensionSource("probe_tool"));
+		const expiry = new AbortController();
+		const probe = probeExtensionInfo(agentDir, agentDir, [path], expiry.signal);
+		expiry.abort();
+		await probe;
+		expect(knownExtensionInfo(path)).toBeUndefined();
+		const completed = new AbortController();
+		await probeExtensionInfo(agentDir, agentDir, [path], completed.signal);
+		completed.abort();
+		expect(knownExtensionInfo(path)?.tools).toEqual(["probe_tool"]);
 	});
 
 	it("lists packages with their resources and chips, loose files, and built-ins", async () => {

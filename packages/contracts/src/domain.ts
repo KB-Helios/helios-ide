@@ -946,10 +946,11 @@ export interface PiPackageInput {
 /**
  * The install field's forgiving forms, reduced to what pi accepts: a pasted `pi install …` line (its
  * `-l` is reported, not dropped), a pi.dev or npmjs.com package URL and a bare npm name become `npm:…`;
- * everything else — `npm:` / `git:` sources, git URLs, paths — is returned trimmed. Never throws.
+ * everything else — `npm:` / `git:` sources, git URLs, paths — is returned trimmed. A copied shell
+ * prompt (`$ pi install …`) is removed. Never throws.
  */
 export function parsePiPackageInput(raw: string): PiPackageInput {
-	let source = unwrapQuotes(raw.trim());
+	let source = stripShellPrompt(unwrapQuotes(raw.trim()));
 	let local = false;
 	if (PI_INSTALL_COMMAND.test(source)) {
 		const words = shellWords(source).slice(2);
@@ -967,6 +968,19 @@ export function parsePiPackageInput(raw: string): PiPackageInput {
 		return { source: `npm:${source}`, local, bareName: source };
 	}
 	return { source, local };
+}
+
+/**
+ * What the host should receive for this field: the prompt-free raw text, so a bare name still gets
+ * pi's folder-before-npm rule and a pasted `pi install …` line keeps its `-l` meaning.
+ */
+export function piPackageInstallSource(raw: string): string {
+	return stripShellPrompt(unwrapQuotes(raw.trim()));
+}
+
+/** A shell prompt copied with a command, e.g. `$ pi install npm:foo`; a bare source is unchanged. */
+function stripShellPrompt(text: string): string {
+	return text.replace(/^\$\s+/, "");
 }
 
 /** Strips one balanced pair of surrounding quotes or backticks — a pasted `\`pi install …\`` or `"npm:x"`. */
