@@ -49,7 +49,14 @@ function isFailure(row: SubagentRosterRow): boolean {
 
 /** A child can run again under the same id; drop what the previous run left behind. */
 function withoutTerminalFields(row: SubagentRosterRow): SubagentRosterRow {
-	const { finishedAt: _f, finalText: _t, errorMessage: _e, abortReason: _a, ...rest } = row;
+	const {
+		finishedAt: _f,
+		finalText: _t,
+		errorMessage: _e,
+		abortReason: _a,
+		activity: _activity,
+		...rest
+	} = row;
 	return rest;
 }
 

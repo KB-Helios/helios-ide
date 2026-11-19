@@ -26,7 +26,9 @@ function details(
 	};
 }
 
-function fakeService(children: Record<string, { visibility?: "hidden" | "listed" }>) {
+function fakeService(
+	children: Record<string, { visibility?: "hidden" | "listed"; noActivity?: boolean }>,
+) {
 	return {
 		findChild: (id: string) => {
 			const spec = children[id];
@@ -40,13 +42,21 @@ function fakeService(children: Record<string, { visibility?: "hidden" | "listed"
 					visibility: spec.visibility ?? "listed",
 					createdAt: "2026-01-01T00:00:00.000Z",
 				},
-				snapshot: { status: "queued", task: "t", details: details(id, "queued") },
+				snapshot: {
+					status: "queued",
+					task: "t",
+					details: spec.noActivity
+						? { ...details(id, "queued"), activity: undefined }
+						: details(id, "queued"),
+				},
 			};
 		},
 	} as unknown as DelegationService;
 }
 
-function harness(children: Record<string, { visibility?: "hidden" | "listed" }>) {
+function harness(
+	children: Record<string, { visibility?: "hidden" | "listed"; noActivity?: boolean }>,
+) {
 	let clock = 1_000_000;
 	const timers: (() => void)[] = [];
 	const published: string[] = [];
@@ -202,7 +212,7 @@ describe("subagent roster", () => {
 	});
 
 	test("a re-run clears the previous run's terminal fields", () => {
-		const h = harness({ a: {} });
+		const h = harness({ a: { noActivity: true } });
 		h.roster.handle(ev("run-started", "a"));
 		h.roster.handle(terminal("a", "error", { errorMessage: "boom", finalText: "old" }));
 		h.roster.handle(ev("run-started", "a"));
@@ -211,6 +221,7 @@ describe("subagent roster", () => {
 		expect(running?.errorMessage).toBeUndefined();
 		expect(running?.finalText).toBeUndefined();
 		expect(running?.finishedAt).toBeUndefined();
+		expect(running?.activity).toBeUndefined();
 		h.roster.handle(terminal("a", "completed"));
 		expect(h.roster.read().rows[0]?.errorMessage).toBeUndefined();
 	});

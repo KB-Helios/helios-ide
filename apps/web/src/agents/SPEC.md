@@ -24,8 +24,8 @@ stay props-only and per-chat; this leaf module owns the workspace scope so that 
 - Groups are state-first: Failed, Working, Queued, Recently done. State is glyph + color + word, never
   color alone. Every row names its parent chat.
 - **Never auto-hide failures.** Failed rows never expire by age and the trigger shows a failure marker while
-  any exist. They are still subject to the host's cap of 50 retained terminal rows, so past 50 the oldest
-  failures are dropped.
+  any exist. They are still subject to the host's cap of 50 retained terminal rows: past 50, finished
+  non-failed rows are dropped first, and the oldest failures go only if that is not enough.
 - A failed roster read retries a bounded number of times; a rejected stop request shows an error and leaves
   the row stoppable.
 - **No "Needs you" group.** Child sessions are headless and the host cannot represent "blocked on
