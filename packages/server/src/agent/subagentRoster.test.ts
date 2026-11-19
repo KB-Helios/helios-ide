@@ -152,4 +152,66 @@ describe("subagent roster", () => {
 		h.roster.handle({ type: "child-disposed", sessionId: "a", parentSessionId: "parent-1" });
 		expect(h.roster.read().rows).toHaveLength(0);
 	});
+	const terminal = (
+		id: string,
+		status: "completed" | "error",
+		extra: Record<string, unknown> = {},
+	): LifecycleEvent =>
+		({
+			type: "run-terminal",
+			sessionId: id,
+			parentSessionId: "parent-1",
+			outcome: { status, details: details(id, status), ...extra },
+		}) as unknown as LifecycleEvent;
+
+	test("an idle workspace publishes when a finished row expires", () => {
+		const h = harness({ a: {} });
+		h.roster.handle(ev("run-started", "a"));
+		h.roster.handle(terminal("a", "completed", { finalText: "ok" }));
+		h.flush();
+		const before = h.published.length;
+		h.advance(3 * 60_000);
+		h.flush();
+		h.flush();
+		expect(h.published.length).toBeGreaterThan(before);
+		expect(h.roster.read().rows).toHaveLength(0);
+	});
+
+	test("pruning on read bumps the revision", () => {
+		const h = harness({ a: {} });
+		h.roster.handle(ev("run-started", "a"));
+		h.roster.handle(terminal("a", "completed"));
+		const first = h.roster.read();
+		h.advance(3 * 60_000);
+		const second = h.roster.read();
+		expect(second.rows).toHaveLength(0);
+		expect(second.revision).toBeGreaterThan(first.revision);
+		expect(h.roster.read().revision).toBe(second.revision);
+	});
+
+	test("the terminal cap holds without any read", () => {
+		const children: Record<string, object> = {};
+		for (let i = 0; i < 60; i++) children[`c${i}`] = {};
+		const h = harness(children);
+		for (let i = 0; i < 60; i++) {
+			h.roster.handle(ev("run-started", `c${i}`));
+			h.roster.handle(terminal(`c${i}`, "error", { errorMessage: "x" }));
+			h.advance(10);
+		}
+		expect(h.roster.read().rows).toHaveLength(50);
+	});
+
+	test("a re-run clears the previous run's terminal fields", () => {
+		const h = harness({ a: {} });
+		h.roster.handle(ev("run-started", "a"));
+		h.roster.handle(terminal("a", "error", { errorMessage: "boom", finalText: "old" }));
+		h.roster.handle(ev("run-started", "a"));
+		const running = h.roster.read().rows[0];
+		expect(running?.status).toBe("running");
+		expect(running?.errorMessage).toBeUndefined();
+		expect(running?.finalText).toBeUndefined();
+		expect(running?.finishedAt).toBeUndefined();
+		h.roster.handle(terminal("a", "completed"));
+		expect(h.roster.read().rows[0]?.errorMessage).toBeUndefined();
+	});
 });

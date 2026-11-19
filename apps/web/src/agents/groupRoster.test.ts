@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { SubagentRosterRow } from "@thinkrail/contracts";
+import type { Translator } from "@thinkrail/locales/react";
 import { formatAgentElapsed, groupRoster, isStoppableAgent } from "./groupRoster";
 
 const row = (id: string, status: SubagentRosterRow["status"]): SubagentRosterRow => ({
@@ -29,8 +30,11 @@ test("only live rows are stoppable", () => {
 	expect(isStoppableAgent(row("a", "error"))).toBe(false);
 });
 
+const t = ((key: string, params?: Record<string, string | number>) =>
+	`${key}:${Object.values(params ?? {}).join(",")}`) as unknown as Translator;
+
 test("elapsed formatting", () => {
-	expect(formatAgentElapsed(12_000)).toBe("12s");
-	expect(formatAgentElapsed(125_000)).toBe("2m");
-	expect(formatAgentElapsed(3_900_000)).toBe("1h 5m");
+	expect(formatAgentElapsed(12_000, t)).toBe("agents.duration.seconds:12");
+	expect(formatAgentElapsed(125_000, t)).toBe("agents.duration.minutes:2");
+	expect(formatAgentElapsed(3_900_000, t)).toBe("agents.duration.hours:1,5");
 });

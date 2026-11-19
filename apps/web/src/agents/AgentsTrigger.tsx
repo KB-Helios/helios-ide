@@ -57,7 +57,7 @@ function AgentRow({
 }) {
 	const t = useT();
 	const Icon = GROUP_ICON[group];
-	const tokens = formatAgentTokens(row);
+	const tokens = formatAgentTokens(row, t);
 	const detail =
 		group === "failed"
 			? (row.errorMessage ?? row.abortReason)
@@ -90,7 +90,9 @@ function AgentRow({
 					<span className={cn(GROUP_TONE[group])}>{groupLabel(t, group)}</span>
 					{detail ? <span className="truncate">{detail}</span> : null}
 					<span className="truncate">{row.parentTitle || t("agents.row.untitledChat")}</span>
-					{row.durationMs !== undefined ? <span>{formatAgentElapsed(row.durationMs)}</span> : null}
+					{row.durationMs !== undefined ? (
+						<span>{formatAgentElapsed(row.durationMs, t)}</span>
+					) : null}
 					{tokens ? <span className="tabular-nums">{tokens}</span> : null}
 					{row.usage && row.usage.cost > 0 ? (
 						<span className="tabular-nums">${row.usage.cost.toFixed(2)}</span>
@@ -109,7 +111,7 @@ function AgentRow({
 /** Chat-header trigger and popover for every subagent in this workspace, across chats. */
 export function AgentsTrigger({ workspaceId }: { workspaceId: string }) {
 	const t = useT();
-	const { supported, roster, stop } = useSubagentRoster(workspaceId);
+	const { supported, roster, stop, stopFailed } = useSubagentRoster(workspaceId);
 	if (!supported || !roster || roster.rows.length === 0) return null;
 	const live = roster.counts.queued + roster.counts.running;
 	const groups = groupRoster(roster.rows);
@@ -134,6 +136,11 @@ export function AgentsTrigger({ workspaceId }: { workspaceId: string }) {
 				</Button>
 			</PopoverTrigger>
 			<PopoverContent align="end" className="w-[min(32rem,92vw)] p-0" data-testid="agents-popover">
+				{stopFailed ? (
+					<p role="alert" className="px-12 pt-8 tr-text-metadata text-feedback-error">
+						{t("agents.row.stopFailed")}
+					</p>
+				) : null}
 				<div className="max-h-96 overflow-y-auto py-4">
 					{groups.map((group) => (
 						<section key={group.id} aria-label={groupLabel(t, group.id)}>

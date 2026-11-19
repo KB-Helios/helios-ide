@@ -47,6 +47,12 @@ function isFailure(row: SubagentRosterRow): boolean {
 	return row.status === "error";
 }
 
+/** A child can run again under the same id; drop what the previous run left behind. */
+function withoutTerminalFields(row: SubagentRosterRow): SubagentRosterRow {
+	const { finishedAt: _f, finalText: _t, errorMessage: _e, abortReason: _a, ...rest } = row;
+	return rest;
+}
+
 function applyDetails(
 	row: SubagentRosterRow,
 	details: DelegationRunDetails,
@@ -77,6 +83,7 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 	const finishedAt = new Map<string, number>();
 	let revision = 0;
 	let timer: unknown;
+	let expiryTimer: unknown;
 	let lastPublish = Number.NEGATIVE_INFINITY;
 	let disposed = false;
 
@@ -117,8 +124,9 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 		return snapshot ? applyDetails(row, snapshot.details, now()) : row;
 	}
 
-	function prune(): void {
+	function prune(): boolean {
 		const at = now();
+		const before = rows.size;
 		const terminal: [string, number][] = [];
 		for (const [id, row] of rows) {
 			if (isLive(row)) continue;
@@ -128,7 +136,11 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 				finishedAt.delete(id);
 			} else terminal.push([id, done]);
 		}
-		if (terminal.length <= ROSTER_MAX_TERMINAL_ROWS) return;
+		if (terminal.length > ROSTER_MAX_TERMINAL_ROWS) evictOldest(terminal);
+		return rows.size !== before;
+	}
+
+	function evictOldest(terminal: [string, number][]): void {
 		terminal.sort((a, b) => {
 			const af = isFailure(rows.get(a[0]) as SubagentRosterRow) ? 1 : 0;
 			const bf = isFailure(rows.get(b[0]) as SubagentRosterRow) ? 1 : 0;
@@ -140,6 +152,27 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 		}
 	}
 
+	function scheduleExpiry(): void {
+		if (expiryTimer !== undefined) clearTimer(expiryTimer);
+		expiryTimer = undefined;
+		if (disposed) return;
+		let soonest = Number.POSITIVE_INFINITY;
+		for (const [id, row] of rows) {
+			if (isLive(row) || isFailure(row)) continue;
+			soonest = Math.min(soonest, (finishedAt.get(id) ?? now()) + doneTtlMs);
+		}
+		if (soonest === Number.POSITIVE_INFINITY) return;
+		expiryTimer = setTimer(
+			() => {
+				expiryTimer = undefined;
+				if (disposed) return;
+				if (prune()) changed();
+				scheduleExpiry();
+			},
+			Math.max(0, soonest - now()) + 1,
+		);
+	}
+
 	return {
 		handle(event) {
 			if (disposed) return;
@@ -148,6 +181,7 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 				const row = rows.get(event.sessionId);
 				if (row && isLive(row)) {
 					rows.delete(event.sessionId);
+					finishedAt.delete(event.sessionId);
 					changed();
 				}
 				return;
@@ -158,7 +192,7 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 			let next = base;
 			if (event.type === "run-progress") next = applyDetails(base, event.details, at);
 			else if (event.type === "run-terminal") {
-				next = applyDetails(base, event.outcome.details, at);
+				next = applyDetails(withoutTerminalFields(base), event.outcome.details, at);
 				next = {
 					...next,
 					status: event.outcome.status,
@@ -173,16 +207,24 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 				finishedAt.set(event.sessionId, at);
 			} else {
 				next = {
-					...base,
+					...withoutTerminalFields(base),
 					status: event.type === "run-started" ? "running" : "queued",
 					lastEventAt: at,
 				};
+				finishedAt.delete(event.sessionId);
 			}
 			rows.set(event.sessionId, next);
+			if (event.type === "run-terminal") prune();
 			changed();
+			if (
+				event.type === "run-terminal" ||
+				event.type === "run-started" ||
+				event.type === "run-queued"
+			)
+				scheduleExpiry();
 		},
 		read() {
-			prune();
+			if (prune()) revision++;
 			const sorted = [...rows.values()].sort(
 				(a, b) =>
 					Number(isLive(b)) - Number(isLive(a)) ||
@@ -209,6 +251,8 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 			disposed = true;
 			if (timer !== undefined) clearTimer(timer);
 			timer = undefined;
+			if (expiryTimer !== undefined) clearTimer(expiryTimer);
+			expiryTimer = undefined;
 			rows.clear();
 			finishedAt.clear();
 		},
