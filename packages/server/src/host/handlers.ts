@@ -933,6 +933,15 @@ const handlers: WsHandlers = {
 		if (p.action !== "retry" && p.action !== "dismiss") throw new Error("Unknown item action");
 		return prBabysitEngine().itemAction(p.workspaceId, p.itemId, p.action);
 	},
+	"commit.analyze": () => {
+		throw new CodedError("COMMIT_ANALYSIS_UNAVAILABLE", "Commit analysis is not available yet");
+	},
+	"commit.analysis": () => {
+		throw new CodedError("COMMIT_ANALYSIS_UNAVAILABLE", "Commit analysis is not available yet");
+	},
+	"commit.analysisList": () => {
+		throw new CodedError("COMMIT_ANALYSIS_UNAVAILABLE", "Commit analysis is not available yet");
+	},
 	"pr.reopen": async (p) => {
 		recordWorkspaceActivity(p.workspaceId);
 		await reopenPr(p);

@@ -1,3 +1,4 @@
+import type { CommitAnalysisRecord } from "./commitAnalysis";
 import type {
 	AppConfig,
 	AppConfigUpdate,
@@ -148,7 +149,9 @@ export type TemplateReadLocation =
 	| { projectId: string; workspaceId?: never }
 	| { workspaceId?: never; projectId?: never };
 
-export const PROTOCOL_VERSION = 126;
+export const PROTOCOL_VERSION = 127;
+/** `commit.*` methods and the `commit.analyzed` channel. */
+export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 127;
 /** `wiki.*` methods: the repo wiki reader, its build prompt and the GitHub Pages publish. */
 export const REPO_WIKI_PROTOCOL_VERSION = 126;
 /** `prBabysit.*` methods and the `prBabysit.changed` channel. */
@@ -498,6 +501,9 @@ export const WS_METHODS = {
 	todoGenerateSummary: "todo.generateSummary",
 	gitStatus: "git.status",
 	gitDiffFile: "git.diffFile",
+	commitAnalyze: "commit.analyze",
+	commitAnalysis: "commit.analysis",
+	commitAnalysisList: "commit.analysisList",
 	gitListCommits: "git.listCommits",
 	workspaceTurns: "workspace.turns",
 	changeRevert: "change.revert",
@@ -665,6 +671,7 @@ export const WS_CHANNELS = {
 	fontsChanged: "fonts.changed",
 	speechChanged: "speech.changed",
 	prBabysitChanged: "prBabysit.changed",
+	commitAnalyzed: "commit.analyzed",
 } as const;
 
 type SameUnion<A extends B, B extends C, C = A> = A;
@@ -1626,6 +1633,18 @@ export interface WsMethodMap {
 		params: { workspaceId: string; itemId: string; action: PrBabysitItemAction };
 		result: PrBabysitSessionState;
 	};
+	"commit.analyze": {
+		params: { workspaceId: string; sha: string; sessionId?: string };
+		result: { status: "stored" | "queued" };
+	};
+	"commit.analysis": {
+		params: { workspaceId: string; sha: string };
+		result: CommitAnalysisRecord | null;
+	};
+	"commit.analysisList": {
+		params: { workspaceId: string };
+		result: { shas: string[]; pending: string[] };
+	};
 }
 
 /** Payload of the `mcp.status` channel: one per-session snapshot per publish. */
@@ -1681,6 +1700,7 @@ export type WsErrorCode =
 	| "SURVEY_CHANGED"
 	| "SURVEY_INVALID"
 	| "SURVEY_NOT_SENT"
+	| "COMMIT_ANALYSIS_UNAVAILABLE"
 	| "PACKAGE_SOURCE_INVALID"
 	| "PACKAGE_OFFLINE"
 	| "PACKAGE_UNTRUSTED"

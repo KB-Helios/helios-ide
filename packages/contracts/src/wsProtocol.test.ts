@@ -24,6 +24,7 @@ import {
 	CHAT_RESOURCES_PROTOCOL_VERSION,
 	CHATS_PROTOCOL_VERSION,
 	CLIENT_ERROR_REPORT_PROTOCOL_VERSION,
+	COMMIT_ANALYSIS_PROTOCOL_VERSION,
 	CONTEXT_WINDOW_SETTINGS_PROTOCOL_VERSION,
 	CONTINUATION_PROTOCOL_VERSION,
 	CUSTOM_ENDPOINT_ID_PREFIX,
@@ -766,4 +767,13 @@ test("the repo wiki methods are pinned to v126", () => {
 	expect(WS_METHODS.wikiPage).toBe("wiki.page");
 	expect(WS_METHODS.wikiPrepareBuild).toBe("wiki.prepareBuild");
 	expect(WS_METHODS.wikiPublish).toBe("wiki.publish");
+});
+
+test("commit analysis methods and channel are pinned to v127", () => {
+	expect(COMMIT_ANALYSIS_PROTOCOL_VERSION).toBe(127);
+	expect(PROTOCOL_VERSION).toBe(127);
+	expect(WS_METHODS.commitAnalyze).toBe("commit.analyze");
+	expect(WS_METHODS.commitAnalysis).toBe("commit.analysis");
+	expect(WS_METHODS.commitAnalysisList).toBe("commit.analysisList");
+	expect(WS_CHANNELS.commitAnalyzed).toBe("commit.analyzed");
 });
