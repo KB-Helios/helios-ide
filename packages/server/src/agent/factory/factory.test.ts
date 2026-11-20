@@ -570,6 +570,31 @@ test("a person's merge of the same factory commit keeps its MERGE_HEAD and stage
 	expect(git(repo, "rev-parse", "main").trim()).toBe(before);
 });
 
+test("a HEAD lock that stays busy after the ref moved names both tips for recovery", async () => {
+	const repo = makeRepo();
+	const sha = featureCommit(repo, "f.txt", "feature\n");
+	const before = git(repo, "rev-parse", "main").trim();
+	const headLock = join(repo, ".git", "HEAD.lock");
+	let message = "";
+	try {
+		await landOnTarget(repo, join(root, "landing-f"), "main", sha, "factory: land f", {
+			// Someone takes HEAD's lock right after the ref moved, and keeps it.
+			afterRefUpdate: async () => writeFileSync(headLock, ""),
+		});
+	} catch (error) {
+		message = (error as Error).message;
+	} finally {
+		rmSync(headLock, { force: true });
+	}
+	const after = git(repo, "rev-parse", "main").trim();
+	expect(after).not.toBe(before);
+	expect(message).toContain(`git read-tree -m -u ${before} ${after}`);
+	// Following the named recovery brings the checkout to the landed commit.
+	git(repo, "read-tree", "-m", "-u", before, after);
+	expect(lf(readFileSync(join(repo, "src", "f.txt"), "utf8"))).toBe("feature\n");
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+});
+
 test("a staged rename of a landed file blocks the landing before the target moves", async () => {
 	const repo = makeRepo();
 	mkdirSync(join(repo, "src"), { recursive: true });

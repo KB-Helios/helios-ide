@@ -403,3 +403,17 @@ test("Bedrock models of different vendors are different families", () => {
 	expect(bedrock("amazon.nova-pro-v1:0")).toBe("amazon");
 	expect(bedrock("cohere.command-r-plus-v1:0")).not.toBe(bedrock("ai21.jamba-1-5-large-v1:0"));
 });
+
+test("role resolution pairs two Bedrock vendors as coder and reviewer of different families", () => {
+	const { roles, notes } = resolveRoleModels(
+		[
+			{ provider: "amazon-bedrock", id: "cohere.command-r-plus-v1:0", reasoning: true },
+			{ provider: "amazon-bedrock", id: "ai21.jamba-1-5-large-v1:0", reasoning: false },
+		],
+		{ preferred: { provider: "amazon-bedrock", id: "cohere.command-r-plus-v1:0" } },
+	);
+	expect(roles.coder.model.id).toBe("cohere.command-r-plus-v1:0");
+	expect(roles.reviewer.model.id).toBe("ai21.jamba-1-5-large-v1:0");
+	expect(roles.reviewer.family).not.toBe(roles.coder.family);
+	expect(notes).toEqual([]);
+});

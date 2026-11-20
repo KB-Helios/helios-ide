@@ -79,7 +79,12 @@ async function withIndexLock(
  * held, never committed: HEAD itself is not changed. Someone else's commit or switch may hold it for a
  * moment, so this retries briefly before giving up.
  */
-async function withHeadLock<T>(repo: string, target: string, use: () => Promise<T>): Promise<T> {
+async function withHeadLock<T>(
+	repo: string,
+	target: string,
+	tips: { from: string; to: string },
+	use: () => Promise<T>,
+): Promise<T> {
 	const gitDir = (await git(repo, ["rev-parse", "--absolute-git-dir"])).stdout.trim();
 	const lock = join(gitDir, "HEAD.lock");
 	let fd: number | undefined;
@@ -89,7 +94,7 @@ async function withHeadLock<T>(repo: string, target: string, use: () => Promise<
 		} catch {
 			if (attempt >= 40)
 				throw new Error(
-					`Landed on ${target}, but git kept your checkout busy, so it was not brought along; when git is done, run "git read-tree -m -u <old> <new>" there with the commits from the landing report.`,
+					`Landed on ${target} (${tips.from} -> ${tips.to}), but git kept your checkout busy, so it was not brought along; when git is done, run "git read-tree -m -u ${tips.from} ${tips.to}" in your checkout.`,
 				);
 			await new Promise((resolve) => setTimeout(resolve, 50));
 		}
@@ -156,8 +161,8 @@ export async function landOnTarget(
 	target: string,
 	sha: string,
 	message: string,
-	/** Test seam: runs while the checkout lock is held, right after the target check. */
-	hooks?: { insideCheckoutLock?: () => Promise<void> },
+	/** Test seams: right after the ref update, and inside the HEAD lock right after the target check. */
+	hooks?: { afterRefUpdate?: () => Promise<void>; insideCheckoutLock?: () => Promise<void> },
 ): Promise<string> {
 	const ref = `refs/heads/${target}`;
 	const resolved = await git(repo, ["rev-parse", "--verify", "-q", `${ref}^{commit}`]);
@@ -222,8 +227,13 @@ export async function landOnTarget(
 		// landing between the HEAD check and the sync. HEAD cannot change while the sync runs.
 		const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
 		if (updated.code !== 0)
-			throw new Error(`${target} moved while landing; nothing was changed. Land again.`);
-		return withHeadLock(repo, target, async () => {
+			throw new Error(
+				/cannot lock ref|\.lock/i.test(updated.stderr)
+					? `Git is busy in your checkout (${target} is locked); nothing was changed. Land again when it is done.`
+					: `${target} moved while landing; nothing was changed. Land again.`,
+			);
+		await hooks?.afterRefUpdate?.();
+		return withHeadLock(repo, target, { from: tip, to: merged }, async () => {
 			const onTarget = await headIs(ref);
 			await hooks?.insideCheckoutLock?.();
 			if (!onTarget) return false;
