@@ -120,6 +120,46 @@ Ett fabriksflöde blir en `pi-dag`-definition, inte kod:
 Varje steg uppdaterar [[module-pi-dag]], [[submodule-server-agent]] och beslut 17 i
 [[architecture]], eftersom beslutet "ThinkRail neither bundles it nor exposes it" ändras.
 
+## Uppföljning
+
+Det som återstod efter de fem stegen ovan, och hur det blev (2026-11-20). Detaljerna står i
+[[submodule-server-agent]] (avsnitten "Live progress push", "History and output reads", "Starting a run and the
+planner", "Gate retries" och "Factory resources"), [[submodule-web-factory]] och [[module-contracts]].
+
+1. **Live-push av förlopp: klart.** `pi-dag` fick en smal observatör, `DagServiceOptions.onChange`, som anropas
+   efter varje durabel commit (skapande, admission, avslut, grindar, kommandon från alla anropare) och aldrig för
+   strömmande deltan. Värden debouncar den till `dag.changed` (120 ms per DAG) och väcker pausade arbetarturer
+   direkt; 100 ms-pollen i `slots.ts` och panelens 5 s-polling är borta (äldre värdar under v133 pollas
+   fortfarande). Notis-bindningarna var inget alternativ: de skriver in sig i varje DAG och når bara inaktiva chattar.
+2. **Kontroller och läsningar i panelen: klart.** Retry, continue, cancel (steg och hela flödet) och interrupt,
+   där de destruktiva kräver ett andra tryck. `dag.history` (sidindelad manifestlista, högst 50 per sida) och
+   `dag.output` (ett deklarerat utfall, högst 64 KiB, aldrig sökvägar) är läsningar som bara en människa når.
+3. **Automatiska grindförsök: klart, med ett medvetet avsteg.** Värden kör grindarna när kodaren försöker lämna in,
+   nekar inlämningen med den felande rapporten och låter samma kodare rätta framåt, högst `gateRetries` gånger per
+   försök (standard 2, tak 5, bokförs av värden). Det blev en rättningsslinga i samma försök och inte pi-dags
+   `retry`-kommando, eftersom `retry` ogiltigförklarar alla efterföljare och skulle tävla med en granskare som redan
+   startat. En människa kan fortfarande köra `retry` (nytt försök, ny budget).
+4. **Planerarnod: klart.** Två DAG:er, inte en grafändring: en skrivskyddad planeringsnod med en mänsklig
+   godkännandegrind, och sedan `dag.startFromPlan` som på värden kontrollerar att en människa godkänt, validerar
+   planen på nytt (gränser, reserverade id, disjunkta `owns`) och bygger fabriks-DAG:en. Den har sin egen mänskliga
+   release, så en plan når aldrig utcheckningen utan två separata mänskliga beslut.
+5. **Modellval per roll i gränssnittet: klart.** Ett startformulär i panelen (`dag.roles`, `dag.start`):
+   uppgift, planerare eller en kodare, och en modell per roll. Granskaren måste ha en annan modellfamilj om inte
+   personen uttryckligen tillåter samma familj; avvikelsen skrivs in i releasefrågan. Punkt 4 och 5 delar
+   startingången och ligger i samma commit.
+6. **Global gräns över arbetsytor: klart.** `AppConfig.factoryMaxConcurrent` (1-64, standard 8) ligger ovanpå varje
+   arbetsyttas egen gräns; en tur tar först arbetsytans plats och sedan en global, och räknas som köad tills den har
+   båda. Ändras live via inställningarna och redovisas i `dag.queue`. Inget UI-reglage än.
+7. **Grafritning: klart.** Lagerlayout utan beroende (`graphLayout.ts`), ritad med temat i panelen.
+8. **Språk: klart för ryska, övriga lämnade med avsikt.** `packages/locales/SPEC.md` säger att översättningar är
+   partiella och att en ny nyckel översätts till ryska i samma ändring; de andra katalogerna släpar kvar utan
+   att något test kräver mer. Alla `factory.*`-nycklar finns nu på ryska (rättat med katalogens ordlista:
+   «рецензент»), medan es, ja, pl, zh-CN och zh-TW faller tillbaka på engelska.
+
+Kvar och inte gjort: ett reglage för den globala gränsen i inställningarna; flerkodarplaner i startformuläret (kabeln
+och planeraren klarar dem); `dag.output` för artefaktutfall (bara storleken visas); nätverksisolering för barnsessioner
+(öppen fråga ovan); de översättningar som katalogerna fortfarande saknar.
+
 ## Öppna frågor
 
 - **`pi-swarm` och `pi-dag`:** ska swarm på sikt bli en DAG-mall, eller leva vidare som det

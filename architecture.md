@@ -327,7 +327,9 @@ dependency. This keeps test process drivers outside both launchers and the serve
     apply different lifetime policies through trusted lifecycle controls without another scheduler or
     human-gate bypass. Restore paused; one process controls each DAG. The host exposes it to the web UI
     as a Factory pane over `dag.*` ([[submodule-web-factory]]), always acting as the local human, so
-    gates are decided without a chat.
+    gates are decided without a chat. A person also starts runs there (`dag.start`, optionally through a
+    planner whose plan a person approves first); the host observes pi-dag's committed versions
+    (`DagServiceOptions.onChange`) to push `dag.changed` instead of polling.
 
 18. **Chat Resources projects capability owners; it is not a generic resource runtime.**
     [[module-pi-background-commands]] supplies explicit, session-owned log-only commands over Pi's
