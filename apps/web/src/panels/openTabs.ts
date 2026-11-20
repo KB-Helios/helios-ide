@@ -324,16 +324,17 @@ export async function followFileAtLine(
 	line: number,
 	targetGroupId?: string,
 ): Promise<void> {
-	await openFileAtLine(workspaceId, path, { line, flash: true }, "preview", {
+	// Canonicalize once so the tab, the reveal and the select intent all name the same file.
+	const canonical = projectRelativePath(
+		path,
+		selectWorkspaceById(useAppStore.getState(), workspaceId)?.worktreePath,
+	);
+	await openFileAtLine(workspaceId, canonical, { line, flash: true }, "preview", {
 		activate: false,
 		...(targetGroupId ? { targetGroupId } : {}),
 	});
 	if (!targetGroupId) return;
 	const state = useAppStore.getState();
-	const canonical = projectRelativePath(
-		path,
-		selectWorkspaceById(state, workspaceId)?.worktreePath,
-	);
 	const tabId = tupleKey("file", workspaceId, canonical);
 	if (!(state.tabsByWorkspace[workspaceId] ?? []).some((tab) => tab.id === tabId)) return;
 	state.enqueueLayoutIntent({

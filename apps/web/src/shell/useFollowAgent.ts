@@ -43,6 +43,8 @@ export function useFollowAgent(): void {
 	useEffect(() => {
 		const seen = new Set<string>();
 		const primed = new Set<string>();
+		// Reads finish in any order; chaining them keeps the editor on the newest mutation.
+		let followQueue: Promise<void> = Promise.resolve();
 		const scan = (
 			state: ReturnType<typeof useAppStore.getState>,
 			previous: typeof state | null,
@@ -65,7 +67,9 @@ export function useFollowAgent(): void {
 				const following = runtime.isStreaming && selectFollowActive(state, workspaceId);
 				for (const mutation of fresh) {
 					seen.add(mutation.toolCallId);
-					if (following) void follow(workspaceId, tab.id, mutation);
+					if (following) {
+						followQueue = followQueue.then(() => follow(workspaceId, tab.id, mutation));
+					}
 				}
 			}
 		};
