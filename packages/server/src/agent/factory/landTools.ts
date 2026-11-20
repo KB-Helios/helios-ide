@@ -74,6 +74,34 @@ async function withIndexLock(
 	}
 }
 
+/**
+ * Runs `use` while holding git's `HEAD.lock`, so no branch switch can complete meanwhile. The lock is only
+ * held, never committed: HEAD itself is not changed. Someone else's commit or switch may hold it for a
+ * moment, so this retries briefly before giving up.
+ */
+async function withHeadLock<T>(repo: string, target: string, use: () => Promise<T>): Promise<T> {
+	const gitDir = (await git(repo, ["rev-parse", "--absolute-git-dir"])).stdout.trim();
+	const lock = join(gitDir, "HEAD.lock");
+	let fd: number | undefined;
+	for (let attempt = 0; fd === undefined; attempt++) {
+		try {
+			fd = openSync(lock, "wx");
+		} catch {
+			if (attempt >= 40)
+				throw new Error(
+					`Landed on ${target}, but git kept your checkout busy, so it was not brought along; run "git reset --keep HEAD" there.`,
+				);
+			await new Promise((resolve) => setTimeout(resolve, 50));
+		}
+	}
+	try {
+		return await use();
+	} finally {
+		closeSync(fd);
+		rmSync(lock, { force: true });
+	}
+}
+
 async function mergeIdentity(cwd: string): Promise<string[]> {
 	return (await git(cwd, ["config", "user.email"])).code === 0 ? [] : IDENTITY;
 }
@@ -183,27 +211,24 @@ export async function landOnTarget(
 					`Your uncommitted changes touch files this landing changes (${local.join(", ")}); commit or stash them first. Nothing was changed.`,
 				);
 		}
-		// Move the target first, then look at HEAD. The index lock blocks every switch that rewrites the
-		// index; a switch that does not (`checkout -b` at HEAD's commit) can only land on HEAD's current
-		// commit, which from here on is `merged` when HEAD is the target, so the sync below is right for it.
+		// The ref update needs git's HEAD lock itself (HEAD's reflog), so it runs before this host takes that
+		// lock. Then HEAD is locked too: a branch switch must write HEAD under that lock, so one that already
+		// finished is seen below, and one still in flight (even one that read the old tip) fails instead of
+		// landing between the HEAD check and the sync. HEAD cannot change while the sync runs.
 		const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
 		if (updated.code !== 0)
 			throw new Error(`${target} moved while landing; nothing was changed. Land again.`);
-		const onTarget = await headIs(ref);
-		await hooks?.insideCheckoutLock?.();
-		if (!onTarget) return false;
-		const synced = await git(repo, ["read-tree", "-m", "-u", tip, merged], env);
-		if (synced.code !== 0)
-			throw new Error(
-				`Landed on ${target}, but your checkout could not be brought along (${(synced.stderr || synced.stdout).trim()}); run "git reset --keep HEAD" there.`,
-			);
-		// Belt and braces: if HEAD now names neither the target nor the landed commit, undo the file sync.
-		const head = (await git(repo, ["rev-parse", "HEAD"])).stdout.trim();
-		if (!(await headIs(ref)) && head !== merged) {
-			await git(repo, ["read-tree", "-m", "-u", merged, tip], env);
-			return false;
-		}
-		return true;
+		return withHeadLock(repo, target, async () => {
+			const onTarget = await headIs(ref);
+			await hooks?.insideCheckoutLock?.();
+			if (!onTarget) return false;
+			const synced = await git(repo, ["read-tree", "-m", "-u", tip, merged], env);
+			if (synced.code !== 0)
+				throw new Error(
+					`Landed on ${target}, but your checkout could not be brought along (${(synced.stderr || synced.stdout).trim()}); run "git reset --keep HEAD" there.`,
+				);
+			return true;
+		});
 	});
 	return merged;
 }

@@ -1648,13 +1648,12 @@ beyond small host files next to the worktrees.
   commit (`--no-ff`) in a throwaway detached checkout of the target's tip (a conflict is aborted there), moves
   `refs/heads/<target>` by compare-and-swap only if it still points at that tip, and, when the checkout has the
   target checked out, brings its index and files along with `read-tree -m -u` after refusing if the person's
-  uncommitted edits touch any landed file. The ref update, the HEAD check and that sync all run while the
-  host holds the checkout's own `index.lock` (git's lock-and-rename protocol, on a private index copy); a lock
-  someone else holds makes the landing refuse with nothing changed. The lock blocks every branch switch that
-  rewrites the index. A switch that does not (`checkout -b` at HEAD's commit) can only land on HEAD's current
-  commit, so the target moves first and HEAD is checked after: such a branch then starts at the landed commit
-  and the sync is exactly right for it. If HEAD ends up on neither the target nor the landed commit, the file
-  sync is undone. A branch switch can therefore never redirect a landing or receive a wrong sync. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
+  uncommitted edits touch any landed file. The whole operation holds the checkout's own `index.lock` (git's
+  lock-and-rename protocol on a private index copy); a lock someone else holds makes the landing refuse with
+  nothing changed. The ref update needs git's `HEAD.lock` itself, so it runs first; the host then also holds
+  `HEAD.lock` for the HEAD check and the sync. Every branch switch must write HEAD under that lock, so a switch
+  that already finished is seen and one still in flight fails: HEAD cannot change between the check and the
+  sync, and a branch switch can never redirect a landing or receive its sync. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
   branch still points at it, and refuses if it moved. Sources are then removed with their branch by a
   non-forced `git worktree remove`: git itself refuses a worktree holding any edit, so a late edit is never
   deleted and that worktree and branch are kept. Landing is all-or-nothing up to the merges; a failure after earlier merges is reported and
