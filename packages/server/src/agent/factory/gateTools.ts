@@ -4,6 +4,7 @@ import { detectGates, runGates } from "pi-swarm";
 import { Type } from "typebox";
 import { boundFor, sourcesOf, sourceWorktree, toolResult } from "./access";
 import { clip, type FactoryRun, type GateRecord, type WorktreeMeta } from "./run";
+import { defaultGateSandbox, withGateSandbox } from "./sandbox";
 import {
 	blobAt,
 	contentTree,
@@ -24,7 +25,8 @@ export const CHANGED_DEFINITIONS = "Gates do not run over changed build or gate 
  * Runs the project's declared gates in one worktree and records the verdict on the host. The commands
  * come from `detectGates` (the repository's own typecheck/lint/test scripts), never from the model.
  * Nothing runs when the project is untrusted, when no gate is declared, or while the diff violates the
- * node's ownership (that also covers a poisoned manifest, since manifests are protected paths).
+ * node's ownership (that also covers a poisoned manifest, since manifests are protected paths). Gate
+ * processes run inside the OS sandbox (`sandbox.ts`) and nowhere else: without one, nothing runs.
  */
 export function runFactoryGates(
 	run: FactoryRun,
@@ -75,20 +77,37 @@ export function runFactoryGates(
 					`The checkout's gate definitions changed since this worktree was made (${drifted.join(", ")}); the worktree needs a fresh base before its gates can run.`,
 				);
 			} else {
-				const results = await inSnapshotCheckout(
-					repo,
-					run.options.worktreeRoot,
-					snap.commit,
-					(checkout) =>
-						runGates(commands, checkout, {
-							timeoutMs: GATE_TIMEOUT_MS,
-							...(signal ? { signal } : {}),
-						}),
-				);
-				// A cancelled run says nothing about quality: never record it, so the next call runs the gates.
-				if (signal?.aborted) throw signal.reason ?? new Error("The gate run was cancelled");
-				const passed = results.length === commands.length && results.every((result) => result.ok);
-				record = { ok: passed, commands, results, ...base };
+				const sandbox = run.options.sandbox ?? defaultGateSandbox();
+				const available = await sandbox.availability();
+				if (!available.ok) {
+					// Fail closed: gate code never runs unconfined, and the record says why nothing ran.
+					record = refuse(available.reason);
+				} else {
+					const { results, unavailable } = await inSnapshotCheckout(
+						repo,
+						sandbox.checkoutRoot?.(run.options.worktreeRoot) ?? run.options.worktreeRoot,
+						snap.commit,
+						(checkout) =>
+							withGateSandbox(sandbox, { checkout, commands }, async (gates) => ({
+								results: await runGates(commands, checkout, {
+									timeoutMs: GATE_TIMEOUT_MS,
+									runner: gates.runner,
+									...(signal ? { signal } : {}),
+								}),
+								unavailable: gates.unavailable(),
+							})),
+					);
+					// A cancelled run says nothing about quality: never record it, so the next call runs the gates.
+					if (signal?.aborted) throw signal.reason ?? new Error("The gate run was cancelled");
+					if (unavailable) {
+						// The sandbox could not be set up for this run, so the command never executed.
+						record = refuse(`The gate sandbox could not be set up: ${unavailable}`);
+					} else {
+						const passed =
+							results.length === commands.length && results.every((result) => result.ok);
+						record = { ok: passed, commands, results, ...base };
+					}
+				}
 			}
 		}
 		run.writeGateRecord(meta.nodeId, record);

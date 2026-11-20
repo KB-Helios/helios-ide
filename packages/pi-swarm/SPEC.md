@@ -27,6 +27,10 @@ a session-scoped delegation service; ThinkRail injects its workspace service.
 - `Swarm`, `Board`, snapshot/member/post types, `detectGates` / `runGates`, the git helpers
   (`createWorktree`, `worktreeDiff`, `applyPatch`, `commitWorktree`, `removeWorktree`, ownership globs)
   reused by the host's inbound A2A endpoint.
+- `runGates(commands, cwd, { signal, timeoutMs, runner })`: `runner` (`GateRunner`, with `ExecResult`) replaces the
+  default `shell: true` child, so a host can confine gate processes (the factory's OS sandbox) without pi-swarm
+  importing one; a runner that throws fails that gate with the error text. `dependencyTargets(worktree)` lists the
+  real folders the worktree's `node_modules` links point to.
 
 ## Tools
 

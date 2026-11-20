@@ -21,6 +21,7 @@ import {
 	type Worktree,
 	worktreeDiff,
 } from "pi-swarm";
+import type { GateSandbox } from "./sandbox";
 import { type FactoryNode, isProtectedBasename } from "./spec";
 
 export interface FactoryRunOptions {
@@ -34,6 +35,11 @@ export interface FactoryRunOptions {
 	isTrusted: () => boolean;
 	/** True only when a human approval gate on `nodeId` was approved in the DAG's own state. */
 	releaseApproved: (dagId: string, nodeId: string) => Promise<boolean>;
+	/**
+	 * The OS sandbox every gate process runs in. Unset means the platform's own (`defaultGateSandbox`); when
+	 * that is missing, gates are refused rather than run unconfined.
+	 */
+	sandbox?: GateSandbox;
 }
 
 export interface WorktreeMeta extends Worktree {

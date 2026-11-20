@@ -1,0 +1,23 @@
+[package]
+name = "thinkrail-gate-sandbox"
+version = "0.0.0-dev"
+description = "Runs one factory gate command inside a Windows AppContainer: snapshot readable, never writable, no network, one private scratch directory"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "thinkrail-gate-sandbox"
+path = "src/main.rs"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Isolation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_JobObjects",
+    "Win32_System_Threading",
+]

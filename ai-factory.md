@@ -168,5 +168,12 @@ och planeraren klarar dem); `dag.output` för artefaktutfall (bara storleken vis
   chattdrivna läget bredvid? Förslag: behåll båda, men låt dem dela hjälparna och inte schemaläggaren.
 - **Nätverk för barnsessioner:** pi saknar en sandlåda på OS-nivå, så "inget nätverk" kräver en
   separat isoleringsmekanism. Det kräver en egen utredning.
+- **Sandlåda för grindar: besvarad.** Grindprocesserna (projektets egna `typecheck`/`lint`/`test`) körs bara i en
+  OS-sandlåda och aldrig utan: Windows AppContainer via `thinkrail-gate-sandbox.exe` bredvid sidecaren, Linux
+  bubblewrap, macOS `sandbox-exec`. Ögonblicksbilden och beroendemapparna går att läsa men inte skriva, en privat
+  scratch-mapp går att skriva, nätverk saknas helt och användarens övriga filer är stängda (se
+  `packages/server/src/agent/SPEC.md`, "Gate sandbox"). Saknas sandlådan körs inga grindar och posten blir
+  `ok: false` med skäl. Kvar: barnsessionerna (frågan ovan) och en verklig körning av Linux- och macOS-vägarna,
+  som hittills bara är testade via sina genererade argument.
 - **Bounds:** `pi-dag` tillåter 128 noder och 16 MiB per värde. Det räcker troligen, men behöver
   mätas mot riktiga repo-diffar.

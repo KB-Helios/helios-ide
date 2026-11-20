@@ -100,6 +100,8 @@ export interface FactoryHostOptions {
 	/** `<dataDir>/factory-worktrees/<workspaceId>`. */
 	worktreeRoot: string;
 	releaseApproved: FactoryRunOptions["releaseApproved"];
+	/** Overrides the platform's gate sandbox (tests); unset uses the OS sandbox. */
+	sandbox?: FactoryRunOptions["sandbox"];
 }
 
 /**
@@ -127,6 +129,7 @@ export function withFactoryWorkers(
 					worktreeRoot: host.worktreeRoot,
 					isTrusted: () => context.isProjectTrusted?.() === true,
 					releaseApproved: host.releaseApproved,
+					...(host.sandbox ? { sandbox: host.sandbox } : {}),
 				});
 				const resource = await target.registerResource(id, context, {
 					...options,

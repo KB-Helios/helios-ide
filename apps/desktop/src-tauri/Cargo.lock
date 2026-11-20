@@ -4658,6 +4658,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "thinkrail-gate-sandbox"
+version = "0.0.0-dev"
+dependencies = [
+ "windows 0.58.0",
+]
+
+[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"

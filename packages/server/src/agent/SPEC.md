@@ -1635,6 +1635,28 @@ beyond small host files next to the worktrees.
   checkout but run in the snapshot, so gates refuse when the root build/gate definitions differ between the two
   (by blob id). A cancelled run is never recorded. The readiness report (changed files, ownership, stat and
   freshness) is computed from one captured tree. A model's own report text is never trusted.
+- **Gate sandbox (fail closed).** Gate processes never run unconfined: `runFactoryGates` hands every command to
+  `sandbox.ts` (`GateSandbox`) through pi-swarm's `runGates` runner hook, and the OS enforces what the snapshot
+  checkout promises. The checkout and the linked dependency folders (`dependencyTargets`) are readable and never
+  writable (so a gate cannot change a file, nor change it and put it back), exactly one private scratch directory is
+  writable (it is also `TEMP` and the home directory, and is deleted after the run), there is no network at all
+  (loopback included) and none of the user's other files are readable. The environment is an allowlist
+  (`gateEnvironment`), never the host's: API keys and tokens do not reach a gate. Windows runs
+  `thinkrail-gate-sandbox.exe` (an AppContainer, see apps/desktop), found next to the host executable or at
+  `THINKRAIL_GATE_SANDBOX_HELPER`; Linux runs `bwrap` (read-only system and checkout, the home folder hidden by a
+  tmpfs, `--unshare-all`, cleared environment) and macOS `sandbox-exec` (a profile denying network and writes
+  outside the scratch directory); those two are tested here only through their generated arguments. The sandbox is
+  asked `availability()` before any checkout is made, and a helper that cannot be set up during the run throws
+  `SandboxUnavailableError`; both end in a gate record with `ok: false`, a `reason`, no results and no command
+  executed, so nothing lands. There is no unconfined mode. An AppContainer cannot start Bun in an ordinary profile
+  folder (Bun opens every parent of its working directory and fails on one the container cannot list;
+  `C:\Users` cannot be changed), so the Windows sandbox asks for its own checkout folder (`checkoutRoot`:
+  `<drive>:\helios-gates`), lists those parents through non-inherited entries, and puts a `bun.cmd` shim first on
+  the gate's PATH that adds `--shell=system` to `bun run` (Bun's own shell opens its working directory for writing).
+  Tests of the gate flow itself inject `unconfinedTestSandbox` through `setDefaultGateSandbox`; `sandbox.test.ts`
+  covers argument construction and the fail-closed refusals everywhere and, on Windows, runs the real helper (a
+  gate cannot write, create or delete in the snapshot or its dependencies, X→Y→X fails, no loopback or internet, no
+  read outside the grants, no host secret, the profile and access entries are cleaned up).
 - **Landing enforcement.** pi-dag's `approval` gates the release of the node's output, not its start, so the flow
   is `gate-* -> release (approval: human) -> land`, with the land node consuming the release output.
   pi-dag therefore never starts `land` before a person approved `release` (only a `human` caller can; a chat

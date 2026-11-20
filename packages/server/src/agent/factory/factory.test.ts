@@ -36,6 +36,11 @@ import {
 } from "./index";
 import { landOnTarget } from "./landTools";
 import { confinedPath, setRecordWriteSeamForTests, writeAtomically } from "./run";
+import { setDefaultGateSandbox } from "./sandbox";
+import { unconfinedTestSandbox } from "./testSandbox";
+
+// These tests exercise the gate flow, not the OS boundary (sandbox.test.ts does): gates run unconfined here.
+setDefaultGateSandbox(unconfinedTestSandbox());
 
 const model = { provider: "factory-faux", id: "worker" };
 const faux = createFauxCore({
