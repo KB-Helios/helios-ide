@@ -11,9 +11,20 @@ const GlobList = Type.Array(Type.String({ minLength: 1, maxLength: 512 }), { max
 const NodeId = Type.String({ minLength: 1, maxLength: 128 });
 const Sources = Type.Array(NodeId, { minItems: 1, maxItems: 32 });
 
+/** Failed-gate corrections a coder gets per attempt unless the plan says otherwise. */
+export const DEFAULT_GATE_RETRIES = 2;
+/** The most a plan may grant; the loop is always bounded. */
+export const MAX_GATE_RETRIES = 5;
+
 export const FactoryNodeSchema = Type.Union([
 	Type.Object(
-		{ role: Type.Literal("coder"), owns: GlobList, avoid: GlobList },
+		{
+			role: Type.Literal("coder"),
+			owns: GlobList,
+			avoid: GlobList,
+			/** Host-enforced gate corrections per attempt; absent (an older definition) means none. */
+			retries: Type.Optional(Type.Integer({ minimum: 0, maximum: MAX_GATE_RETRIES })),
+		},
 		{ additionalProperties: false },
 	),
 	Type.Object({ role: Type.Literal("gate"), source: NodeId }, { additionalProperties: false }),
@@ -36,7 +47,7 @@ export const FactoryNodeSchema = Type.Union([
 ]);
 
 export type FactoryNode =
-	| { role: "coder"; owns: string[]; avoid: string[] }
+	| { role: "coder"; owns: string[]; avoid: string[]; retries?: number }
 	| { role: "gate"; source: string }
 	| { role: "release"; sources: string[] }
 	| { role: "inspector"; sources: string[] }

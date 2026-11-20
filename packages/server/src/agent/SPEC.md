@@ -1598,15 +1598,31 @@ beyond small host files next to the worktrees.
   the merges; a failure after earlier merges is reported and already-landed sources stay marked so a rerun skips
   them. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
   uncommitted changes in the checkout stay untouched unless they overlap.
-- **Template and the step-4 hook.** `buildFactoryDefinition({ title, target, coders, maxConcurrent?, beforeRelease? })`
+- **Template and the step-4 hook.** `buildFactoryDefinition({ title, target, coders, maxConcurrent?, gateRetries?, beforeRelease? })`
   builds `coder-*` -> `gate-<coder>` -> `release` (human approval) -> `land`. `beforeRelease(ctx)` is the single
   insertion point for review: it returns extra `nodes`, `connections` and the extra input ports
   (`releaseInputs`) the `release` node needs, and receives `{ coders, gates, release, gateOutput }`. A node that
   only has a control connection into `release` also holds it. Give a reviewer read access to the worktrees with
   `factoryInspector(ctx.coders)` (tools plus system-prompt suffix); it then reads the host's diff via
   `factory_diff` instead of copying one through a model.
-- **Not yet.** Automatic coder retry on failed gates (the controller or person issues `retry`) and a planner
-  node that emits coders. UI-resumed DAGs get the host's sessionless project trust from the wire.
+- **Gate retries (bounded, host-enforced).** `gateGuard.ts` registers a `tool_call` guard on the factory worker
+  extension. When a coder tries `dag_submit_result`, the host runs the project's declared gates in the coder's
+  worktree (`runFactoryGates`, or reuses a record whose diff hash is still fresh). A passing record lets the
+  submit through; a failing one that the coder can fix (a failing command or an ownership violation) **blocks the
+  submit and returns the failing report as the refusal** (`formatGateFailure`: each command, exit code and the
+  tail of its output, capped), so the same coder fixes forward in the same worktree and submits again. The budget
+  is `retries` on the coder's `<factory-node>` marker, written by the template from `FactoryPlan.gateRetries`
+  (default `DEFAULT_GATE_RETRIES` = 2, validated 0..`MAX_GATE_RETRIES` = 5, `0` off; a node without the field gets
+  none). The count is per attempt (session) and persisted by the host (`<node>.retries.json`), so neither a model
+  nor a restart resets it; once spent, the submit goes through with the failure on record and the gate node and
+  the person at the release see it. Nothing is retried when the failure is not fixable (untrusted project, no
+  declared gate), so the budget is never burned for nothing. Design choice: this is a correction loop inside one
+  attempt rather than pi-dag's `retry` command, because `retry` invalidates every descendant (gate, review,
+  release) and would race a reviewer that already started, while the guard needs no extra execution context and
+  cannot loop. A person can still `retry` a node, which is a new attempt with a fresh budget. Tests:
+  `factory.test.ts` (end-to-end fix after a refusal; the guard's bound, untrusted, `retries: 0`, other roles;
+  template validation).
+- **Not yet.** A planner node that emits coders. UI-resumed DAGs get the host's sessionless project trust from the wire.
 
 ## Factory review and model roles
 

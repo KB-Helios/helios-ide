@@ -1,12 +1,14 @@
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
 import type { DagService } from "pi-dag";
 import type { DelegationService, ResourceChildHandle } from "pi-delegation";
+import { registerGateGuard } from "./gateGuard";
 import { registerGateTools } from "./gateTools";
 import { registerLandTool } from "./landTools";
 import { FactoryRun, type FactoryRunOptions } from "./run";
 import { parseFactoryNode } from "./spec";
 import { registerWorktreeTools } from "./worktreeTools";
 
+export { formatGateFailure, isFixable } from "./gateGuard";
 export { landFactory } from "./landTools";
 export { FactoryRun } from "./run";
 export {
@@ -20,10 +22,12 @@ export {
 	withFactorySlots,
 } from "./slots";
 export {
+	DEFAULT_GATE_RETRIES,
 	encodeFactoryNode,
 	FACTORY_TOOL,
 	type FactoryNode,
 	type FactoryRole,
+	MAX_GATE_RETRIES,
 	parseFactoryNode,
 	ROLE_TOOLS,
 } from "./spec";
@@ -44,6 +48,7 @@ export function factoryWorkerExtension(run: FactoryRun): ExtensionFactory {
 	return (pi) => {
 		registerWorktreeTools(pi, run);
 		registerGateTools(pi, run);
+		registerGateGuard(pi, run);
 		registerLandTool(pi, run);
 	};
 }

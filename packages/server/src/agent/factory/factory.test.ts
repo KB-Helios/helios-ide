@@ -23,6 +23,7 @@ import {
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { DagClient, DagResult, DagSnapshot } from "pi-dag";
 import { closeAllDags, dagServiceFor, factoryWorktreeRoot } from "../dag";
+import { registerGateGuard } from "./gateGuard";
 import { runFactoryGates } from "./gateTools";
 import {
 	buildFactoryDefinition,
@@ -53,7 +54,12 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 /** A repo whose only gate is a `test` script (a bun.lock makes the detected command `bun run test`). */
-function makeRepo(): string {
+const PASSING_GATE = 'bun -e "process.exit(0)"';
+/** A gate that fails while `bad.txt` says "bad", so a coder can break and then fix it. */
+const BAD_FILE_GATE =
+	"bun -e \"const fs = require('fs'); process.exit(fs.existsSync('bad.txt') && fs.readFileSync('bad.txt', 'utf8').includes('bad') ? 1 : 0)\"";
+
+function makeRepo(gate = PASSING_GATE): string {
 	const repo = join(root, `repo${serial++}`);
 	mkdirSync(repo, { recursive: true });
 	git(repo, "init", "-b", "main");
@@ -61,7 +67,7 @@ function makeRepo(): string {
 	git(repo, "config", "user.name", "T");
 	writeFileSync(
 		join(repo, "package.json"),
-		JSON.stringify({ name: "demo", scripts: { test: 'bun -e "process.exit(0)"' } }),
+		JSON.stringify({ name: "demo", scripts: { test: gate } }),
 	);
 	writeFileSync(join(repo, "bun.lock"), "");
 	writeFileSync(join(repo, "README.md"), "demo\n");
@@ -480,7 +486,7 @@ test("the factory template validates ownership and exposes a hook before the rel
 	expect(release?.approval?.authority).toBe("human");
 	expect(Object.keys(release?.inputs ?? {})).toEqual(["gate-a", "review"]);
 	const prompt = definition.nodes.find((node) => node.id === "a")?.session?.systemPrompt;
-	expect(parseFactoryNode(prompt)).toEqual({ role: "coder", owns: [], avoid: [] });
+	expect(parseFactoryNode(prompt)).toEqual({ role: "coder", owns: [], avoid: [], retries: 2 });
 	expect(factoryInspector(["a"]).tools).toEqual([
 		"factory_read",
 		"factory_list",
@@ -494,4 +500,164 @@ test("the factory template validates ownership and exposes a hook before the rel
 	// No coder holds a raw write tool; only factory_* tools exist for factory nodes.
 	for (const node of definition.nodes)
 		for (const tool of node.session?.tools ?? []) expect(tool).toStartWith("factory_");
+});
+
+test("a coder whose gates fail is sent back with the failing report, bounded, and passes on the fix", async () => {
+	const workspaceId = `factoryws${serial++}`;
+	const repo = makeRepo(BAD_FILE_GATE);
+	const seenByCoder: string[] = [];
+	const respond: FauxResponseFactory = (context) => {
+		const seen = textOf(context);
+		const turn = context.messages.filter((message) => message.role === "assistant").length;
+		if (/"role\\":\\"coder\\"/.test(seen)) {
+			seenByCoder.push(seen);
+			if (turn === 0)
+				return fauxAssistantMessage(
+					fauxToolCall("factory_write", { path: "bad.txt", content: "bad\n" }),
+				);
+			if (turn === 1) return submit("summary", "first try");
+			if (turn === 2)
+				return fauxAssistantMessage(
+					fauxToolCall("factory_write", { path: "bad.txt", content: "good\n" }),
+				);
+			return submit("summary", "second try");
+		}
+		return submit("report", "n/a");
+	};
+	faux.setResponses(Array.from({ length: 12 }, () => respond));
+
+	const definition = buildFactoryDefinition({
+		title: "Gate retry",
+		target: "main",
+		coders: [{ id: "coder-a", task: "Add the file" }],
+	});
+	const owner = bind(workspaceId, repo, "owner");
+	const { dagId } = value(
+		await owner.execute({ commandId: "create", command: { kind: "create", definition } }),
+	);
+	const created = value(await owner.getDag({ dagId }));
+	value(
+		await owner.execute({
+			commandId: "resume",
+			dagId,
+			expectedVersion: created.version,
+			command: { kind: "resume" },
+		}),
+	);
+	const done = await until(
+		owner,
+		dagId,
+		(state) => state.nodes.find((node) => node.id === "coder-a")?.status === "completed",
+	);
+	expect(done.nodes.find((node) => node.id === "coder-a")?.attempt).toBe(1);
+
+	// The refusal carried the host's failing report to the same coder, and the second submit went through.
+	const afterRefusal = seenByCoder.find((seen) => seen.includes("correction 1 of 2"));
+	expect(afterRefusal).toBeDefined();
+	expect(afterRefusal).toContain("FAIL");
+	expect(afterRefusal).toContain("The project's gates failed");
+	const meta = join(factoryWorktreeRoot(workspaceId), ".meta");
+	const record = JSON.parse(
+		readFileSync(join(meta, readdirSync(meta)[0] ?? "", "coder-a.gates.json"), "utf8"),
+	);
+	expect(record.ok).toBe(true);
+}, 120_000);
+
+function guardHandler(run: FactoryRun) {
+	type Handler = (
+		event: unknown,
+		ctx: unknown,
+	) => Promise<{ block?: boolean; reason?: string } | undefined>;
+	let handler: Handler | undefined;
+	registerGateGuard(
+		{
+			on: (name: string, fn: Handler) => {
+				if (name === "tool_call") handler = fn;
+			},
+		} as never,
+		run,
+	);
+	return (tool: string, sessionId: string) =>
+		(handler as Handler)(
+			{ type: "tool_call", toolName: tool, toolCallId: "t", input: {} },
+			{ sessionManager: { getSessionId: () => sessionId }, signal: undefined },
+		);
+}
+
+test("the gate guard grants at most the planned corrections per attempt and never loops", async () => {
+	const repo = makeRepo(BAD_FILE_GATE);
+	const run = unitRun(repo);
+	const node = { owns: [], avoid: [], retries: 2 };
+	const meta = await run.ensureWorktree("coder-a", node);
+	writeFileSync(join(meta.path, "bad.txt"), "bad\n");
+	run.bind("session-1", { nodeId: "coder-a", node: { role: "coder", ...node } });
+	const submitTool = guardHandler(run);
+
+	expect(await submitTool("factory_read", "session-1")).toBeUndefined();
+	const first = await submitTool("dag_submit_result", "session-1");
+	expect(first?.block).toBe(true);
+	expect(first?.reason).toContain("correction 1 of 2");
+	expect(first?.reason).toContain("FAIL");
+	const second = await submitTool("dag_submit_result", "session-1");
+	expect(second?.reason).toContain("correction 2 of 2");
+	expect(second?.reason).toContain("last correction");
+	// Budget spent: the third submit goes through with the failure on record.
+	expect(await submitTool("dag_submit_result", "session-1")).toBeUndefined();
+	expect(run.readGateRecord("coder-a")?.ok).toBe(false);
+	expect(run.gateRetriesUsed("coder-a", "session-1")).toBe(2);
+
+	// A human retry is a new attempt and session: it starts with a fresh budget, still bounded.
+	run.bind("session-2", { nodeId: "coder-a", node: { role: "coder", ...node } });
+	expect((await submitTool("dag_submit_result", "session-2"))?.reason).toContain(
+		"correction 1 of 2",
+	);
+
+	// The fix passes the host's own gates and nothing is held back.
+	writeFileSync(join(meta.path, "bad.txt"), "good\n");
+	expect(await submitTool("dag_submit_result", "session-2")).toBeUndefined();
+	expect(run.readGateRecord("coder-a")?.ok).toBe(true);
+});
+
+test("the gate guard stays out of the way when there is nothing a coder can fix", async () => {
+	const repo = makeRepo(BAD_FILE_GATE);
+	// An untrusted project never runs gates, so a refusal could only waste the budget.
+	const untrusted = unitRun(repo, { trusted: false });
+	const node = { owns: [], avoid: [], retries: 2 };
+	const meta = await untrusted.ensureWorktree("coder-a", node);
+	writeFileSync(join(meta.path, "bad.txt"), "bad\n");
+	untrusted.bind("s", { nodeId: "coder-a", node: { role: "coder", ...node } });
+	expect(await guardHandler(untrusted)("dag_submit_result", "s")).toBeUndefined();
+	expect(untrusted.gateRetriesUsed("coder-a", "s")).toBe(0);
+
+	// retries: 0 and nodes planned before the budget existed are never gated; other roles are ignored.
+	const trusted = unitRun(repo);
+	const free = await trusted.ensureWorktree("free", { owns: [], avoid: [] });
+	writeFileSync(join(free.path, "bad.txt"), "bad\n");
+	trusted.bind("zero", {
+		nodeId: "free",
+		node: { role: "coder", owns: [], avoid: [], retries: 0 },
+	});
+	trusted.bind("old", { nodeId: "free", node: { role: "coder", owns: [], avoid: [] } });
+	trusted.bind("gate", { nodeId: "gate-free", node: { role: "gate", source: "free" } });
+	const submitTool = guardHandler(trusted);
+	for (const session of ["zero", "old", "gate", "unbound"])
+		expect(await submitTool("dag_submit_result", session)).toBeUndefined();
+	expect(trusted.readGateRecord("free")).toBeUndefined();
+});
+
+test("the template writes a bounded, validated correction budget into every coder", () => {
+	const budget = (gateRetries?: number) =>
+		parseFactoryNode(
+			buildFactoryDefinition({
+				title: "t",
+				target: "main",
+				coders: [{ id: "a", task: "x" }],
+				...(gateRetries === undefined ? {} : { gateRetries }),
+			}).nodes.find((node) => node.id === "a")?.session?.systemPrompt,
+		);
+	expect(budget()).toMatchObject({ retries: 2 });
+	expect(budget(0)).toMatchObject({ retries: 0 });
+	expect(budget(5)).toMatchObject({ retries: 5 });
+	for (const bad of [-1, 6, 1.5, Number.NaN])
+		expect(() => budget(bad)).toThrow("gateRetries must be a whole number");
 });

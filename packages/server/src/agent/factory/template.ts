@@ -1,5 +1,11 @@
 import type { DagConnection, DagDefinition, DagNodeSpec } from "pi-dag";
-import { encodeFactoryNode, type FactoryNode, ROLE_TOOLS } from "./spec";
+import {
+	DEFAULT_GATE_RETRIES,
+	encodeFactoryNode,
+	type FactoryNode,
+	MAX_GATE_RETRIES,
+	ROLE_TOOLS,
+} from "./spec";
 
 export interface FactoryCoderPlan {
 	/** The coder node's id; also its worktree and branch name. */
@@ -39,6 +45,12 @@ export interface FactoryPlan {
 	target: string;
 	coders: FactoryCoderPlan[];
 	maxConcurrent?: number;
+	/**
+	 * Gate corrections each coder gets per attempt: when its gates fail at submit, the host hands back the
+	 * report and the coder fixes forward, at most this many times (default `DEFAULT_GATE_RETRIES`, at most
+	 * `MAX_GATE_RETRIES`, `0` turns the loop off). The budget is written into each coder node.
+	 */
+	gateRetries?: number;
 	/** The step-4 insertion point. Absent: gates feed the release node directly. */
 	beforeRelease?: (context: BeforeReleaseContext) => BeforeRelease;
 	/** Per-role model choice written into each template node's session; absent roles use DAG defaults. */
@@ -133,6 +145,9 @@ const WORKTREE_RULES =
  * output a human must approve -> a land node that can only start after that approval.
  */
 export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
+	const retries = plan.gateRetries ?? DEFAULT_GATE_RETRIES;
+	if (!Number.isInteger(retries) || retries < 0 || retries > MAX_GATE_RETRIES)
+		throw new Error(`gateRetries must be a whole number from 0 to ${MAX_GATE_RETRIES}`);
 	const ids = factoryNodeIds(plan.coders.map((coder) => coder.id));
 	if (plan.coders.length === 0) throw new Error("A factory needs at least one coder");
 	if (new Set(ids.coders).size !== ids.coders.length) throw new Error("Coder ids must be unique");
@@ -165,8 +180,12 @@ export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
 		nodes.push(
 			node(
 				coder.id,
-				{ role: "coder", owns, avoid },
-				`You are a coder in a software factory, working alone in your own git worktree. ${WORKTREE_RULES} When your change is complete, call factory_run_gates, fix what fails, and only then submit.`,
+				{ role: "coder", owns, avoid, retries },
+				`You are a coder in a software factory, working alone in your own git worktree. ${WORKTREE_RULES} When your change is complete, call factory_run_gates, fix what fails, and only then submit.${
+					retries > 0
+						? ` The host runs the project's gates again when you submit: if they fail, your submit is refused with the failing report and you fix forward and submit again (${retries} correction${retries === 1 ? "" : "s"} at most).`
+						: ""
+				}`,
 				[
 					coder.task,
 					owns.length ? `You own: ${owns.join(", ")}.` : "",

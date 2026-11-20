@@ -115,6 +115,32 @@ export class FactoryRun {
 		return join(this.options.worktreeRoot, ".meta", this.options.dagId, `${nodeId}.json`);
 	}
 
+	private retryFile(nodeId: string): string {
+		return join(this.options.worktreeRoot, ".meta", this.options.dagId, `${nodeId}.retries.json`);
+	}
+
+	/** Gate corrections already granted to `sessionId` (one attempt); a new session starts again at 0. */
+	gateRetriesUsed(nodeId: string, sessionId: string): number {
+		try {
+			const saved = JSON.parse(readFileSync(this.retryFile(nodeId), "utf8")) as {
+				sessionId?: unknown;
+				used?: unknown;
+			};
+			return saved.sessionId === sessionId && typeof saved.used === "number" ? saved.used : 0;
+		} catch {
+			return 0;
+		}
+	}
+
+	/** Persists one more correction before it is granted, so a restart cannot reset the budget. */
+	useGateRetry(nodeId: string, sessionId: string): number {
+		const used = this.gateRetriesUsed(nodeId, sessionId) + 1;
+		const file = this.retryFile(nodeId);
+		mkdirSync(dirname(file), { recursive: true });
+		writeFileSync(file, JSON.stringify({ sessionId, used }));
+		return used;
+	}
+
 	private gateFile(nodeId: string): string {
 		return join(this.options.worktreeRoot, ".meta", this.options.dagId, `${nodeId}.gates.json`);
 	}
@@ -153,6 +179,7 @@ export class FactoryRun {
 			const meta: WorktreeMeta = { ...worktree, nodeId, owns: node.owns, avoid: node.avoid };
 			this.writeMeta(meta);
 			rmSync(this.gateFile(nodeId), { force: true });
+			rmSync(this.retryFile(nodeId), { force: true });
 			return meta;
 		});
 	}
