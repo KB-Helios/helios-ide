@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { removeWorktree, runCommand } from "pi-swarm";
 import { Type } from "typebox";
@@ -41,19 +44,94 @@ async function assertTarget(repo: string, target: string): Promise<void> {
 		);
 }
 
+function statusPaths(porcelainZ: string): string[] {
+	const paths: string[] = [];
+	const records = porcelainZ.split("\0");
+	for (let i = 0; i < records.length; i++) {
+		const record = records[i] ?? "";
+		if (record.length < 4) continue;
+		paths.push(record.slice(3));
+		// A rename or copy carries its original path as the next record.
+		if (record[0] === "R" || record[0] === "C") i++;
+	}
+	return paths;
+}
+
 /**
- * Aborts a failed merge only when it is provably this landing's: `MERGE_HEAD` names exactly the commit the
- * landing merged. A merge someone started between the target check and the factory merge names another
- * commit and is left untouched; so is anything that cannot be read.
+ * Lands `sha` on `target` without ever running `git merge` in the person's checkout, so a branch switch
+ * there cannot redirect it. The merge runs in a throwaway detached checkout of the target's tip (a conflict
+ * is aborted there and never touches the person's files); the target ref then moves by compare-and-swap,
+ * only if it still points at that tip. When the person's checkout has the target checked out, its index and
+ * files are brought from the old tip to the new one (`read-tree -m -u`, which refuses rather than overwrite),
+ * after a check that their local edits do not touch the landed files. Returns the new tip.
  */
-export async function abortOwnMerge(repo: string, sha: string): Promise<string> {
-	const head = await git(repo, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
-	if (head.code !== 0) return "nothing to abort";
-	if (head.stdout.trim() !== sha)
-		return "a merge the factory did not start is in progress; it was left untouched";
-	return (await git(repo, ["merge", "--abort"])).code === 0
-		? "aborted"
-		: "the abort failed; resolve the checkout by hand";
+export async function landOnTarget(
+	repo: string,
+	scratchRoot: string,
+	target: string,
+	sha: string,
+	message: string,
+): Promise<string> {
+	const ref = `refs/heads/${target}`;
+	const resolved = await git(repo, ["rev-parse", "--verify", "-q", `${ref}^{commit}`]);
+	if (resolved.code !== 0) throw new Error(`The target branch ${target} does not exist.`);
+	const tip = resolved.stdout.trim();
+	const path = join(scratchRoot, ".landing", randomUUID());
+	mkdirSync(dirname(path), { recursive: true });
+	const added = await git(repo, ["worktree", "add", "--detach", path, tip]);
+	if (added.code !== 0)
+		throw new Error(
+			`Could not prepare the landing checkout: ${(added.stderr || added.stdout).trim()}`,
+		);
+	let merged: string;
+	try {
+		const result = await git(path, [
+			...(await mergeIdentity(repo)),
+			"merge",
+			"--no-ff",
+			"-m",
+			message,
+			sha,
+		]);
+		if (result.code !== 0) {
+			await git(path, ["merge", "--abort"]);
+			throw new Error(
+				`Merging into ${target} failed; nothing was changed: ${(result.stderr || result.stdout).trim()}`,
+			);
+		}
+		merged = (await git(path, ["rev-parse", "HEAD"])).stdout.trim();
+	} finally {
+		await git(repo, ["worktree", "remove", "--force", path]);
+		rmSync(path, { recursive: true, force: true });
+	}
+
+	const onTarget = async () =>
+		(await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim() === ref;
+	if (await onTarget()) {
+		const landed = new Set(
+			(await git(repo, ["diff", "--name-only", "-z", tip, merged])).stdout
+				.split("\0")
+				.filter(Boolean),
+		);
+		const local = statusPaths(
+			(await git(repo, ["status", "--porcelain", "-z", "--untracked-files=all"])).stdout,
+		).filter((file) => landed.has(file));
+		if (local.length)
+			throw new Error(
+				`Your uncommitted changes touch files this landing changes (${local.join(", ")}); commit or stash them first. Nothing was changed.`,
+			);
+	}
+	const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
+	if (updated.code !== 0)
+		throw new Error(`${target} moved while landing; nothing was changed. Land again.`);
+	if (await onTarget()) {
+		const synced = await git(repo, ["read-tree", "-m", "-u", tip, merged]);
+		if (synced.code !== 0)
+			throw new Error(
+				`Landed on ${target}, but your checkout could not be brought along (${(synced.stderr || synced.stdout).trim()}); run "git reset --keep HEAD" there.`,
+			);
+	}
+	return merged;
 }
 
 /** The source's uncommitted change must have clean ownership and a fresh passing host gate record. */
@@ -154,21 +232,13 @@ export function landFactory(
 				const sha = meta.committed;
 				if (!sha) throw new Error(`Nothing to land in ${meta.nodeId}`);
 				await assertTarget(repo, land.target);
-				const merged = await git(repo, [
-					...(await mergeIdentity(repo)),
-					"merge",
-					"--no-ff",
-					"-m",
-					`factory: land ${meta.nodeId}`,
+				commit = await landOnTarget(
+					repo,
+					run.options.worktreeRoot,
+					land.target,
 					sha,
-				]);
-				if (merged.code !== 0) {
-					const aborted = await abortOwnMerge(repo, sha);
-					throw new Error(
-						`Merging ${meta.nodeId} into ${land.target} failed (${aborted}): ${(merged.stderr || merged.stdout).trim()}`,
-					);
-				}
-				commit = (await git(repo, ["rev-parse", "HEAD"])).stdout.trim();
+					`factory: land ${meta.nodeId}`,
+				);
 			}
 			run.writeMeta({ ...meta, landed: true });
 			await removeWorktree(meta, { deleteBranch: true });

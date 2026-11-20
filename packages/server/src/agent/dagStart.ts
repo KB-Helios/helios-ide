@@ -308,7 +308,7 @@ export async function startFactoryFromPlan(
 		await client.execute({
 			// Idempotent per approved proposal: a double-click replays the same create, while a corrected
 			// plan approved after a planner retry builds a new factory DAG instead of returning the old one.
-			commandId: `factory-from-${createHash("sha256").update(`${planDagId} ${planner.proposalId}`).digest("hex").slice(0, 40)}`,
+			commandId: `factory-from-${createHash("sha256").update(`${planDagId}\0${planner.proposalId}`).digest("hex").slice(0, 40)}`,
 			command: { kind: "create", definition },
 		}),
 	);

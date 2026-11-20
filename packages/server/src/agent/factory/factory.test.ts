@@ -34,7 +34,7 @@ import {
 	landFactory,
 	parseFactoryNode,
 } from "./index";
-import { abortOwnMerge } from "./landTools";
+import { landOnTarget } from "./landTools";
 import { confinedPath } from "./run";
 
 const model = { provider: "factory-faux", id: "worker" };
@@ -391,7 +391,7 @@ test("a landing retried after a failed merge lands the committed source instead 
 	writeFileSync(join(repo, "src", "a", "x.txt"), "from main\n");
 	git(repo, "add", "-A");
 	git(repo, "commit", "-m", "conflict");
-	await expect(landFactory(run, plan)).rejects.toThrow("(aborted)");
+	await expect(landFactory(run, plan)).rejects.toThrow("nothing was changed");
 	expect(git(repo, "status", "--porcelain").trim()).toBe("");
 	expect(run.readMeta("coder-a")?.committed).toBeTruthy();
 
@@ -434,29 +434,60 @@ test("landing never touches a merge the person has in progress", async () => {
 	expect(run.readMeta("coder-a")?.committed).toBeUndefined();
 });
 
-test("a failed landing merge aborts only a merge that names its own commit", async () => {
-	const repo = makeRepo();
-	// A person's conflicting merge, started in the window after the target check.
-	git(repo, "checkout", "-q", "-b", "side");
-	writeFileSync(join(repo, "README.md"), "side\n");
-	git(repo, "commit", "-qam", "side");
+/** A commit on its own branch that adds `file`, for landing tests. */
+function featureCommit(repo: string, file: string, content: string): string {
+	git(repo, "checkout", "-q", "-b", `feature-${serial++}`);
+	mkdirSync(join(repo, "src"), { recursive: true });
+	writeFileSync(join(repo, "src", file), content);
+	git(repo, "add", "-A");
+	git(repo, "commit", "-qm", `add ${file}`);
+	const sha = git(repo, "rev-parse", "HEAD").trim();
 	git(repo, "checkout", "-q", "main");
-	writeFileSync(join(repo, "README.md"), "main\n");
-	git(repo, "commit", "-qam", "main");
-	expect(Bun.spawnSync(["git", "merge", "side"], { cwd: repo }).exitCode).not.toBe(0);
-	const mergeHead = () =>
-		Bun.spawnSync(["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"], { cwd: repo })
-			.stdout.toString()
-			.trim();
-	const theirs = mergeHead();
-	expect(theirs).not.toBe("");
-	// A factory commit that is not the one being merged: the person's merge stays as it is.
-	const ours = git(repo, "rev-parse", "HEAD~1").trim();
-	expect(await abortOwnMerge(repo, ours)).toContain("left untouched");
-	expect(mergeHead()).toBe(theirs);
-	// The very commit in MERGE_HEAD is this landing's own merge, which it may abort.
-	expect(await abortOwnMerge(repo, theirs)).toBe("aborted");
-	expect(mergeHead()).toBe("");
+	return sha;
+}
+
+test("landing merges outside the checkout, so a branch switch cannot redirect it", async () => {
+	const repo = makeRepo();
+	const sha = featureCommit(repo, "f.txt", "feature\n");
+	// The person switched to another branch right before the merge.
+	git(repo, "checkout", "-q", "-b", "elsewhere");
+	const elsewhere = git(repo, "rev-parse", "HEAD").trim();
+	const tip = await landOnTarget(repo, join(root, "landing-a"), "main", sha, "factory: land f");
+	expect(git(repo, "rev-parse", "main").trim()).toBe(tip);
+	expect(git(repo, "rev-parse", "elsewhere").trim()).toBe(elsewhere);
+	expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("elsewhere");
+	expect(existsSync(join(repo, "src", "f.txt"))).toBe(false);
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+});
+
+test("landing on the checked-out target brings the checkout along and never touches a conflict", async () => {
+	const repo = makeRepo();
+	const sha = featureCommit(repo, "f.txt", "feature\n");
+	const tip = await landOnTarget(repo, join(root, "landing-b"), "main", sha, "factory: land f");
+	expect(git(repo, "rev-parse", "HEAD").trim()).toBe(tip);
+	expect(lf(readFileSync(join(repo, "src", "f.txt"), "utf8"))).toBe("feature\n");
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+
+	// A conflicting source: the merge fails in the throwaway checkout, main and the files stay as they were.
+	const conflicting = featureCommit(repo, "f.txt", "other\n");
+	writeFileSync(join(repo, "src", "f.txt"), "main edit\n");
+	git(repo, "commit", "-qam", "main edit");
+	const before = git(repo, "rev-parse", "main").trim();
+	await expect(
+		landOnTarget(repo, join(root, "landing-b"), "main", conflicting, "factory: land g"),
+	).rejects.toThrow("nothing was changed");
+	expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+
+	// Local edits to a file the landing changes are never overwritten: the landing refuses first.
+	const next = featureCommit(repo, "h.txt", "h\n");
+	mkdirSync(join(repo, "src"), { recursive: true });
+	writeFileSync(join(repo, "src", "h.txt"), "my own draft\n");
+	await expect(
+		landOnTarget(repo, join(root, "landing-b"), "main", next, "factory: land h"),
+	).rejects.toThrow("uncommitted changes touch");
+	expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+	expect(lf(readFileSync(join(repo, "src", "h.txt"), "utf8"))).toBe("my own draft\n");
 });
 
 test("gates test an immutable snapshot: a gate process cannot change the worktree", async () => {

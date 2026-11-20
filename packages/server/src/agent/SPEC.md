@@ -1641,13 +1641,14 @@ beyond small host files next to the worktrees.
   gate record (a branch with commits the factory did not make is refused). Right before landing a change the host re-checks
   that its gate record is fresh and that the record's snapshot sits on the worktree's HEAD, then moves the
   branch onto that very snapshot commit, so what lands is exactly what the gates tested. The commit is recorded
-  in the metadata before the merge, the target is checked again, and the merge (`--no-ff`) names that commit,
-  never the branch. A failed merge is aborted only when `MERGE_HEAD` names that commit (`abortOwnMerge`); a merge
-  someone else started meanwhile is left untouched and reported. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
+  in the metadata before the merge. `landOnTarget` never runs `git merge` in the person's checkout: it merges that
+  commit (`--no-ff`) in a throwaway detached checkout of the target's tip (a conflict is aborted there), moves
+  `refs/heads/<target>` by compare-and-swap only if it still points at that tip, and, when the checkout has the
+  target checked out, brings its index and files along with `read-tree -m -u` after refusing if the person's
+  uncommitted edits touch any landed file. A branch switch can therefore never redirect a landing. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
   branch still points at it, and refuses if it moved. Sources are then removed with their branch
   (`removeWorktree`). Landing is all-or-nothing up to the merges; a failure after earlier merges is reported and
-  already-landed sources stay marked so a rerun skips them. The checkout is the person's own: the target checks
-  narrow, but do not close, the window in which a branch switch could redirect a merge. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
+  already-landed sources stay marked so a rerun skips them. The checkout is the person's own and is never merged in. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
   uncommitted changes in the checkout stay untouched unless they overlap.
 - **Template and the step-4 hook.** `buildFactoryDefinition({ title, target, coders, maxConcurrent?, gateRetries?, beforeRelease? })`
   builds `coder-*` -> `gate-<coder>` -> `release` (human approval) -> `land`. `beforeRelease(ctx)` is the single
