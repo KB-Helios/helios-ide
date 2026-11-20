@@ -1505,9 +1505,10 @@ serves projects no context. Host shutdown closes every DAG service inside the se
 paused on the next boot (pi-dag ownership/recovery). Archive deletes the store
 (`removeWorkspaceDag`, before `removeWorkspaceDelegation`); deleting a chat without a project trashes it
 (`trashWorkspaceDag`, before `trashWorkspaceDelegation`). Both delete or trash the store only after the
-service closed cleanly: a failed close stops the teardown and keeps the recovery evidence. While a
-workspace's service is closing, `dagServiceFor` refuses (`RESOURCE_UNAVAILABLE`) instead of creating a
-replacement whose slot pool the finishing close would drop.
+service closed cleanly: every teardown waits on the one in-flight close, a failed close is kept and retried by
+the next teardown, and the store stays until a close succeeds. While a close is in flight or has failed,
+`dagServiceFor` refuses (`RESOURCE_UNAVAILABLE`) instead of creating a replacement; the slot pool is dropped only
+after a clean close.
 
 The wire (`dagWire.ts`: `dag.list`, `dag.get`, `dag.execute`, push `dag.changed`) serves the web Factory
 pane ([[submodule-web-factory]]). It is the one human path: every call binds a `human` caller with the
@@ -1624,9 +1625,12 @@ beyond small host files next to the worktrees.
   untrusted, whatever pi's own trust default is). Untrusted, no declared gate, or an ownership violation each
   record `ok: false` with a reason and run nothing; so does a changed build/gate definition (a protected basename,
   compared case-insensitively), even one the coder owns, because the commands run in the worktree and a changed
-  manifest could swap what they execute. The verdict is a host-written record carrying the SHA-256 of the worktree
-  diff it ran against, hashed before and after the run: a change during the run records a failure, and a later
-  edit makes the record stale. A model's own report text is never trusted.
+  manifest could swap what they execute. The gates never run on the live files: the host builds the worktree's exact
+  content (tracked and untracked, never `node_modules`) into an immutable snapshot commit through a throwaway
+  index, runs the gates in a throwaway detached checkout of it (dependency folders linked in) and removes that
+  checkout, so a gate process cannot change the worker's files. The host-written record names the snapshot's
+  tree (`diffHash`) and commit (`snapshot`); it is fresh exactly while the worktree holds that content, and the
+  snapshot's own changes are what ownership and definition checks judge. A model's own report text is never trusted.
 - **Landing enforcement.** pi-dag's `approval` gates the release of the node's output, not its start, so the flow
   is `gate-* -> release (approval: human) -> land`, with the land node consuming the release output.
   pi-dag therefore never starts `land` before a person approved `release` (only a `human` caller can; a chat
@@ -1634,10 +1638,12 @@ beyond small host files next to the worktrees.
   re-checks on the host that `release` is `completed` and its latest approval gate was `approved` by a `human`
   actor (`isReleaseApprovedByHuman`, a read of the DAG state), that the checkout is on the `target` branch with no
   merge of its own in progress, and that every uncommitted change has no ownership violation and a fresh passing
-  gate record (a branch with commits the factory did not make is refused). Each change is gated again right before
-  its commit (`commitWorktree`); the commit is recorded in the metadata before the merge, the target is checked
-  again, and the merge (`--no-ff`) names that exact commit, never the branch. A conflict aborts only the merge this
-  landing started. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
+  gate record (a branch with commits the factory did not make is refused). Right before landing a change the host re-checks
+  that its gate record is fresh and that the record's snapshot sits on the worktree's HEAD, then moves the
+  branch onto that very snapshot commit, so what lands is exactly what the gates tested. The commit is recorded
+  in the metadata before the merge, the target is checked again, and the merge (`--no-ff`) names that commit,
+  never the branch. A failed merge is aborted only when `MERGE_HEAD` names that commit (`abortOwnMerge`); a merge
+  someone else started meanwhile is left untouched and reported. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
   branch still points at it, and refuses if it moved. Sources are then removed with their branch
   (`removeWorktree`). Landing is all-or-nothing up to the merges; a failure after earlier merges is reported and
   already-landed sources stay marked so a rerun skips them. The checkout is the person's own: the target checks

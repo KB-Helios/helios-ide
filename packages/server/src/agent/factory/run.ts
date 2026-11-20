@@ -55,8 +55,13 @@ export interface GateRecord {
 	commands: string[];
 	results: GateResult[];
 	violations: string[];
-	/** SHA-256 of the worktree diff the gates ran against; any later edit makes the record stale. */
+	/**
+	 * The git tree id of the immutable snapshot the gates ran against (`contentTree`); the record is fresh
+	 * only while the worktree holds exactly that content.
+	 */
 	diffHash: string;
+	/** The snapshot commit itself (content on top of the worktree's HEAD): what landing merges. */
+	snapshot?: string;
 	ranAt: string;
 }
 

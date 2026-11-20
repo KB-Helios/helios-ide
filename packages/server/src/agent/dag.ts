@@ -32,13 +32,15 @@ export function factoryWorktreeRoot(workspaceId: string): string {
 }
 
 const services = new Map<string, DagService>();
-/** Workspaces whose DAG service is closing: no replacement service (or slot pool) until it settled. */
-const closing = new Set<string>();
+/** In-flight closes: every teardown of the workspace waits on the same one. */
+const closing = new Map<string, Promise<void>>();
+/** Services whose close failed: the next teardown retries them; no replacement until one succeeds. */
+const unclosed = new Map<string, DagService>();
 
 export function dagServiceFor(workspaceId: string): DagService {
 	let service = services.get(workspaceId);
 	if (!service) {
-		if (closing.has(workspaceId))
+		if (closing.has(workspaceId) || unclosed.has(workspaceId))
 			throw new CodedError(
 				"RESOURCE_UNAVAILABLE",
 				"This workspace's workflows are closing; try again in a moment",
@@ -100,25 +102,40 @@ export function dagExtensionFor(workspaceId: string): ExtensionFactory {
 }
 
 /** Settles live DAG work and releases process ownership; durable state stays resumable. */
-export async function closeWorkspaceDag(workspaceId: string): Promise<void> {
-	const service = services.get(workspaceId);
-	if (!service) return;
+export function closeWorkspaceDag(workspaceId: string): Promise<void> {
+	const inflight = closing.get(workspaceId);
+	if (inflight) return inflight;
+	const service = services.get(workspaceId) ?? unclosed.get(workspaceId);
+	if (!service) return Promise.resolve();
 	services.delete(workspaceId);
-	closing.add(workspaceId);
-	try {
-		await service.close();
-	} finally {
-		dropFactorySlots(workspaceId);
-		closing.delete(workspaceId);
-	}
+	const close = (async () => {
+		try {
+			await service.close();
+			unclosed.delete(workspaceId);
+			// Only a clean close frees the slot pool: a failed one may still have turns holding slots.
+			dropFactorySlots(workspaceId);
+		} catch (error) {
+			unclosed.set(workspaceId, service);
+			throw error;
+		} finally {
+			closing.delete(workspaceId);
+		}
+	})();
+	closing.set(workspaceId, close);
+	return close;
 }
 
+/**
+ * Host shutdown: closes every live service and retries every failed one; in-flight workspace closes are
+ * awaited too. It does not gate `dagServiceFor` (the host is going down, and tests reuse workspaces).
+ */
 export async function closeAllDags(): Promise<void> {
-	const ids = [...services.keys()];
-	const closing = [...services.values()].map((service) => service.close());
+	const pending = [...services, ...unclosed];
 	services.clear();
-	for (const workspaceId of ids) dropFactorySlots(workspaceId);
-	const failures = (await Promise.allSettled(closing)).filter(
+	unclosed.clear();
+	for (const [workspaceId] of pending) dropFactorySlots(workspaceId);
+	const settling = [...pending.map(([, service]) => service.close()), ...closing.values()];
+	const failures = (await Promise.allSettled(settling)).filter(
 		(result): result is PromiseRejectedResult => result.status === "rejected",
 	);
 	if (failures.length)

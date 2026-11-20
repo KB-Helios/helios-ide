@@ -25,7 +25,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { DagClient, DagResult, DagSnapshot } from "pi-dag";
 import { closeAllDags, dagServiceFor, factoryWorktreeRoot } from "../dag";
 import { registerGateGuard } from "./gateGuard";
-import { runFactoryGates } from "./gateTools";
+import { runFactoryGates, sourceStatus } from "./gateTools";
 import {
 	buildFactoryDefinition,
 	FactoryRun,
@@ -34,6 +34,7 @@ import {
 	landFactory,
 	parseFactoryNode,
 } from "./index";
+import { abortOwnMerge } from "./landTools";
 import { confinedPath } from "./run";
 
 const model = { provider: "factory-faux", id: "worker" };
@@ -431,6 +432,60 @@ test("landing never touches a merge the person has in progress", async () => {
 	});
 	expect(mergeHead.exitCode).toBe(0);
 	expect(run.readMeta("coder-a")?.committed).toBeUndefined();
+});
+
+test("a failed landing merge aborts only a merge that names its own commit", async () => {
+	const repo = makeRepo();
+	// A person's conflicting merge, started in the window after the target check.
+	git(repo, "checkout", "-q", "-b", "side");
+	writeFileSync(join(repo, "README.md"), "side\n");
+	git(repo, "commit", "-qam", "side");
+	git(repo, "checkout", "-q", "main");
+	writeFileSync(join(repo, "README.md"), "main\n");
+	git(repo, "commit", "-qam", "main");
+	expect(Bun.spawnSync(["git", "merge", "side"], { cwd: repo }).exitCode).not.toBe(0);
+	const mergeHead = () =>
+		Bun.spawnSync(["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"], { cwd: repo })
+			.stdout.toString()
+			.trim();
+	const theirs = mergeHead();
+	expect(theirs).not.toBe("");
+	// A factory commit that is not the one being merged: the person's merge stays as it is.
+	const ours = git(repo, "rev-parse", "HEAD~1").trim();
+	expect(await abortOwnMerge(repo, ours)).toContain("left untouched");
+	expect(mergeHead()).toBe(theirs);
+	// The very commit in MERGE_HEAD is this landing's own merge, which it may abort.
+	expect(await abortOwnMerge(repo, theirs)).toBe("aborted");
+	expect(mergeHead()).toBe("");
+});
+
+test("gates test an immutable snapshot: a gate process cannot change the worktree", async () => {
+	const repo = makeRepo();
+	writeFileSync(
+		join(repo, "package.json"),
+		JSON.stringify({
+			name: "demo",
+			scripts: {
+				test: "bun -e \"require('fs').writeFileSync('src/a/touched.txt', 'by the gate')\"",
+			},
+		}),
+	);
+	git(repo, "commit", "-qam", "a gate that writes");
+	const run = unitRun(repo);
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "x\n");
+	const record = await runFactoryGates(run, meta);
+	expect(record.ok).toBe(true);
+	expect(record.snapshot).toBeTruthy();
+	// The write landed in the throwaway checkout, never in the coder's worktree.
+	expect(existsSync(join(meta.path, "src", "a", "touched.txt"))).toBe(false);
+	expect((await sourceStatus(run, meta)).gates?.fresh).toBe(true);
+	// Any change, even one undone afterwards, is judged by content: X -> Y is stale, back to X is fresh again.
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "y\n");
+	expect((await sourceStatus(run, meta)).gates?.fresh).toBe(false);
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "x\n");
+	expect((await sourceStatus(run, meta)).gates?.fresh).toBe(true);
 });
 
 test("worker paths refuse symlinks and reserved names in any case", async () => {

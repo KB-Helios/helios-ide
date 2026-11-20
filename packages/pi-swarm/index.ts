@@ -26,11 +26,13 @@ export {
 	changedFiles,
 	commitWorktree,
 	createWorktree,
+	linkDependencies,
 	matchesAny,
 	ownershipViolations,
 	removeWorktree,
 	repoRoot,
 	run as runCommand,
+	unlinkDependencies,
 	type Worktree,
 	worktreeDiff,
 } from "./src/git.ts";

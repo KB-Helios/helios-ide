@@ -1,6 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CHANGED_DEFINITIONS, runFactoryGates } from "./gateTools";
 import type { FactoryRun, GateRecord } from "./run";
+import { contentTree } from "./snapshot";
 
 const SUBMIT_TOOL = "dag_submit_result";
 const REPORT_TAIL = 4000;
@@ -61,10 +62,10 @@ export function registerGateGuard(pi: ExtensionAPI, run: FactoryRun): void {
 		if (!meta || meta.landed) return undefined;
 		let record: GateRecord;
 		try {
-			const { hash } = await run.diff(meta);
+			const tree = await contentTree(meta.path);
 			const saved = run.readGateRecord(bound.nodeId);
 			record =
-				saved && saved.diffHash === hash ? saved : await runFactoryGates(run, meta, ctx.signal);
+				saved && saved.diffHash === tree ? saved : await runFactoryGates(run, meta, ctx.signal);
 		} catch {
 			// The host could not judge the worktree: do not hold the coder hostage to its own failure.
 			return undefined;

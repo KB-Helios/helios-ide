@@ -1,9 +1,10 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { commitWorktree, removeWorktree, runCommand } from "pi-swarm";
+import { removeWorktree, runCommand } from "pi-swarm";
 import { Type } from "typebox";
 import { boundFor, toolResult } from "./access";
 import { sourceStatus } from "./gateTools";
 import type { FactoryRun, WorktreeMeta } from "./run";
+import { hasCommit } from "./snapshot";
 import { FACTORY_TOOL } from "./spec";
 
 export interface LandedSource {
@@ -38,6 +39,21 @@ async function assertTarget(repo: string, target: string): Promise<void> {
 		throw new Error(
 			"The target checkout has a merge in progress; finish or abort it before landing factory work.",
 		);
+}
+
+/**
+ * Aborts a failed merge only when it is provably this landing's: `MERGE_HEAD` names exactly the commit the
+ * landing merged. A merge someone started between the target check and the factory merge names another
+ * commit and is left untouched; so is anything that cannot be read.
+ */
+export async function abortOwnMerge(repo: string, sha: string): Promise<string> {
+	const head = await git(repo, ["rev-parse", "-q", "--verify", "MERGE_HEAD"]);
+	if (head.code !== 0) return "nothing to abort";
+	if (head.stdout.trim() !== sha)
+		return "a merge the factory did not start is in progress; it was left untouched";
+	return (await git(repo, ["merge", "--abort"])).code === 0
+		? "aborted"
+		: "the abort failed; resolve the checkout by hand";
 }
 
 /** The source's uncommitted change must have clean ownership and a fresh passing host gate record. */
@@ -91,7 +107,8 @@ export function landFactory(
 			if (meta.landed) continue;
 			run.activeWorktree(nodeId);
 			const head = (await git(meta.path, ["rev-parse", "HEAD"])).stdout.trim();
-			const dirty = (await git(meta.path, ["status", "--porcelain"])).stdout.trim() !== "";
+			// Same notion of a change as the gates (dependency links are never content).
+			const dirty = (await run.changed(meta)).files.length > 0;
 			if (meta.committed && head !== meta.committed)
 				throw new Error(
 					`${nodeId} moved after its landing commit; retry the coder and run the gates again.`,
@@ -116,10 +133,21 @@ export function landFactory(
 			let commit: string | undefined;
 			if (!empty) {
 				if (dirty) {
-					// Re-check right before the commit: an edit since the preflight must not ride along ungated.
+					// Land exactly the snapshot the gates tested: re-check that the record is fresh (the worktree
+					// still holds that content) and sits on the worktree's HEAD, then move the branch onto it.
 					await assertGated(run, meta);
-					const sha = await commitWorktree(meta.path, `factory: ${meta.nodeId}`);
-					if (!sha) throw new Error(`Nothing to commit in ${meta.nodeId}`);
+					const sha = run.readGateRecord(meta.nodeId)?.snapshot;
+					const head = (await git(meta.path, ["rev-parse", "HEAD"])).stdout.trim();
+					if (
+						!sha ||
+						!(await hasCommit(meta.path, sha)) ||
+						(await git(meta.path, ["rev-parse", `${sha}^`])).stdout.trim() !== head
+					)
+						throw new Error(
+							`${meta.nodeId} has no gated snapshot on its current commit; run the gates again.`,
+						);
+					if ((await git(meta.path, ["reset", "-q", sha])).code !== 0)
+						throw new Error(`Could not record the gated snapshot of ${meta.nodeId}`);
 					meta = { ...meta, committed: sha };
 					run.writeMeta(meta);
 				}
@@ -135,12 +163,7 @@ export function landFactory(
 					sha,
 				]);
 				if (merged.code !== 0) {
-					// Only this landing's merge: the preflight proved none was in progress before it.
-					const aborted = !(await mergeInProgress(repo))
-						? "nothing to abort"
-						: (await git(repo, ["merge", "--abort"])).code === 0
-							? "aborted"
-							: "the abort failed; resolve the checkout by hand";
+					const aborted = await abortOwnMerge(repo, sha);
 					throw new Error(
 						`Merging ${meta.nodeId} into ${land.target} failed (${aborted}): ${(merged.stderr || merged.stdout).trim()}`,
 					);

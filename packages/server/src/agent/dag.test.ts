@@ -176,6 +176,42 @@ test("a completed node's outcome is restored after restart without another model
 	expect(faux.state.callCount).toBe(calls);
 });
 
+test("concurrent teardowns share one close, and a failed close keeps the store until a later one succeeds", async () => {
+	const workspaceId = workspace();
+	value(
+		await owner(workspaceId).execute({
+			commandId: "create",
+			command: { kind: "create", definition: definition() },
+		}),
+	);
+	const service = dagServiceFor(workspaceId);
+	const real = service.close.bind(service);
+	let fail = true;
+	let calls = 0;
+	(service as { close: () => Promise<void> }).close = async () => {
+		calls++;
+		if (fail) throw new Error("close failed");
+		return real();
+	};
+
+	const [first, second] = await Promise.allSettled([
+		removeWorkspaceDag(workspaceId),
+		removeWorkspaceDag(workspaceId),
+	]);
+	expect(first).toMatchObject({ status: "rejected", reason: { message: "close failed" } });
+	expect(second).toMatchObject({ status: "rejected", reason: { message: "close failed" } });
+	expect(calls).toBe(1);
+	expect(existsSync(dagRootDir(workspaceId))).toBe(true);
+	// No replacement service while the failed one is still unclosed.
+	expect(() => dagServiceFor(workspaceId)).toThrow("closing");
+
+	fail = false;
+	await removeWorkspaceDag(workspaceId);
+	expect(calls).toBe(2);
+	expect(existsSync(dagRootDir(workspaceId))).toBe(false);
+	removeWorkspaceDelegation(workspaceId);
+});
+
 test("removing a workspace deletes its DAG store", async () => {
 	const workspaceId = workspace();
 	value(

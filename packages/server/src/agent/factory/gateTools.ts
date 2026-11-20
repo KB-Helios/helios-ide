@@ -4,6 +4,7 @@ import { detectGates, runGates } from "pi-swarm";
 import { Type } from "typebox";
 import { boundFor, sourcesOf, sourceWorktree, toolResult } from "./access";
 import { clip, type FactoryRun, type GateRecord, type WorktreeMeta } from "./run";
+import { contentTree, inSnapshotCheckout, snapshotCommit, snapshotFiles } from "./snapshot";
 import { FACTORY_TOOL, isProtectedBasename } from "./spec";
 
 const GATE_TIMEOUT_MS = 15 * 60_000;
@@ -22,13 +23,21 @@ export function runFactoryGates(
 	signal?: AbortSignal,
 ): Promise<GateRecord> {
 	return run.serial(`gates:${meta.nodeId}`, async () => {
-		const { patch: _patch, hash } = await run.diff(meta);
-		const { files, violations } = await run.changed(meta);
-		// The commands are detected in the trusted checkout, but they execute in the worktree, so a changed
-		// manifest there could swap what a gate runs. Gates never run over changed gate/build definitions,
-		// even ones the coder owns.
+		// The gates test an immutable snapshot of the worktree, never the live files: the record names the
+		// snapshot's tree, so it is fresh exactly when the worktree still holds that content, and landing
+		// merges that very commit. Ownership and definitions are judged on the snapshot's own changes.
+		const snap = await snapshotCommit(meta.path, `factory: ${meta.nodeId}`);
+		const files = await snapshotFiles(meta.path, snap.commit);
+		const violations = run.violations(meta, files);
+		// The commands are detected in the trusted checkout; a changed manifest in the snapshot could still
+		// swap what a gate runs, so gates never run over changed gate/build definitions, even owned ones.
 		const definitions = files.filter((file) => isProtectedBasename(basename(file)));
-		const base = { violations, diffHash: hash, ranAt: new Date().toISOString() };
+		const base = {
+			violations,
+			diffHash: snap.tree,
+			snapshot: snap.commit,
+			ranAt: new Date().toISOString(),
+		};
 		const refuse = (reason: string): GateRecord => ({
 			ok: false,
 			reason,
@@ -46,27 +55,23 @@ export function runFactoryGates(
 		} else {
 			// Detected in the repository checkout, not the worktree: the model decides neither which
 			// scripts exist nor what they are called.
-			const commands = detectGates(await run.repo());
+			const repo = await run.repo();
+			const commands = detectGates(repo);
 			if (commands.length === 0) {
 				record = refuse("The project declares no quality gates (typecheck, lint or test).");
 			} else {
-				const results = await runGates(commands, meta.path, {
-					timeoutMs: GATE_TIMEOUT_MS,
-					...(signal ? { signal } : {}),
-				});
-				// A change while the gates ran means they tested something other than `hash`: never record a pass.
-				const after = (await run.diff(meta)).hash;
+				const results = await inSnapshotCheckout(
+					repo,
+					run.options.worktreeRoot,
+					snap.commit,
+					(checkout) =>
+						runGates(commands, checkout, {
+							timeoutMs: GATE_TIMEOUT_MS,
+							...(signal ? { signal } : {}),
+						}),
+				);
 				const passed = results.length === commands.length && results.every((result) => result.ok);
-				record =
-					after === hash
-						? { ok: passed, commands, results, ...base }
-						: {
-								ok: false,
-								reason: "The worktree changed while the gates ran; run them again.",
-								commands,
-								results,
-								...base,
-							};
+				record = { ok: passed, commands, results, ...base };
 			}
 		}
 		run.writeGateRecord(meta.nodeId, record);
@@ -76,9 +81,13 @@ export function runFactoryGates(
 
 /** The host's verdict on one worktree: ownership, a fresh passing gate record, nothing stale. */
 export async function sourceStatus(run: FactoryRun, meta: WorktreeMeta) {
-	const [{ files, violations }, diff] = await Promise.all([run.changed(meta), run.diff(meta)]);
+	const [{ files, violations }, diff, tree] = await Promise.all([
+		run.changed(meta),
+		run.diff(meta),
+		contentTree(meta.path),
+	]);
 	const record = run.readGateRecord(meta.nodeId);
-	const fresh = record?.diffHash === diff.hash;
+	const fresh = record?.diffHash === tree;
 	return {
 		node: meta.nodeId,
 		branch: meta.branch,
