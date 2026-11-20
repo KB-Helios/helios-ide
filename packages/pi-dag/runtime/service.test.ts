@@ -1693,3 +1693,30 @@ test("onChange observes every committed version, including settlement, and canno
 	expect(versions.at(-1)).toBe(settled.version);
 	expect(seen.every((change) => change.dagId === dagId)).toBe(true);
 });
+
+test("a failed close is retryable: the next close releases what the first could not", async () => {
+	let failures = 1;
+	let releases = 0;
+	const { owner, service } = fixture((core) => ({
+		...core,
+		async registerResource(id, context, options) {
+			const resource = await core.registerResource(id, context, options);
+			return {
+				...resource,
+				async release() {
+					releases++;
+					if (failures-- > 0) throw new Error("release failed");
+					return resource.release();
+				},
+			};
+		},
+	}));
+	await create(owner);
+	await expect(service.close()).rejects.toThrow("did not complete cleanly");
+	// Not the cached rejection: the retry releases the resource the first attempt could not.
+	await service.close();
+	expect(releases).toBe(2);
+	// A clean close stays settled.
+	await service.close();
+	expect(releases).toBe(2);
+});

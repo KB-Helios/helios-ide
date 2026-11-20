@@ -1657,17 +1657,23 @@ class Engine implements D.DagService {
 			await this.save(owned, state);
 		});
 	}
+	/**
+	 * Settles live work and releases every owner. A failed close is retryable: owners whose shutdown save or
+	 * release failed stay registered and the cached attempt is dropped, so the next `close()` retries exactly
+	 * those instead of returning the same rejection forever. A recorded storage fault is reported once.
+	 */
 	close(): Promise<void> {
 		if (this.closing) return this.closing;
 		this.closed = true;
-		this.closing = (async () => {
+		const attempt = (async () => {
 			for (const binding of this.bindings) binding.detach?.();
 			this.bindings.clear();
 			await Promise.all(this.queues.values());
-			const owners = [...this.owners.values()];
+			const owners = [...this.owners.entries()];
 			const errors: unknown[] = [];
+			const unfinished = new Set<string>();
 			await Promise.all(
-				owners.map(async (owned) => {
+				owners.map(async ([id, owned]) => {
 					try {
 						await this.serial(owned.state.dagId, async () => {
 							const state = this.next(owned);
@@ -1684,27 +1690,39 @@ class Engine implements D.DagService {
 						});
 					} catch (error) {
 						errors.push(error);
+						unfinished.add(id);
 					}
 				}),
 			);
-			for (const owned of owners) for (const job of owned.jobs.values()) job.controller.abort();
+			for (const [, owned] of owners) for (const job of owned.jobs.values()) job.controller.abort();
 			await Promise.all(
-				owners.map(async (owned) => {
+				owners.map(async ([id, owned]) => {
 					await Promise.all([...owned.jobs.values()].map((job) => job.promise));
 					await Promise.all(owned.effects);
 					try {
-						await owned.resource?.release();
+						if (owned.resource) {
+							await owned.resource.release();
+							delete owned.resource;
+						}
 						await owned.lease.release();
 					} catch (error) {
 						errors.push(error);
+						unfinished.add(id);
 					}
-					if (owned.fault) errors.push(owned.fault);
+					if (owned.fault) {
+						errors.push(owned.fault);
+						delete owned.fault;
+					}
 				}),
 			);
-			this.owners.clear();
+			for (const [id] of owners) if (!unfinished.has(id)) this.owners.delete(id);
 			if (errors.length) throw new AggregateError(errors, "DAG close did not complete cleanly");
 		})();
-		return this.closing;
+		this.closing = attempt;
+		attempt.catch(() => {
+			if (this.closing === attempt) delete this.closing;
+		});
+		return attempt;
 	}
 }
 
