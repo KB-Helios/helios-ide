@@ -4,6 +4,9 @@ import { Semaphore } from "pi-delegation";
 /** Used when the host has not installed a limit resolver (tests, early boot): the subagent default. */
 export const DEFAULT_FACTORY_SLOTS = 4;
 
+/** The machine-wide cap on worker turns across every workspace's DAGs, unless the host sets another. */
+export const DEFAULT_GLOBAL_FACTORY_SLOTS = 8;
+
 export interface FactoryQueue {
 	/** Worker turns allowed to run at once across every DAG of the workspace. */
 	limit: number;
@@ -13,10 +16,90 @@ export interface FactoryQueue {
 }
 
 /**
+ * A pool of turn slots that is not tied to one workspace: one shared semaphore plus the running and
+ * waiting counts the queue read reports. The machine-wide cap is one of these; the workspace cap is a
+ * `FactorySlots` that takes a slot of the global pool after its own.
+ */
+export class GlobalFactorySlots {
+	private readonly semaphore: Semaphore;
+	private limit: number;
+	private running = 0;
+	private waiting = 0;
+
+	constructor(limit: number) {
+		this.semaphore = new Semaphore(limit);
+		this.limit = limit;
+	}
+
+	setLimit(limit: number): void {
+		if (limit === this.limit) return;
+		this.limit = limit;
+		this.semaphore.resize(limit);
+	}
+
+	snapshot(): FactoryQueue {
+		return { limit: this.limit, running: this.running, queued: this.waiting };
+	}
+
+	/** The release of one slot, or `undefined` when `signal` aborted while waiting for it. */
+	async take(signal: AbortSignal | undefined): Promise<(() => void) | undefined> {
+		if (signal?.aborted) return undefined;
+		this.waiting++;
+		let release: (() => void) | undefined;
+		try {
+			release = await takeFrom(this.semaphore, signal);
+		} finally {
+			this.waiting--;
+		}
+		if (!release) return undefined;
+		this.running++;
+		let released = false;
+		return () => {
+			if (released) return;
+			released = true;
+			this.running--;
+			release?.();
+		};
+	}
+}
+
+const globalSlots = new GlobalFactorySlots(DEFAULT_GLOBAL_FACTORY_SLOTS);
+
+/** Applies a live machine-wide cap; lowering it never aborts running turns. */
+export function setGlobalFactorySlotLimit(limit: number): void {
+	globalSlots.setLimit(limit);
+}
+
+/** Running and waiting turns across all workspaces against the machine-wide cap. */
+export function globalFactoryQueue(): FactoryQueue {
+	return globalSlots.snapshot();
+}
+
+/** Waits for a semaphore slot, or gives up when `signal` aborts (the abandoned grant is returned at once). */
+async function takeFrom(
+	semaphore: Semaphore,
+	signal: AbortSignal | undefined,
+): Promise<(() => void) | undefined> {
+	const slot = semaphore.acquire();
+	let onAbort = () => {};
+	const aborted = new Promise<undefined>((resolve) => {
+		onAbort = () => resolve(undefined);
+		signal?.addEventListener("abort", onAbort, { once: true });
+	});
+	const release = await Promise.race([slot, aborted]);
+	signal?.removeEventListener("abort", onAbort);
+	// The semaphore still holds an aborted waiter; give the slot straight back once it is granted.
+	if (!release) void slot.then((free) => free());
+	return release;
+}
+
+/**
  * The workspace-wide cap on running DAG worker turns. pi-dag already bounds one DAG by its own
  * `maxConcurrent`; this adds the bound across all DAGs of a workspace by gating each child's
  * `runQueued` on one shared pi-delegation semaphore. A turn over the cap waits (its DAG node reads
- * `queued`) and starts when a slot frees; lowering the limit never aborts running turns.
+ * `queued`) and starts when a slot frees; lowering the limit never aborts running turns. A turn also
+ * needs a slot of the machine-wide pool (`GlobalFactorySlots`), taken after the workspace's own and held
+ * with it, so one busy workspace cannot starve the others beyond the global cap.
  */
 export class FactorySlots {
 	private readonly semaphore: Semaphore;
@@ -60,14 +143,24 @@ export class FactorySlots {
 				const release = await this.take(signal);
 				if (!release) return undefined;
 				if (!runnable || (await runnable())) {
-					this.running++;
-					let released = false;
-					return () => {
-						if (released) return;
-						released = true;
-						this.running--;
+					const shared = await globalSlots.take(signal);
+					if (!shared) {
 						release();
-					};
+						return undefined;
+					}
+					// The DAG may have been paused while the turn waited for the machine-wide slot.
+					if (!runnable || (await runnable())) {
+						this.running++;
+						let released = false;
+						return () => {
+							if (released) return;
+							released = true;
+							this.running--;
+							shared();
+							release();
+						};
+					}
+					shared();
 				}
 				release();
 			}
@@ -76,18 +169,8 @@ export class FactorySlots {
 		}
 	}
 
-	private async take(signal: AbortSignal | undefined): Promise<(() => void) | undefined> {
-		const slot = this.semaphore.acquire();
-		let onAbort = () => {};
-		const aborted = new Promise<undefined>((resolve) => {
-			onAbort = () => resolve(undefined);
-			signal?.addEventListener("abort", onAbort, { once: true });
-		});
-		const release = await Promise.race([slot, aborted]);
-		signal?.removeEventListener("abort", onAbort);
-		// The semaphore still holds an aborted waiter; give the slot straight back once it is granted.
-		if (!release) void slot.then((free) => free());
-		return release;
+	private take(signal: AbortSignal | undefined): Promise<(() => void) | undefined> {
+		return takeFrom(this.semaphore, signal);
 	}
 }
 

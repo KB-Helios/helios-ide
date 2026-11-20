@@ -163,7 +163,7 @@ export type TemplateReadLocation =
 	| { projectId: string; workspaceId?: never }
 	| { workspaceId?: never; projectId?: never };
 
-export const PROTOCOL_VERSION = 135;
+export const PROTOCOL_VERSION = 136;
 /** `dag.list` / `dag.get` / `dag.execute` and the `dag.changed` channel: the workspace factory view. */
 export const DAG_PROTOCOL_VERSION = 130;
 /** `dag.review` plus per-node model, thinking level, usage and outcome on `DagView` nodes. */
@@ -176,6 +176,8 @@ export const DAG_PUSH_PROTOCOL_VERSION = 133;
 export const DAG_DETAILS_PROTOCOL_VERSION = 134;
 /** `dag.roles`, `dag.start` and `dag.startFromPlan`: start a factory run (optionally planned) with per-role models. */
 export const DAG_START_PROTOCOL_VERSION = 135;
+/** `AppConfig.factoryMaxConcurrent` (the machine-wide worker cap) and `DagQueueView.global`. */
+export const FACTORY_CAP_PROTOCOL_VERSION = 136;
 /** `commit.*` methods and the `commit.analyzed` channel. */
 export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 129;
 /** `swarm.get` / `swarm.diff` and the `swarm.changed` channel: a chat's swarm board. */

@@ -77,6 +77,8 @@ export interface QueueLine {
 	limit: number;
 	/** Every slot is taken and work waits for one. */
 	saturated: boolean;
+	/** The machine-wide cap across workspaces, when the host reports it and it holds work back. */
+	global?: { running: number; queued: number; limit: number };
 }
 
 /** What the pane shows of the workspace's worker slots; `null` while nothing runs or waits. */
@@ -87,6 +89,10 @@ export function queueLine(queue: DagQueueView | null): QueueLine | null {
 		queued: queue.queued,
 		limit: queue.limit,
 		saturated: queue.queued > 0 && queue.running >= queue.limit,
+		// Shown only when the machine-wide cap is what is full, so the common case stays one line.
+		...(queue.global && queue.global.running >= queue.global.limit && queue.global.queued > 0
+			? { global: queue.global }
+			: {}),
 	};
 }
 

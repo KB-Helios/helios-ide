@@ -20,6 +20,7 @@ import {
 	type ExtensionSettingValues,
 	type HostEnvironment,
 	isComposerGrowthLimit,
+	isFactoryMaxConcurrent,
 	isJbcentralQuotaRefreshSeconds,
 	isKeybindingChord,
 	isLineWidth,
@@ -747,6 +748,9 @@ export function loadConfig(): AppConfig {
 		subagentMaxConcurrent: isSubagentMaxConcurrent(value.subagentMaxConcurrent)
 			? value.subagentMaxConcurrent
 			: DEFAULT_CONFIG.subagentMaxConcurrent,
+		factoryMaxConcurrent: isFactoryMaxConcurrent(value.factoryMaxConcurrent)
+			? value.factoryMaxConcurrent
+			: DEFAULT_CONFIG.factoryMaxConcurrent,
 		jbcentralQuotaEnabled:
 			typeof value.jbcentralQuotaEnabled === "boolean"
 				? value.jbcentralQuotaEnabled

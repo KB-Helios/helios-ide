@@ -60,6 +60,7 @@ export {
 	setExtensionSettingsResolver,
 	setSpecsEnabledResolver,
 } from "./extensions";
+export { setGlobalFactorySlotLimit } from "./factory";
 export {
 	effectiveMcpServerConfig,
 	mcpEntryFingerprint,

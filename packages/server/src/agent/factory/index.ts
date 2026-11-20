@@ -25,12 +25,16 @@ export {
 export { FactoryRun } from "./run";
 export {
 	DEFAULT_FACTORY_SLOTS,
+	DEFAULT_GLOBAL_FACTORY_SLOTS,
 	dropFactorySlots,
 	type FactoryQueue,
 	FactorySlots,
 	factoryQueueOf,
 	factorySlotsFor,
+	GlobalFactorySlots,
+	globalFactoryQueue,
 	setFactorySlotLimit,
+	setGlobalFactorySlotLimit,
 	withFactorySlots,
 } from "./slots";
 export {

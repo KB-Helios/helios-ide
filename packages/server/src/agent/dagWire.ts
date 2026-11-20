@@ -26,7 +26,7 @@ import { sessionlessProjectTrust } from "./agentSessionManager";
 import { dagServiceFor } from "./dag";
 import { cancelPendingDagChanges, publishDagChangedNow } from "./dagChanges";
 import { startFactory, startFactoryFromPlan } from "./dagStart";
-import { factoryQueueOf, isPlannerNode } from "./factory";
+import { factoryQueueOf, globalFactoryQueue, isPlannerNode } from "./factory";
 import { FINDINGS_PORT, isReviewerNode, parseFindings } from "./factoryReview/reviewer";
 import { getPiRuntime } from "./piRuntime";
 import { isHostResourceId } from "./resourceIdentity";
@@ -203,7 +203,7 @@ export function readWorkspaceQueue(workspaceId: string): DagQueueView {
 	dagServiceFor(workspaceId);
 	const queue = factoryQueueOf(workspaceId);
 	if (!queue) throw new CodedError("RESOURCE_UNAVAILABLE", "Workspace unavailable");
-	return queue;
+	return { ...queue, global: globalFactoryQueue() };
 }
 
 export async function readWorkspaceDag(workspaceId: string, dagId: string): Promise<DagView> {

@@ -45,7 +45,8 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
 - **Worker slots** — one line under the description, `Workers: running of limit · queued`, shown only while
   a turn runs or waits and in the warning colour when every slot is taken and work waits. It is the
   host's `dag.queue` (the workspace-wide cap across all DAGs); a node waiting for a slot reads `Queued` in
-  Steps. `queueLine` in `factoryModel.ts` is the projection.
+  Steps. `queueLine` in `factoryModel.ts` is the projection. From v136 a second line (`All workspaces: …`) appears only
+  when the host's machine-wide cap is full and holds work back.
 - **Run log** — each node that ran shows its model (and thinking level), tokens in/out, cost and, when it
   did not complete, how it ended; the DAG header shows the totals. All of it is pi-dag's persisted outcome
   projected by the host, never computed here.

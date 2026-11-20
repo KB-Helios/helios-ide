@@ -3,6 +3,8 @@ import {
 	DAG_HISTORY_MAX_PAGE,
 	DAG_OUTPUT_MAX_BYTES,
 	DEFAULT_CONFIG,
+	FACTORY_MAX_CONCURRENT,
+	isFactoryMaxConcurrent,
 	isSettleIdleDays,
 	isSubagentMaxConcurrent,
 	RECENT_MODELS_LIMIT,
@@ -45,6 +47,7 @@ import {
 	EXTENSION_CATALOG_PROTOCOL_VERSION,
 	EXTENSION_EDITOR_TEXT_PROTOCOL_VERSION,
 	EXTENSION_SETTINGS_PROTOCOL_VERSION,
+	FACTORY_CAP_PROTOCOL_VERSION,
 	FEEDBACK_SURVEY_PROTOCOL_VERSION,
 	FONTS_PROTOCOL_VERSION,
 	FS_MUTATIONS_PROTOCOL_VERSION,
@@ -828,4 +831,14 @@ test("starting a factory run is pinned to v135", () => {
 	expect(WS_METHODS.dagRoles).toBe("dag.roles");
 	expect(WS_METHODS.dagStart).toBe("dag.start");
 	expect(WS_METHODS.dagStartFromPlan).toBe("dag.startFromPlan");
+});
+
+test("the machine-wide factory cap is pinned to v136 with bounded whole-number values", () => {
+	expect(FACTORY_CAP_PROTOCOL_VERSION).toBe(136);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(FACTORY_CAP_PROTOCOL_VERSION);
+	expect(FACTORY_MAX_CONCURRENT).toEqual({ min: 1, max: 64, default: 8 });
+	expect(DEFAULT_CONFIG.factoryMaxConcurrent).toBe(8);
+	for (const good of [1, 8, 64]) expect(isFactoryMaxConcurrent(good)).toBe(true);
+	for (const bad of [0, 65, 1.5, "8", null, undefined, Number.NaN])
+		expect(isFactoryMaxConcurrent(bad)).toBe(false);
 });

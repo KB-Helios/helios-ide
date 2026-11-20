@@ -1712,12 +1712,20 @@ FIFO, when a slot frees. Rules:
   (`subagentConcurrencyFor`), so there is no new setting. `refreshSubagentConcurrency` resizes the slots too:
   raising admits queued turns at once, lowering never aborts a running turn. A DAG's own `maxConcurrent`
   still applies inside it; the effective bound is the smaller of the two.
-- **Per workspace only.** There is no cross-workspace ceiling (pi-delegation has none for chats either);
-  that stays a follow-up.
+- **A machine-wide cap on top.** Every turn also takes a slot of one process-wide pool
+  (`GlobalFactorySlots`, `AppConfig.factoryMaxConcurrent`, default `DEFAULT_GLOBAL_FACTORY_SLOTS` = 8, 1-64),
+  after its workspace slot and held with it, so the effective bound for a workspace is the smaller of its own cap,
+  the DAG's `maxConcurrent` and what is left of the global pool. The order (workspace first, then global) means a
+  turn waiting for the global pool holds only its own workspace's slot and never a global one that another
+  workspace could use; it counts as `queued`, not `running`, until it has both. If its DAG was paused during that
+  wait, it gives both back. The host applies the setting at boot and on every settings update
+  (`setGlobalFactorySlotLimit`): raising admits waiting turns at once, lowering never aborts a running turn.
+  `dag.queue` also returns `global` (`globalFactoryQueue()`).
 - **Pause and cancel.** Interrupt/cancel abort the job's signal, so a waiting turn leaves the queue and a
   running one frees its slot. Plain `pause` stops admission and lets running turns finish, and a turn that
   is waiting for a slot while its DAG is paused takes no slot (the check is before and after the grant,
-  re-polled every 100 ms) so the other DAGs use the slots; it continues after `resume`. Resume re-reads
+  re-checked on that DAG's next committed change, see "Live progress push") so the other DAGs use the slots; it
+  continues after `resume`. Resume re-reads
   the DAG's `mode` through an owner binding.
 - **Queue read.** `dag.queue` (`readWorkspaceQueue`) returns `{ limit, running, queued }` for the
   workspace: `running` turns hold a slot, `queued` are admitted by their DAG and wait (a paused DAG's

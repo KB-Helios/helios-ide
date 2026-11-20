@@ -211,3 +211,20 @@ test("a plan is ready for the factory once its planner completed", () => {
 	expect(planReady({ nodes: [node("completed", true)] })).toBe(true);
 	expect(planReady({ nodes: [node("completed")] })).toBe(false);
 });
+
+test("the machine-wide cap shows only when it is full and holds work back", () => {
+	const global = (running: number, queued: number) => ({ limit: 3, running, queued });
+	expect(
+		queueLine({ limit: 4, running: 2, queued: 0, global: global(2, 0) })?.global,
+	).toBeUndefined();
+	expect(
+		queueLine({ limit: 4, running: 1, queued: 0, global: global(3, 0) })?.global,
+	).toBeUndefined();
+	expect(queueLine({ limit: 4, running: 1, queued: 2, global: global(3, 2) })?.global).toEqual({
+		limit: 3,
+		running: 3,
+		queued: 2,
+	});
+	// A host without the machine-wide cap reports none.
+	expect(queueLine({ limit: 4, running: 2, queued: 1 })).not.toHaveProperty("global");
+});

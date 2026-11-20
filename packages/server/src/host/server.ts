@@ -16,6 +16,7 @@ import {
 	COMMIT_ANALYSIS_PROTOCOL_VERSION,
 	CONTINUATION_PROTOCOL_VERSION,
 	DAG_PROTOCOL_VERSION,
+	FACTORY_MAX_CONCURRENT,
 	FEEDBACK_SURVEY_PROTOCOL_VERSION,
 	FONTS_PROTOCOL_VERSION,
 	GITHUB_STAR_PROTOCOL_VERSION,
@@ -72,6 +73,7 @@ import {
 	setDisabledPackagesResolver,
 	setExtensionSettingsResolver,
 	setExtUiPublisher,
+	setGlobalFactorySlotLimit,
 	setMcpLoginPublisher,
 	setMcpPolicyResolver,
 	setMcpStatusPublisher,
@@ -947,6 +949,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 		}
 	});
 
+	setGlobalFactorySlotLimit(getConfig().factoryMaxConcurrent);
 	setSubagentConcurrencyResolver((workspaceId) => {
 		const globalDefault = getConfig().subagentMaxConcurrent;
 		try {
@@ -1122,6 +1125,8 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 		}
 		if (appliedUpdate.subagentsEnabled !== undefined) refreshSubagentTools();
 		if (appliedUpdate.subagentMaxConcurrent !== undefined) refreshSubagentConcurrency();
+		if (appliedUpdate.factoryMaxConcurrent !== undefined)
+			setGlobalFactorySlotLimit(config.factoryMaxConcurrent);
 		if (appliedUpdate.agentReviewEnabled !== undefined) refreshAgentReviewTool();
 		if (appliedUpdate.disabledPackages !== undefined) bumpPackageSwitchGeneration();
 		if (
@@ -1384,6 +1389,7 @@ function restoreSeamDefaults(): void {
 	setMcpToolGrantWriter(() => {});
 	setSubagentsEnabledResolver(null);
 	setSubagentConcurrencyResolver(null);
+	setGlobalFactorySlotLimit(FACTORY_MAX_CONCURRENT.default);
 	setAgentReviewEnabledResolver(null);
 	setDisabledExtensionsResolver(null);
 	setExtensionSettingsResolver(null);

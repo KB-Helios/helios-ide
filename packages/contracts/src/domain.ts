@@ -789,6 +789,8 @@ export interface DagQueueView {
 	limit: number;
 	running: number;
 	queued: number;
+	/** The same counts across every workspace against the machine-wide cap (`factoryMaxConcurrent`). */
+	global?: { limit: number; running: number; queued: number };
 }
 
 export interface DagNodeView {
@@ -1968,6 +1970,11 @@ export interface AppConfig extends ThemePreference {
 	subagentsEnabled: boolean;
 	/** How many subagents one chat may run at once; more spawns queue FIFO. */
 	subagentMaxConcurrent: number;
+	/**
+	 * How many DAG worker turns of the factory may run at once across every workspace (on top of each
+	 * workspace's own cap, which is `subagentMaxConcurrent`); more wait FIFO. Adjustable while running.
+	 */
+	factoryMaxConcurrent: number;
 	jbcentralQuotaEnabled: boolean;
 	jbcentralQuotaRefreshSeconds: number;
 	/** Which shell new workspace terminals start on Windows; ignored on other platforms. */
@@ -2312,6 +2319,17 @@ export function isSubagentMaxConcurrent(value: unknown): value is number {
 	);
 }
 
+export const FACTORY_MAX_CONCURRENT = { min: 1, max: 64, default: 8 } as const;
+
+export function isFactoryMaxConcurrent(value: unknown): value is number {
+	return (
+		typeof value === "number" &&
+		Number.isInteger(value) &&
+		value >= FACTORY_MAX_CONCURRENT.min &&
+		value <= FACTORY_MAX_CONCURRENT.max
+	);
+}
+
 export const JBCENTRAL_QUOTA_REFRESH_SECONDS = { min: 1, max: 3600, default: 30 } as const;
 
 export function isJbcentralQuotaRefreshSeconds(value: unknown): value is number {
@@ -2346,6 +2364,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 	agentReviewEnabled: false,
 	subagentsEnabled: true,
 	subagentMaxConcurrent: SUBAGENT_MAX_CONCURRENT.default,
+	factoryMaxConcurrent: FACTORY_MAX_CONCURRENT.default,
 	jbcentralQuotaEnabled: true,
 	jbcentralQuotaRefreshSeconds: JBCENTRAL_QUOTA_REFRESH_SECONDS.default,
 	settleIdleDays: SETTLE_IDLE_DAYS.default,

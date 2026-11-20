@@ -502,7 +502,7 @@ export function FactoryTrigger({ workspaceId }: { workspaceId: string }) {
 					<p
 						className={cn(
 							"px-12 tr-text-metadata tabular-nums",
-							line.saturated ? "text-feedback-warning" : "text-text-muted",
+							line.saturated || line.global ? "text-feedback-warning" : "text-text-muted",
 						)}
 						data-testid="factory-queue"
 						data-saturated={line.saturated}
@@ -512,6 +512,15 @@ export function FactoryTrigger({ workspaceId }: { workspaceId: string }) {
 							limit: line.limit,
 							queued: line.queued,
 						})}
+						{line.global ? (
+							<span className="block" data-testid="factory-queue-global">
+								{t("factory.queue.global", {
+									running: line.global.running,
+									limit: line.global.limit,
+									queued: line.global.queued,
+								})}
+							</span>
+						) : null}
 					</p>
 				) : null}
 				{startable ? <FactoryStart roles={roles} start={start} /> : null}

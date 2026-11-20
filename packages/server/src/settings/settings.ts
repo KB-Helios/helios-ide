@@ -7,6 +7,7 @@ import {
 	FONT_WEIGHT_OFFSET,
 	isCodeFontSize,
 	isComposerGrowthLimit,
+	isFactoryMaxConcurrent,
 	isFontChoice,
 	isFontWeightOffset,
 	isJbcentralQuotaRefreshSeconds,
@@ -65,6 +66,7 @@ const ACCEPTED_UPDATE_KEYS = {
 	agentReviewEnabled: true,
 	subagentsEnabled: true,
 	subagentMaxConcurrent: true,
+	factoryMaxConcurrent: true,
 	jbcentralQuotaEnabled: true,
 	jbcentralQuotaRefreshSeconds: true,
 	settleIdleDays: true,
@@ -306,6 +308,12 @@ export function updateConfig(partial: AppConfigUpdate): AppConfig {
 		!isSubagentMaxConcurrent(runtimeUpdate.subagentMaxConcurrent)
 	) {
 		throw new Error("subagentMaxConcurrent must be a whole number from 1 to 16");
+	}
+	if (
+		runtimeUpdate.factoryMaxConcurrent !== undefined &&
+		!isFactoryMaxConcurrent(runtimeUpdate.factoryMaxConcurrent)
+	) {
+		throw new Error("factoryMaxConcurrent must be a whole number from 1 to 64");
 	}
 	if (jbcentralQuotaEnabled !== undefined && typeof jbcentralQuotaEnabled !== "boolean") {
 		throw new Error("jbcentralQuotaEnabled must be a boolean");

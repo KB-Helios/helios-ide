@@ -13,7 +13,12 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { DagClient, DagDefinition, DagResult } from "pi-dag";
 import { closeAllDags, dagServiceFor } from "./dag";
 import { refreshSubagentConcurrency, setSubagentConcurrencyResolver } from "./delegation";
-import { factoryQueueOf } from "./factory";
+import {
+	DEFAULT_GLOBAL_FACTORY_SLOTS,
+	factoryQueueOf,
+	globalFactoryQueue,
+	setGlobalFactorySlotLimit,
+} from "./factory";
 
 const model = { provider: "dag-slots-faux", id: "worker" };
 const faux = createFauxCore({
@@ -62,6 +67,7 @@ afterEach(async () => {
 	release.all();
 	await closeAllDags();
 	setSubagentConcurrencyResolver(null);
+	setGlobalFactorySlotLimit(DEFAULT_GLOBAL_FACTORY_SLOTS);
 });
 
 afterAll(() => {
@@ -315,4 +321,67 @@ test("interrupting a DAG frees its running slot for the other DAG", async () => 
 	await waitFor("B to take the slot", () => started.includes("task-B-0") && active === 1);
 	await finish(client, [b], 1);
 	expect(peak).toBe(1);
+}, 60_000);
+
+test("a machine-wide cap holds across workspaces on top of each workspace's own cap, and moves live", async () => {
+	reset(4);
+	setGlobalFactorySlotLimit(3);
+	const one = workspace();
+	const two = workspace();
+	const clientOne = owner(one);
+	const clientTwo = owner(two);
+	const a = await create(clientOne, "A", 3);
+	const b = await create(clientTwo, "B", 3);
+	await command(clientOne, a, "resume");
+	await command(clientTwo, b, "resume");
+
+	await waitFor("the machine-wide cap to be saturated", () => active === 3);
+	await waitFor(
+		"the rest to queue",
+		() => (factoryQueueOf(one)?.queued ?? 0) + (factoryQueueOf(two)?.queued ?? 0) === 3,
+	);
+	await Bun.sleep(40);
+	expect(active).toBe(3);
+	expect(globalFactoryQueue().limit).toBe(3);
+	expect(globalFactoryQueue().running).toBe(3);
+	// Each workspace is within its own cap of 4, so it is the global cap that holds the other three back.
+	expect(factoryQueueOf(one)?.running).toBeLessThanOrEqual(3);
+	expect((factoryQueueOf(one)?.running ?? 0) + (factoryQueueOf(two)?.running ?? 0)).toBe(3);
+
+	// Raising it admits waiting turns at once; lowering never aborts a running turn.
+	setGlobalFactorySlotLimit(5);
+	await waitFor("two more turns to start", () => active === 5);
+	setGlobalFactorySlotLimit(1);
+	await Bun.sleep(40);
+	expect(active).toBe(5);
+	release.all();
+	await waitFor("the last turn to start under the lower cap", () => started.length === 6);
+	await Bun.sleep(40);
+	expect(active).toBeLessThanOrEqual(1);
+
+	await finish(clientOne, [a], 3);
+	await finish(clientTwo, [b], 3);
+	expect(peak).toBe(5);
+	expect(globalFactoryQueue()).toEqual({ limit: 1, running: 0, queued: 0 });
+	expect(factoryQueueOf(one)).toEqual({ limit: 4, running: 0, queued: 0 });
+}, 60_000);
+
+test("a workspace's own cap still binds when the machine-wide cap is generous", async () => {
+	reset(1);
+	setGlobalFactorySlotLimit(16);
+	const one = workspace();
+	const two = workspace();
+	const clientOne = owner(one);
+	const clientTwo = owner(two);
+	const a = await create(clientOne, "A", 3);
+	const b = await create(clientTwo, "B", 3);
+	await command(clientOne, a, "resume");
+	await command(clientTwo, b, "resume");
+	await waitFor("one turn per workspace", () => active === 2);
+	await Bun.sleep(40);
+	expect(active).toBe(2);
+	expect(globalFactoryQueue()).toMatchObject({ limit: 16, running: 2 });
+	await finish(clientOne, [a], 3);
+	await finish(clientTwo, [b], 3);
+	expect(peak).toBe(2);
 }, 60_000);

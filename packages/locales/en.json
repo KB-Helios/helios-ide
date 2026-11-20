@@ -677,6 +677,7 @@
 	"factory.owner.other": "Another process controls this workflow.",
 	"factory.plan.build": "Create factory run",
 	"factory.plan.ready": "The plan is approved. Create the factory run from it; you decide again before anything lands.",
+	"factory.queue.global": "All workspaces: {{running}} of {{limit}} running · {{queued}} waiting for a free slot",
 	"factory.queue.summary": "Workers: {{running}} of {{limit}} running · {{queued}} queued for a free slot",
 	"factory.review.by": "reviewed by {{model}}",
 	"factory.review.count_one": "{{count}} reviewer finding",

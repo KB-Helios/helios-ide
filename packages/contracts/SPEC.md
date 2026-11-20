@@ -1582,6 +1582,12 @@ under a **human** approval (checked on the host, not on the wire) and returns th
 it returns the same DAG. `DagNodeView.planner` marks the planning DAG's node. Validation failures are
 `DAG_REJECTED` with the host's plain reason; no field names a caller. Older hosts have none of these methods.
 
+From **`FACTORY_CAP_PROTOCOL_VERSION`** (v136, additive): `AppConfig.factoryMaxConcurrent` (**`FACTORY_MAX_CONCURRENT`**
+= 1-64, default 8, validated by `isFactoryMaxConcurrent`; a bad stored value falls back to the default and a bad
+update rejects the whole mutation) is the machine-wide cap on factory DAG worker turns across every workspace, on top of
+each workspace's own cap (`subagentMaxConcurrent`). It changes live. `DagQueueView.global` (optional) carries the
+same `{ limit, running, queued }` for that cap, which the pane shows only when it is what holds work back.
+
 From **`DAG_PUSH_PROTOCOL_VERSION`** (v133, behavioural): the workspace-scoped `dag.changed` push is no longer limited
 to accepted wire commands. The host publishes it (debounced per DAG) for every durable change pi-dag commits:
 worker admission and settlement, gate decisions and chat-controller commands. No new method or field; a pane
