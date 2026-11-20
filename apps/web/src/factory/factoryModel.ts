@@ -188,6 +188,10 @@ export function reviewerSharesFamily(
 ): boolean {
 	if (!form.picks.reviewer && !form.picks.coder && view.sameFamilyOnly) return true;
 	const coder = familyOfKey(view, effectiveKey(view, form, "coder"));
+	// An automatic reviewer is resolved by the host relative to the effective coder: it shares the coder's
+	// family only when no model of another family exists.
+	if (!form.picks.reviewer)
+		return coder !== undefined && !view.models.some((model) => model.family !== coder);
 	const reviewer = familyOfKey(view, effectiveKey(view, form, "reviewer"));
 	return coder !== undefined && coder === reviewer;
 }

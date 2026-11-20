@@ -191,8 +191,13 @@ test("a reviewer in the coder's family must be allowed explicitly and is then se
 	});
 	// The switch has no effect when the reviewer is independent.
 	expect(startRequest(view, form({ allowSameFamily: true }))).toEqual({ task: "Add the thing" });
-	// Moving the coder onto the reviewer's default family makes them share it.
-	expect(reviewerSharesFamily(view, form({ picks: { coder: "b/other" } }))).toBe(true);
+	// Moving the coder onto the default reviewer's family re-resolves an automatic reviewer elsewhere.
+	expect(reviewerSharesFamily(view, form({ picks: { coder: "b/other" } }))).toBe(false);
+	expect(startBlocker(view, form({ picks: { coder: "b/other" } }))).toBeNull();
+	// A reviewer picked into the coder's family still shares it.
+	expect(
+		reviewerSharesFamily(view, form({ picks: { coder: "b/other", reviewer: "b/other" } })),
+	).toBe(true);
 	expect(reviewerSharesFamily(view, form({ picks: { coder: "b/other", reviewer: "a/big" } }))).toBe(
 		false,
 	);
