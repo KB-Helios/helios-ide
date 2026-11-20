@@ -1655,8 +1655,9 @@ beyond small host files next to the worktrees.
   commit, so the target moves first and HEAD is checked after: such a branch then starts at the landed commit
   and the sync is exactly right for it. If HEAD ends up on neither the target nor the landed commit, the file
   sync is undone. A branch switch can therefore never redirect a landing or receive a wrong sync. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
-  branch still points at it, and refuses if it moved. Sources are then removed with their branch
-  (`removeWorktree`). Landing is all-or-nothing up to the merges; a failure after earlier merges is reported and
+  branch still points at it, and refuses if it moved. Sources are then removed with their branch by a
+  non-forced `git worktree remove`: git itself refuses a worktree holding any edit, so a late edit is never
+  deleted and that worktree and branch are kept. Landing is all-or-nothing up to the merges; a failure after earlier merges is reported and
   already-landed sources stay marked so a rerun skips them. The checkout is the person's own and is never merged in. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
   uncommitted changes in the checkout stay untouched unless they overlap.
 - **Template and the step-4 hook.** `buildFactoryDefinition({ title, target, coders, maxConcurrent?, gateRetries?, beforeRelease? })`

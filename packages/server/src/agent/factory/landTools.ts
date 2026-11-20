@@ -12,7 +12,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { removeWorktree, runCommand } from "pi-swarm";
+import { linkDependencies, runCommand, unlinkDependencies } from "pi-swarm";
 import { Type } from "typebox";
 import { boundFor, toolResult } from "./access";
 import type { FactoryRun, WorktreeMeta } from "./run";
@@ -208,6 +208,22 @@ export async function landOnTarget(
 	return merged;
 }
 
+/**
+ * Removes a landed worktree and its branch only when git agrees it is clean: no forced removal, so an edit
+ * saved at any moment up to the removal itself makes git refuse, and the worktree and branch are kept.
+ * Dependency links are host-made, not content: they are taken out first and restored when git refuses.
+ */
+async function removeLandedWorktree(meta: WorktreeMeta): Promise<boolean> {
+	unlinkDependencies(meta.path);
+	const removed = await git(meta.repo, ["worktree", "remove", meta.path]);
+	if (removed.code !== 0) {
+		linkDependencies(meta.repo, meta.path);
+		return false;
+	}
+	await git(meta.repo, ["branch", "-D", meta.branch]);
+	return true;
+}
+
 /** The source's uncommitted change must have clean ownership and a fresh passing host gate record. */
 async function assertGated(run: FactoryRun, meta: WorktreeMeta): Promise<void> {
 	await gatedSnapshot(run, meta);
@@ -330,8 +346,7 @@ export function landFactory(
 			}
 			run.writeMeta({ ...meta, landed: true });
 			// Edits made after the final check are not part of what landed; never delete them with the worktree.
-			const later = (await run.changed(meta)).files.length > 0;
-			if (!later) await removeWorktree(meta, { deleteBranch: true });
+			const later = !(await removeLandedWorktree(meta));
 			landed.push({
 				node: meta.nodeId,
 				status: empty ? "unchanged" : "landed",
