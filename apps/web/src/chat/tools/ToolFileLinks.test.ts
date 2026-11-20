@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ToolRenderProps } from "@thinkrail/extension-api/web";
+import { TooltipProvider } from "@thinkrail/ui/tooltip";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { EditCard } from "./EditCard";
@@ -31,7 +32,9 @@ function markup(
 	path: string,
 	status?: ToolRenderProps["status"],
 ): string {
-	return renderToStaticMarkup(createElement(Card, props(toolName, path, status)));
+	return renderToStaticMarkup(
+		createElement(TooltipProvider, null, createElement(Card, props(toolName, path, status))),
+	);
 }
 
 describe("structured tool file links", () => {

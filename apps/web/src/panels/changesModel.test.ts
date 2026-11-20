@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import type { GitFileChange } from "@thinkrail/contracts";
+import type { GitFileChange, TurnChangeSet } from "@thinkrail/contracts";
 import { currentTranslator } from "@thinkrail/locales/react";
 import { VIRTUALIZED_DIFF_LINES } from "@thinkrail/resource-renderers";
 import {
+	agentChangedFiles,
 	buildChangeMarks,
 	buildChangesTree,
 	type ChangeTreeDir,
@@ -22,6 +23,38 @@ import {
 function change(path: string, over: Partial<GitFileChange> = {}): GitFileChange {
 	return { path, status: "modified", added: 1, removed: 0, ...over };
 }
+
+function run(id: string, ...paths: string[]): TurnChangeSet {
+	return {
+		id,
+		workspaceId: "w1",
+		sessionId: "s1",
+		startedAt: 1,
+		settledAt: 2,
+		baseTree: "a".repeat(40),
+		headTree: "b".repeat(40),
+		changes: paths.map((path) => change(path)),
+	};
+}
+
+test("agentChangedFiles keeps the scope's entries that any recorded run touched, in order", () => {
+	const scope = [
+		change("a.ts"),
+		change("b.ts", { status: "added" }),
+		change("c.ts"),
+		change("d.ts"),
+	];
+	const found = agentChangedFiles(scope, [run("t1", "c.ts", "x.ts"), run("t2", "a.ts", "c.ts")]);
+	expect(found.map((entry) => entry.path)).toEqual(["a.ts", "c.ts"]);
+	expect(found[0]).toBe(scope[0]);
+});
+
+test("agentChangedFiles is empty without a run or without a shared path, and never invents entries", () => {
+	const scope = [change("a.ts")];
+	expect(agentChangedFiles(scope, [])).toEqual([]);
+	expect(agentChangedFiles(scope, [run("t1", "other.ts")])).toEqual([]);
+	expect(agentChangedFiles([], [run("t1", "a.ts")])).toEqual([]);
+});
 
 test("buildChangesTree compacts single-directory runs and stops before files", () => {
 	const tree = buildChangesTree([

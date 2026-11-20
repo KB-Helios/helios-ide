@@ -30,9 +30,18 @@ import { useShallow } from "zustand/react/shallow";
 import { AgentsTrigger } from "@/agents";
 import { useNow } from "@/components/useNow";
 import { LspResourcesSection, useWorkspaceLsps } from "@/lsp";
-import { type ParsedTemplate, templateToSlashCommand, useTemplateCommandPicker } from "@/prompt";
+import {
+	CONTEXT_ARTIFACT_DIR,
+	type ContextCandidate,
+	type ContextKnowledge,
+	type ContextTriggerChar,
+	type ParsedTemplate,
+	templateToSlashCommand,
+	useTemplateCommandPicker,
+} from "@/prompt";
 import {
 	EMPTY_RUNTIME,
+	isChatWorkspace,
 	SettingsSection,
 	selectCanRenameChat,
 	selectCatalogModel,
@@ -56,7 +65,7 @@ import {
 	Composer,
 	type ComposerHandle,
 	type ComposerSubmitDisposition,
-	type MentionCandidate,
+	type ExecutionMode,
 	type SubmitBehavior,
 } from "./Composer";
 import { DEFAULT_DOCK_FOLD, type DockFold, dockCollapsed, withDockCollapsed } from "./dockFold";
@@ -190,6 +199,11 @@ export default function ChatView({
 				.flat()
 				.find((w) => w.id === workspaceId)?.projectId,
 	);
+	const canIsolate = useAppStore((s) => {
+		const workspace = selectWorkspaceById(s, workspaceId);
+		return workspace !== null && !isChatWorkspace(workspace);
+	});
+	const [executionMode, setExecutionMode] = useState<ExecutionMode>("workspace");
 	const [skillsOpen, setSkillsOpen] = useState(false);
 	const skillsStale = useAppStore((s) => selectSkillsStale(s, workspaceId, sessionId));
 	const workspaceRoot = useAppStore(
@@ -214,8 +228,13 @@ export default function ChatView({
 		enabled: sessionExists,
 	});
 
-	const [mentionQuery, setMentionQuery] = useState<string | null>(null);
-	const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
+	const [contextTrigger, setContextTrigger] = useState<{
+		trigger: ContextTriggerChar | null;
+		query: string;
+	}>({ trigger: null, query: "" });
+	const [fileCandidates, setFileCandidates] = useState<ContextCandidate[]>([]);
+	const [artifactCandidates, setArtifactCandidates] = useState<ContextCandidate[]>([]);
+	const specNodes = useAppStore((s) => s.specsByWorkspace[workspaceId]);
 	const [slashActive, setSlashActive] = useState(false);
 	const [templates, setTemplates] = useState<TemplateInfo[]>([]);
 	const [templatesEmpty, setTemplatesEmpty] = useState(false);
@@ -472,19 +491,22 @@ export default function ChatView({
 		[canRenameChat, commands, t, templates],
 	);
 
+	const mentionQuery = contextTrigger.trigger === "@" ? contextTrigger.query : null;
 	useEffect(() => {
 		if (mentionQuery === null) {
-			setMentionCandidates([]);
+			setFileCandidates([]);
+			setArtifactCandidates([]);
 			return;
 		}
 		const { dir, prefix } = mentionLookup(mentionQuery);
+		const listsArtifactDir = dir === "" && !mentionQuery.includes("/");
 		let cancelled = false;
 		const timer = setTimeout(() => {
 			getTransport()
 				.request("fs.readDir", { workspaceId, path: dir })
 				.then((nodes) => {
 					if (cancelled) return;
-					setMentionCandidates(
+					setFileCandidates(
 						nodes
 							.filter((n) => n.name.toLowerCase().startsWith(prefix))
 							.slice(0, 12)
@@ -492,7 +514,29 @@ export default function ChatView({
 					);
 				})
 				.catch(() => {
-					if (!cancelled) setMentionCandidates([]);
+					if (!cancelled) setFileCandidates([]);
+				});
+			if (!listsArtifactDir) {
+				setArtifactCandidates([]);
+				return;
+			}
+			getTransport()
+				.request("fs.readDir", { workspaceId, path: CONTEXT_ARTIFACT_DIR.slice(0, -1) })
+				.then((nodes) => {
+					if (cancelled) return;
+					setArtifactCandidates(
+						nodes
+							.filter((n) => n.name.toLowerCase().includes(prefix))
+							.slice(0, 4)
+							.map((n) => ({
+								path: n.path,
+								name: n.name,
+								kind: n.kind === "dir" ? "dir" : "artifact",
+							})),
+					);
+				})
+				.catch(() => {
+					if (!cancelled) setArtifactCandidates([]);
 				});
 		}, 120);
 		return () => {
@@ -501,7 +545,50 @@ export default function ChatView({
 		};
 	}, [mentionQuery, workspaceId]);
 
-	const onMentionQuery = useCallback((q: string | null) => setMentionQuery(q), []);
+	const onContextQuery = useCallback(
+		(trigger: ContextTriggerChar | null, query: string) =>
+			setContextTrigger((current) =>
+				current.trigger === trigger && current.query === query ? current : { trigger, query },
+			),
+		[],
+	);
+
+	const contextKnowledge = useMemo<ContextKnowledge>(
+		() => ({
+			specIds: new Set((specNodes ?? []).map((node) => node.id)),
+			skillCommands: new Set(
+				commands.filter((command) => command.source === "skill").map((command) => command.name),
+			),
+		}),
+		[specNodes, commands],
+	);
+
+	const contextCandidates = useMemo<ContextCandidate[]>(() => {
+		const query = contextTrigger.query.toLowerCase();
+		if (contextTrigger.trigger === "#") {
+			return (specNodes ?? [])
+				.filter(
+					(node) =>
+						node.id.toLowerCase().includes(query) || node.title.toLowerCase().includes(query),
+				)
+				.slice(0, 8)
+				.map((node) => ({ kind: "spec", id: node.id, title: node.title, path: node.path }));
+		}
+		if (contextTrigger.trigger !== "@") return [];
+		const skills: ContextCandidate[] = query.includes("/")
+			? []
+			: commands
+					.filter(
+						(command) => command.source === "skill" && command.name.toLowerCase().includes(query),
+					)
+					.slice(0, 4)
+					.map((command) => ({
+						kind: "skill",
+						command: command.name,
+						...(command.description ? { description: command.description } : {}),
+					}));
+		return [...fileCandidates, ...artifactCandidates, ...skills];
+	}, [contextTrigger, specNodes, commands, fileCandidates, artifactCandidates]);
 
 	const liveRuntime = () => useAppStore.getState().sessions[sessionId];
 	const pairSelection = useRef(0);
@@ -678,6 +765,14 @@ export default function ChatView({
 			const prepared = prepareNameChatCommand(nativeCommand.title, attachments.length > 0);
 			if ("reason" in prepared) return { accepted: false, reason: prepared.reason };
 			performRename(prepared.title);
+			return { accepted: true };
+		}
+		if (executionMode === "worktree" && canIsolate && !isStreaming) {
+			if (attachments.length > 0) {
+				return { accepted: false, reason: t("chat.composer.worktreeNoImages") };
+			}
+			useAppStore.getState().requestNewWorkspace(text);
+			setExecutionMode("workspace");
 			return { accepted: true };
 		}
 		if (behavior !== "interrupt") {
@@ -1035,7 +1130,10 @@ export default function ChatView({
 					growthLimit={composerGrowthLimit}
 					commands={mergedCommands}
 					templatePending={templatePending}
-					mentionCandidates={mentionCandidates}
+					contextCandidates={contextCandidates}
+					contextKnowledge={contextKnowledge}
+					executionMode={canIsolate && !isStreaming ? executionMode : null}
+					onExecutionModeChange={setExecutionMode}
 					recentPrompts={recentPrompts}
 					models={models}
 					modelsRefreshing={modelsRefreshing}
@@ -1043,7 +1141,7 @@ export default function ChatView({
 					currentModel={currentModel}
 					thinkingLevel={thinkingLevel}
 					modelPreferences={modelPreferences}
-					onMentionQuery={onMentionQuery}
+					onContextQuery={onContextQuery}
 					onSlashActive={setSlashActive}
 					onSelectModel={onSelectModel}
 					onSelectThinking={onSelectThinking}

@@ -61,6 +61,22 @@ export function turnScope(turn: TurnChangeSet): Extract<GitDiffScope, { kind: "t
 	};
 }
 
+/**
+ * The entries of `changes` an agent run touched: those whose path appears in any recorded run's change set.
+ * `changes` keeps its order and identity (the same objects), so a caller can hand the result straight to the
+ * list or tree builders; it is a subset by path, so a file the run touched and the user then reverted is
+ * simply not in `changes` and is not counted.
+ */
+export function agentChangedFiles(
+	changes: readonly GitFileChange[],
+	turns: readonly TurnChangeSet[],
+): GitFileChange[] {
+	if (turns.length === 0) return [];
+	const touched = new Set<string>();
+	for (const turn of turns) for (const change of turn.changes) touched.add(change.path);
+	return changes.filter((change) => touched.has(change.path));
+}
+
 export function diffTabId(workspaceId: string, scope: GitDiffScope, path: string): string {
 	return tupleKey("diff", workspaceId, scopeKey(scope), path);
 }

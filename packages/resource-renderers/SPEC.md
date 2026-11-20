@@ -84,7 +84,11 @@ One barrel, `@thinkrail/resource-renderers` (`src/index.ts`):
   through `ResourceViewProps.onRevealHandled`, so a caller that keeps the reveal (a tab) can drop it and a
   remount restores the saved view state rather than the old hit; a caller repeats a reveal of the same line
   by bumping `tick`, and names the source renderer by id so a Markdown or HTML file opens at a line rather
-  than as its rendered document. The rendered Markdown view honours `reveal` too, without a mark:
+  than as its rendered document. A reveal with `flash: true` (Follow Agent) also marks the line with a
+  `follow-flash-line` decoration that fades over 1.5 s and is then removed, in Monaco and, as a selection that
+  clears after the same time, in the Pierre file view; a text view also reports
+  `ResourceViewProps.onUserNavigated` on the first wheel, pointer or key event inside it, which is how a
+  caller learns the user took over from a programmatic reveal. The rendered Markdown view honours `reveal` too, without a mark:
   it scrolls the block whose source-line stamp (`data-md-line-start`, frontmatter offset applied — both
   of its branches stamp) is the last one at or before `line` to the top — the first block when `line`
   precedes them all (a preamble hit on the blank line after the frontmatter), opening any closed

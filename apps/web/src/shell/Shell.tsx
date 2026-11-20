@@ -81,7 +81,9 @@ import { installFocusRecovery } from "./focusRecovery";
 import { JbcentralQuotaTopbar } from "./JbcentralQuotaTopbar";
 import { KeybindingEditor } from "./KeybindingEditor";
 import { useKeybindingLabel, useLocalKeymap } from "./keybindingState";
+import { LayoutPresetMenu } from "./LayoutPresetMenu";
 import { LayoutSettings } from "./LayoutSettings";
+import { applyLayoutBinding } from "./layoutPresetActions";
 import { useLocalLayoutState } from "./layoutState";
 import { LocationBar } from "./locationBar";
 import { NativeWindowControls } from "./NativeWindowControls";
@@ -92,6 +94,7 @@ import { ShortcutsDialogHost } from "./ShortcutsDialog";
 import { ReviewChangesButton, SidebarToggle, TerminalToggle } from "./TopbarControls";
 import { hasNativeShortcuts, readSettingsShortcutLabel } from "./useAppShortcuts";
 import { useCollapsibleRegion } from "./useCollapsibleRegion";
+import { useFollowAgent } from "./useFollowAgent";
 import { useGlobalHotkeys } from "./useGlobalHotkeys";
 import { useNativeWindowControls } from "./useNativeWindowControls";
 import { WorkspaceWorkbench } from "./WorkspaceWorkbench";
@@ -166,6 +169,13 @@ function ShellLayout() {
 		});
 		return true;
 	};
+
+	const newWorkspaceRequest = useAppStore((s) => s.newWorkspaceRequest);
+	useEffect(() => {
+		if (!newWorkspaceRequest) return;
+		openNewWork(newWorkspaceRequest.initialPrompt);
+		useAppStore.getState().clearNewWorkspaceRequest();
+	}, [newWorkspaceRequest, openNewWork]);
 
 	const homeProjects = useCollapsibleRegion<HTMLDivElement>(PROJECT_HOME_PROJECTS_REGION_ID);
 	// The toggle hides the left side only when it is visible with an unfolded group; otherwise it shows it.
@@ -243,6 +253,7 @@ function ShellLayout() {
 	useEffect(installRegionTracker, []);
 	useEffect(installFocusRecovery, []);
 	useEffect(installEscapeLeavesField, []);
+	useFollowAgent();
 	useGlobalHotkeys({
 		onProjects: () => toggleLeftSide(homeProjects.toggle),
 		...(hasActiveWorkspace
@@ -252,6 +263,7 @@ function ShellLayout() {
 					onFocusGroup: focusCenterGroup,
 					onTerminal: focusTerminal,
 					onFiles: () => showFiles("all"),
+					onLayout: (binding) => applyLayoutBinding(t, binding),
 					...(activeChat ? {} : { onChanges: () => showFiles("changed") }),
 					onSplitRight: runActiveTabAction,
 					onMoveTab: runActiveTabAction,
@@ -311,6 +323,7 @@ function ShellLayout() {
 							onOpen={() => useAppStore.getState().openSettings(SettingsSection.Updates)}
 						/>
 					) : null}
+					{activeWorkspaceId ? <LayoutPresetMenu /> : null}
 					{activeWorkspaceId ? (
 						<ReviewChangesButton
 							workspaceId={activeWorkspaceId}

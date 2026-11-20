@@ -1243,6 +1243,27 @@ both message orders. *Rejected:* keeping the modal for non-MCP extensions — ev
   focuses the textarea and keeps its caret, so padding and gaps have no dead zone. Presses on the chip row,
   the completion menus, the gutter, or bubbling through React from portaled popovers do not count, so chip
   text stays selectable.
+- **Context pills and the `@` / `#` menu** (`Composer`, `ChatView`; grammar in [[submodule-web-prompt]],
+  *Context pills*) — `@` opens one sectioned menu: **Files** (the `fs.readDir` lookup the old mention menu
+  made), **Context** (top-level entries of `.thinkrail/context/`, offered while the query has no `/`, so a
+  typed `@.thinkrail/context/…` is just the Files lookup) and **Skills** (the session's `skill` slash
+  commands); `#` offers the workspace's spec nodes (`specsByWorkspace`, matched on id or title). Up/Down wrap
+  across all rows, Enter/Tab picks, Esc dismisses, exactly as before. A pick inserts plain text — `@path `,
+  `@dir/` (menu stays open), `#id `, or `/skill:name ` moved to the draft's front — and the draft paints each
+  token as a pill behind the transparent textarea (`ContextPillBackdrop`, not while a template slot session
+  owns the backdrop), so ⌘↑ history recall, ⇧Tab out of the composer, undo and IME are untouched: there is no
+  second editor. `ChatView` owns the candidates and the `ContextKnowledge` (known spec ids, skill commands);
+  `Composer` stays props-driven. The footer shows a muted **attached-context count** beside the model picker —
+  distinct tokens plus image attachments — as soon as it is non-zero.
+- **Execution mode** (`Composer`, `ChatView`) — a ghost dropdown beside the model picker chooses where the
+  next prompt runs: **This workspace** (the default — the prompt goes to this chat, as always) or **New
+  worktree**. It is offered only in a repository workspace (never a projectless chat) and never while a run
+  is streaming, where Send is a steer. With New worktree selected, Send does not submit to this session:
+  `ChatView` calls the store's `requestNewWorkspace(text)`, the shell opens its one `NewWorkspaceDialog`
+  seeded with the prompt ([[module-web]] store spec), the draft clears and the mode falls back to This
+  workspace. Slash-native commands (`/compact`, `/name`) still act on this chat first. Images do not
+  travel into the dialog, so a draft with attachments is refused with a composer error instead of dropping
+  them. The mode is `ChatView` state, per mount, never persisted.
 - **Composer trailing controls** (`Composer`) — the footer's right-hand cluster is **one solid object and
   ghosts**, no borders: History is `IconButton ghost m` (its `label` supplies the tooltip), Stop is
   `Button ghost m` (`■ Stop`, muted text lifting on a hover wash), and the send a single

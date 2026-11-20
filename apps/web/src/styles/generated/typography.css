@@ -322,6 +322,16 @@
 	font-style: normal;
 	font-variant-ligatures: var(--tr-font-ligatures-code);
 }
+.tr-code-path {
+	font-family: var(--tr-font-family-code);
+	font-size: var(--tr-font-size-s12);
+	font-weight: var(--tr-font-weight-regular);
+	line-height: var(--tr-line-height-code);
+	letter-spacing: var(--tr-letter-spacing-normal);
+	text-transform: none;
+	font-style: normal;
+	font-variant-ligatures: var(--tr-font-ligatures-code);
+}
 
 /* Prose system 'chat' — the markdown typography for that surface. */
 .tr-prose-chat {

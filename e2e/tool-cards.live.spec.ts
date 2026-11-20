@@ -44,11 +44,9 @@ test("write then edit render a preview body and a diff body", { tag: "@agent" },
 		"First use the write tool to create a new file notes.txt whose only content is the line: hello world. " +
 			"Then use the edit tool to replace 'hello world' with 'goodbye world' in notes.txt.",
 	);
-	const write = await expandToolStep(page, "write");
-	await expect(write.getByTestId("tool-write")).toContainText("notes.txt");
-
-	const edit = await expandToolStep(page, "edit");
-	await expect(edit.getByTestId("tool-edit")).toContainText("notes.txt");
+	await waitForAgentSettled(page);
+	await expect(page.getByTestId("tool-write").first()).toContainText("notes.txt");
+	await expect(page.getByTestId("tool-edit").first()).toContainText("notes.txt");
 });
 
 test("long written content collapses behind a Show all toggle (Task 10)", {
@@ -59,12 +57,13 @@ test("long written content collapses behind a Show all toggle (Task 10)", {
 		page,
 		"Use the write tool to create a file count.txt containing the numbers 1 to 40, one number per line, and nothing else.",
 	);
-	const step = await expandToolStep(page, "write");
+	await waitForAgentSettled(page);
+	const card = page.getByTestId("tool-write").first();
 
-	const toggle = step.getByTestId("collapsible-toggle").first();
+	const toggle = card.getByTestId("collapsible-toggle").first();
 	await expect(toggle).toBeVisible({ timeout: 30_000 });
 	await expect(toggle).toContainText("Show all");
-	const collapsible = step.getByTestId("collapsible").first();
+	const collapsible = card.getByTestId("collapsible").first();
 	await expect(collapsible).toHaveAttribute("data-expanded", "false");
 
 	await toggle.click();

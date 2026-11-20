@@ -44,7 +44,12 @@ workbench engine (every tab, split, tool, terminal and preset keeps working):
   **Sidebar toggle** (`toggle-sidebar`, the `view.toggleLeft` chord action) and then the location strip
   as a quiet thread title. Trailing (`topbar-actions`): the **Review Changes** control (`open-review`,
   only with an active workspace; it shows the workspace's `+N −M` git line totals when known and toggles
-  the right side, landing on the Files tool's Changed mode — All files in a chat without a project), the **Terminal toggle** (`toggle-terminal`, the bottom panel), wiki,
+  the right side, landing on the Files tool's Changed mode — All files in a chat without a project), the
+  **agent files pill** just before it (`agent-changes-pill`: "N files changed" for the files an agent run
+  touched that still differ in the current Changes scope — the Changes panel's *Agent* filter, so the
+  number is exactly the length of the list the click lands on; hidden at zero, in a chat without a project
+  and on narrow viewports, and it only ever reveals — `revealAgentChanges` — so it never closes the side
+  the Review Changes control owns), the **Terminal toggle** (`toggle-terminal`, the bottom panel), wiki,
   search, the JetBrains quota, connection status and Settings.
 - **Thread Sidebar** — the Projects tool on the left side of the default Codex preset
   ([[submodule-web-shell-layout]], *Presets*). Its header carries a **New thread** action and a **Search**
@@ -233,6 +238,7 @@ transition. ChatView's `/name` command is the independent keyboard entry point t
 - `Mod+B` toggles the left side, restoring local group/tab attention or an eligible singleton tool;
 - `Mod+J` does the same for the right side;
 - `Mod+Shift+J` toggles bottom, restoring local bottom attention, a bottom-targeted singleton, or the terminal creation surface;
+- `Mod+Shift+1` / `2` / `3` (`layout.agentSplit` / `layout.codeFocus` / `layout.reviewMode`, only inside a workspace) apply the Agent + Code Split, Code Focus and Review Mode presets to the local frame through `layoutPresetActions` — the same action the topbar's `LayoutPresetMenu` (a dropdown beside Review Changes, the applied preset checked) and the palette's three `layout.*` view commands run. Each toasts the preset applied, or why it could not be ([[submodule-web-shell-layout]], *Workflow presets*);
 - `Mod+N`, and its alias `Mod+Alt+N`, open `NewWorkspaceDialog` for the context project (the active workspace's project, else the selected project). The shell owns this one keyboard-opened instance as local state — it is not store state and not the `ProjectTree`/`WelcomePanel` instances, which keep their own return-focus and prompt-seeding semantics. `Mod+N` is the canonical chord and the one shortcut chrome advertises first; the alias exists because browsers reserve Cmd/Ctrl+N for a new window and never deliver it to the page, while the desktop webview does.
 - `Mod+K`, double Shift and the topbar search button open the search palette ([[submodule-web-search]]). `SearchPaletteHost` mounts it only while `searchOpen` is true and composes what it runs: `paletteCatalog.ts` builds the command list for the current context (a command exists only where it applies; every chord-bound action shows its shortcut and runs the very function its chord runs — the side/bottom toggles and history open live in `chordActions.ts`, which `useGlobalHotkeys` binds too) and one row per Settings section, each opening its section (the palette never flips a setting in place). `SearchPaletteHost` supplies `renderFilePreview` — a `ResourcePreview` from `@thinkrail/resource-renderers` keyed by workspace + path, with a section's heading line as its `reveal`, under `AppResourceHost`'s **`PALETTE_PREVIEW_HOST`** (built once beside the app's `HOST`): its `readFile` and `bytesUrl` carry the palette's `maxBytes` (`FILE_TOO_LARGE` becomes the "too large to preview" message), it refuses a read while the host is unreachable, and its change subscription stays silent until this connection's welcome and then refreshes once — so the palette's file and spec previews are the preview tab's renderer, bounded. The host search context names the active workspace and the context project; the host resolves the root (Project Home searches the project's Default folder). `useSearchPalette` turns store state into the props-driven palette's items: work items from `buildWorkItems` over the normalized session snapshot, so chats in workspaces this client never opened appear, named by their state record's title; **Waiting for you** is those chats that need the user (`waitingItems`); the context project and active workspace are ranking boosts. The palette's Start work row and `Mod+↵` call `PaletteStart.openDialog(text)`, which opens the keyboard-owned `NewWorkspaceDialog` instance (the `Mod+N` one) with the text as `initialPrompt` — or, when that dialog or the store's Edit & retry dialog is already open (an attention notification can open the palette over it), keeps it as it is, its draft and any creation in flight untouched, and returns `false` so the palette returns focus to it; the palette's New workspace row keeps an open dialog the same way, but does not hand focus back to it. The dialog is the only start path, so the palette never creates a workspace or sends a prompt itself. The `#` scope's Ask the agent row and `Alt+↵` call `PaletteAsk.ask(text)` instead, which starts a new chat (`startChatInTab`) in the active workspace — on Project Home in the context project's Default, entered through `enterDefaultWorkspace` under a `paletteNavigator.beginPick()` guard like Work in project folder, so a later pick or navigation while the list loads keeps the user where they went and drops the ask — with the question and the spec-citing note as its first prompt.
 - While the palette is open, `paletteBackfill.ts` makes collapsed projects' workspaces searchable: it lists, without diff stats, each open project whose workspace list this client never loaded or that lacks a workspace the snapshot reports (a peer created it while this client was away), and merges the reply in the host's order without replacing rows already held, so no worktree is diffed for it. It asks nothing while disconnected or before the welcome, keeps four requests in flight across openings, drops a reply from an earlier connection, and re-reads its queue when the connection, the welcome, the open projects or the reported workspaces change. No palette request names a chat; against an older host an unvisited chat reads as its first prompt.
@@ -568,3 +574,27 @@ actions do not rely on it: they focus what they revealed themselves. Neither doe
 focused row unmounts: the chat transcript moves focus to its own list container in the row's unmount
 cleanup, before the browser drops it, so recovery sees focus held and the list keeps its cursor
 ([[submodule-web-chat]], *Transcript keyboard model*).
+
+## Follow Agent
+
+While an agent works, the code view can **follow** it: each file the agent creates or edits opens as a
+preview tab and scrolls to what changed, without taking focus from the conversation. `useFollowAgent`
+(mounted once by `Shell`; pure rules in `followAgent.ts`) is the only owner.
+
+- **Signal.** A chat tab's session in the *active* workspace whose `toolResults` gain a settled (`done`)
+  `edit` or `write`. A tool call id is followed once; the first read of a session only seeds the seen set, so
+  opening a chat or reconnecting never replays history. Nothing follows while the session is not streaming,
+  while `followAgent` is off, or while the workspace is paused.
+- **Where.** `openFileAtLine(…, "preview", { background: true, targetGroupId })`: the tab opens without
+  activating, in a center group that does not hold the running chat (`followTargetGroupId`: a group already
+  showing a file, else any other group, else the layout's own choice). In Agent + Code Split that is the code
+  group; in a single-group layout the preview tab appears beside the chat tab and the chat stays selected.
+- **What line.** `changedLine` reads the file after the mutation and finds the edit's new text (the first
+  line of `newText`, else `1`); a `write` reveals line 1. The reveal carries `flash: true`, so the renderer
+  marks that line with the accent for 1.5 s.
+- **Pausing.** A wheel, pointer or key event inside the editor is manual navigation: it calls
+  `pauseFollow(workspaceId)`, and the file toolbar shows **Resume following**. Enabling the toggle or pressing
+  the pill resumes; a pause never outlives the toggle and is per workspace.
+- **Toggle.** The file toolbar's **Follow agent** switch (`followAgent`, default on, this client only). The
+  toolbar is otherwise hidden for a single-renderer file, so it appears while an agent runs in the workspace or
+  following is paused, never permanently.

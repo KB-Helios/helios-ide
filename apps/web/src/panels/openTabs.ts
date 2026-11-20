@@ -14,6 +14,7 @@ import {
 	type EditorTab,
 	type FileComparisonTab,
 	isCenterNavigationCurrent,
+	type LayoutOpenOptions,
 	layoutOpenOptionsForNavigation,
 	selectDiffTabTargetRef,
 	selectWorkspaceById,
@@ -29,8 +30,12 @@ function baseName(path: string): string {
 	return path.split("/").pop() || path;
 }
 
+/** Where a read tab opens when the caller, not the focus clock, decides: `activate: false` keeps focus put. */
+export type OpenTabPlacement = Pick<LayoutOpenOptions, "activate" | "targetGroupId">;
+
 interface ReadFlight {
 	intent: TabIntent;
+	placement: OpenTabPlacement;
 	claimPreview: boolean;
 	navigation: CenterNavigationStamp | null;
 	requestedAt: number;
@@ -52,6 +57,7 @@ async function openReadTab<T>(
 	build: (payload: T, loadedTick: number) => EditorTab,
 	requestedNavigation?: CenterNavigationStamp | null,
 	claimPreview = false,
+	placement: OpenTabPlacement = {},
 ): Promise<void> {
 	const navigation =
 		requestedNavigation === undefined
@@ -64,8 +70,15 @@ async function openReadTab<T>(
 	if (pending) {
 		if (intent === "preview" || claimPreview) pending.claimPreview = true;
 		if (intent === "keep") pending.intent = "keep";
-		pending.navigation = navigation;
-		pending.requestedAt = navTick(workspaceId);
+		// A passive request (Follow Agent) joins a pending foreground open without taking it over: the user's
+		// activation and navigation stamp stay. A foreground request still supersedes a passive one.
+		const passiveJoiningForeground =
+			placement.activate === false && pending.placement.activate !== false;
+		if (!passiveJoiningForeground) {
+			pending.placement = placement;
+			pending.navigation = navigation;
+			pending.requestedAt = navTick(workspaceId);
+		}
 		return pending.done;
 	}
 	const cached = (store.tabsByWorkspace[workspaceId] ?? []).find(
@@ -78,13 +91,17 @@ async function openReadTab<T>(
 			intent === "keep" &&
 			claimPreview &&
 			(!navigation || isCenterNavigationCurrent(store, workspaceId, navigation));
-		const options = layoutOpenOptionsForNavigation(store, workspaceId, navigation);
+		const options = {
+			...layoutOpenOptionsForNavigation(store, workspaceId, navigation),
+			...placement,
+		};
 		store.openTab(cached, intent, true, claim ? { ...options, claimPreview: true } : options);
 		return;
 	}
 	const loadedTick = selectWorkspaceTick(useAppStore.getState(), workspaceId);
 	const flight: ReadFlight = {
 		intent,
+		placement,
 		claimPreview: intent === "preview" || claimPreview,
 		navigation,
 		requestedAt: navTick(workspaceId),
@@ -117,7 +134,10 @@ async function installRead<T>(
 				layoutResourceIdentity(tab) === resourceIdentity,
 		);
 		const tab = installedCache ?? build(payload, loadedTick);
-		const options = layoutOpenOptionsForNavigation(currentState, workspaceId, flight.navigation);
+		const options = {
+			...layoutOpenOptionsForNavigation(currentState, workspaceId, flight.navigation),
+			...flight.placement,
+		};
 		useAppStore
 			.getState()
 			.openTab(
@@ -139,6 +159,7 @@ export function openFileInTab(
 	reported: string,
 	intent: TabIntent,
 	requestedNavigation?: CenterNavigationStamp | null,
+	placement: OpenTabPlacement = {},
 ): Promise<void> {
 	const path = projectRelativePath(
 		reported,
@@ -162,16 +183,21 @@ export function openFileInTab(
 			loadedTick,
 		}),
 		requestedNavigation,
+		false,
+		placement,
 	);
 }
 
 export async function openFileAtLine(
 	workspaceId: string,
 	path: string,
-	at: { line: number; column?: number; length?: number },
+	at: { line: number; column?: number; length?: number; flash?: boolean },
 	intent: TabIntent,
+	placement?: OpenTabPlacement,
 ): Promise<void> {
-	await openFileInTab(workspaceId, path, intent);
+	await (placement
+		? openFileInTab(workspaceId, path, intent, null, placement)
+		: openFileInTab(workspaceId, path, intent));
 	useAppStore.getState().revealFileTab(workspaceId, path, at, SOURCE_RENDERER_ID);
 }
 
@@ -290,4 +316,48 @@ export async function openChangesTab(
 		? { ...base, reveal: { path: revealPath, tick: (base.reveal?.tick ?? 0) + 1 } }
 		: base;
 	state.openTab(tab, intent, true, layoutOpenOptionsForNavigation(state, workspaceId, navigation));
+}
+
+/**
+ * Follow Agent: shows `path` at `line` as a preview tab without taking focus or counting as navigation — the
+ * conversation keeps the keyboard. With a `targetGroupId` (another group than the chat's) the tab is also
+ * selected there and flashes the line; without one it only joins the strip, so a single-group layout never
+ * swaps the conversation out from under the user.
+ */
+export async function followFileAtLine(
+	workspaceId: string,
+	path: string,
+	line: number,
+	targetGroupId?: string,
+	/** Vetoes the select when the file already lives somewhere the caller must not surface (the chat's group). */
+	canSelect: (tabId: string) => boolean = () => true,
+	/** Re-checked once the file is open: false when the user paused or turned following off meanwhile. */
+	stillFollowing: () => boolean = () => true,
+): Promise<void> {
+	// Canonicalize once so the tab, the reveal and the select intent all name the same file.
+	const canonical = projectRelativePath(
+		path,
+		selectWorkspaceById(useAppStore.getState(), workspaceId)?.worktreePath,
+	);
+	await openFileInTab(workspaceId, canonical, "preview", null, {
+		activate: false,
+		...(targetGroupId ? { targetGroupId } : {}),
+	});
+	// Opening may have waited on a read; the user's pause or off switch wins over a stale follow.
+	if (!stillFollowing()) return;
+	useAppStore
+		.getState()
+		.revealFileTab(workspaceId, canonical, { line, flash: true }, SOURCE_RENDERER_ID);
+	if (!targetGroupId) return;
+	const state = useAppStore.getState();
+	const tabId = tupleKey("file", workspaceId, canonical);
+	if (!(state.tabsByWorkspace[workspaceId] ?? []).some((tab) => tab.id === tabId)) return;
+	if (!canSelect(tabId)) return;
+	state.enqueueLayoutIntent({
+		kind: "select",
+		workspaceId,
+		tabId,
+		focus: false,
+		countNavigation: false,
+	});
 }

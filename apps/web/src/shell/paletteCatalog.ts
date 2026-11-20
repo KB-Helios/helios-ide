@@ -16,6 +16,7 @@ import {
 	RiFileEditLine,
 	RiFileList3Line,
 	RiFileSearchLine,
+	RiFocusLine,
 	RiFolder2Line,
 	RiFolderLine,
 	RiFolderOpenLine,
@@ -57,7 +58,7 @@ import {
 import type { SettingsNavGroup } from "../panels/settingsNav";
 import type { PaletteItem } from "../search";
 import type { SettingsSection } from "../store";
-import type { LayoutToolId, TabAction } from "./layout";
+import type { LayoutToolId, TabAction, WorkflowLayoutPresetId } from "./layout";
 
 export type PaletteTool = Exclude<LayoutToolId, "projects">;
 
@@ -112,6 +113,7 @@ export interface PaletteCatalogActions {
 	readonly toggleLeft: () => void;
 	readonly toggleRight: () => void;
 	readonly toggleBottom: () => void;
+	readonly applyLayout: (id: WorkflowLayoutPresetId) => void;
 	readonly showTool: (workspaceId: string, tool: PaletteTool) => void;
 	readonly showFiles: (mode: "all" | "changed") => void;
 	readonly focusRegion: (delta: 1 | -1) => void;
@@ -413,6 +415,33 @@ function viewCommands(deps: PaletteCatalogDeps): Command[] {
 				keywords: ["terminal", "bottom", "hide", "show"],
 				...shortcutOf(deps, "view.toggleBottom"),
 				run: actions.toggleBottom,
+			},
+			{
+				id: "layout.agentSplit",
+				title: t("commands.layout.agentSplit"),
+				group: "view",
+				icon: RiLayoutColumnLine,
+				keywords: ["layout", "preset", "chat", "code", "editor", "split"],
+				...shortcutOf(deps, "layout.agentSplit"),
+				run: () => actions.applyLayout("agent-split"),
+			},
+			{
+				id: "layout.codeFocus",
+				title: t("commands.layout.codeFocus"),
+				group: "view",
+				icon: RiFocusLine,
+				keywords: ["layout", "preset", "focus", "code", "editor", "dock"],
+				...shortcutOf(deps, "layout.codeFocus"),
+				run: () => actions.applyLayout("code-focus"),
+			},
+			{
+				id: "layout.reviewMode",
+				title: t("commands.layout.reviewMode"),
+				group: "view",
+				icon: RiLayoutRightLine,
+				keywords: ["layout", "preset", "review", "diff", "changes"],
+				...shortcutOf(deps, "layout.reviewMode"),
+				run: () => actions.applyLayout("review-mode"),
 			},
 		);
 	}

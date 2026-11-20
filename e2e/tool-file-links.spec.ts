@@ -150,14 +150,15 @@ function appendToolResults(path: string, sessionId: string): void {
 }
 
 async function toolStep(page: Page, toolName: string, index = 0): Promise<Locator> {
-	const activity = page.getByTestId("activity-group").first();
-	if ((await activity.getAttribute("data-expanded")) !== "true") {
-		await clickTranscriptControl(activity.getByTestId("activity-group-toggle"));
-		await expect(activity).toHaveAttribute("data-expanded", "true");
+	const groups = page.getByTestId("activity-group");
+	for (let i = 0; i < (await groups.count()); i++) {
+		const group = groups.nth(i);
+		if ((await group.getAttribute("data-expanded")) !== "true") {
+			await clickTranscriptControl(group.getByTestId("activity-group-toggle"));
+			await expect(group).toHaveAttribute("data-expanded", "true");
+		}
 	}
-	const step = activity
-		.locator(`[data-testid="activity-step"][data-tool="${toolName}"]`)
-		.nth(index);
+	const step = page.locator(`[data-testid="activity-step"][data-tool="${toolName}"]`).nth(index);
 	await expect(step).toBeVisible();
 	if ((await step.getAttribute("data-expanded")) !== "true") {
 		await clickTranscriptControl(step.getByTestId("activity-step-toggle"));
@@ -253,8 +254,9 @@ test("structured tool paths reuse the preview tab while rich tool results stay i
 	await expect(externalRead).toContainText("/tmp/outside.png");
 	await expect(externalRead.getByTestId("tool-file-link")).toHaveCount(0);
 
-	const edit = await toolStep(page, "edit");
+	const edit = page.getByTestId("tool-edit").first();
 	await expect(edit.getByTestId("tool-file-link")).toHaveText("README.md");
+	await expect(edit.getByTestId("file-change-open")).toBeEnabled();
 
 	const specGrep = await toolStep(page, "spec_grep");
 	await expect(specGrep.getByTestId("tool-file-link")).toHaveText("module-a/SPEC.md");

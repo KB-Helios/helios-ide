@@ -75,6 +75,7 @@ function PierreFileSurface({
 	onViewState,
 	reveal,
 	onRevealHandled,
+	onUserNavigated,
 }: ResourceViewProps) {
 	const t = useT();
 	const plain = usePierrePlain();
@@ -101,10 +102,13 @@ function PierreFileSurface({
 	const [composer, setComposer] = useState<OpenComposer | null>(null);
 	const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
 	const nextComposerId = useRef(0);
+	const flashTimerRef = useRef(0);
 	const reviewRef = useRef(review);
 	reviewRef.current = review;
 	const openSelection = useCallback((range: SelectedLineRange | null) => {
 		if (!range || !reviewRef.current) return;
+		// A selection of the user's own must not be cleared by a flash that is still counting down.
+		window.clearTimeout(flashTimerRef.current);
 		const startLine = Math.min(range.start, range.end);
 		const endLine = Math.max(range.start, range.end);
 		setSelectedLines({ start: startLine, end: endLine });
@@ -156,7 +160,24 @@ function PierreFileSurface({
 	usePierreFocus(rootRef, virtualizer, [{ review }], placedThreadIds);
 	const revealLine = reveal?.line;
 	const revealTick = reveal?.tick;
+	const revealFlash = reveal?.flash === true;
 	const revealHandled = useEffectEvent((tick: number) => onRevealHandled?.(tick));
+	const userNavigated = useEffectEvent(() => onUserNavigated?.());
+	useEffect(() => {
+		const root = rootRef.current;
+		if (!root) return;
+		// Capture phase: the scroller may consume a wheel or key event before it bubbles.
+		const types = ["wheel", "pointerdown", "keydown"] as const;
+		const listener = () => userNavigated();
+		for (const type of types)
+			root.addEventListener(type, listener, { passive: true, capture: true });
+		return () => {
+			for (const type of types) root.removeEventListener(type, listener, { capture: true });
+		};
+	}, [rootRef]);
+	// The flash outlives the reveal's acknowledgment (which clears the tab's reveal and re-runs the effect
+	// below), so its timer is owned here: replaced by a newer flash, cleared on unmount.
+	useEffect(() => () => window.clearTimeout(flashTimerRef.current), []);
 	useEffect(() => {
 		if (revealLine === undefined || revealTick === undefined) return;
 		let frame = 0;
@@ -164,6 +185,13 @@ function PierreFileSurface({
 		const attempt = () => {
 			if (virtualizer.revealLine(revealLine)) {
 				setSelectedLines({ start: revealLine, end: revealLine });
+				if (revealFlash) {
+					window.clearTimeout(flashTimerRef.current);
+					flashTimerRef.current = window.setTimeout(
+						() => setSelectedLines((current) => (current?.start === revealLine ? null : current)),
+						1500,
+					);
+				}
 				revealHandled(revealTick);
 				return;
 			}
@@ -171,8 +199,10 @@ function PierreFileSurface({
 			if (attempts < 30) frame = requestAnimationFrame(attempt);
 		};
 		attempt();
-		return () => cancelAnimationFrame(frame);
-	}, [virtualizer, revealLine, revealTick]);
+		return () => {
+			cancelAnimationFrame(frame);
+		};
+	}, [virtualizer, revealLine, revealFlash, revealTick]);
 
 	return (
 		<PierreScroller

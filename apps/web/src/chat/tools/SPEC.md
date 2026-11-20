@@ -19,11 +19,21 @@ renderers are registered by the host's `extensions/registry.ts`. Unregistered to
 
 ## What's here
 
-- **Core pi tools** — `BashCard` (terminal block), `ReadCard`/`WriteCard` (project-relative path +
-  highlighted textual file), `EditCard` (path + removed/added line diff). All **routine**. A settled `read`
-  (success or error) and a successful `write`/`edit` use the shared structured file-link primitive when the
-  path belongs to the active worktree, opening the shell's preview slot; a running/failed mutation or foreign
-  path stays text. Image content
+- **Core pi tools** — `BashCard` (terminal block), `ReadCard` (project-relative path + highlighted textual
+  file) and the two file mutations `WriteCard` / `EditCard`. `bash` and `read` are **routine**. `write` and
+  `edit` register `chrome: "bare"` (hence primary): they escape the activity fold and render inline as
+  **file-change cards** (`FileChangeCard`) — chevron + file icon, the workspace-relative path in `tr-code-path`
+  (12px mono), `+N −M` counters, and an **Open in Inspector** action, with the diff or written file as the
+  body. The card owns its frame; each tool supplies only the counters (`countLines` of the old/new text, or of
+  the written content) and the body. A settled `read` (success or error) and a successful `write`/`edit` use
+  the shared structured file-link primitive when the path belongs to the active worktree, opening the shell's
+  preview slot; Open in Inspector goes through the same `onOpenFile` and is disabled while the mutation runs,
+  after it fails, or for a foreign path; a running/failed mutation or foreign path stays text. A card is
+  expanded by default (`useFold`, so the choice survives virtualization). **Motion:** opening a card eases its
+  body in with a `framer-motion` spring on `opacity`/`transform` only, skipped under `prefers-reduced-motion`
+  and never on mount — a virtualized row that remounts must not replay it. Closing is instant and no height is
+  animated: the transcript's fold-geometry anchoring measures the row synchronously around a toggle, and an
+  animated height would drift the scroll anchor. Image content
   returned by `read` is previewed by the parent chat module's common result-content layer, the same path as
   every other image-producing tool; `ReadCard` does not special-case image payloads.
 - **`ResolveCommentCard`** — the compact receipt for the host-owned `resolve_comment` review tool
@@ -85,7 +95,7 @@ renderers are registered by the host's `extensions/registry.ts`. Unregistered to
   `fileTargets`, `foldState`, `HighlightedHtml`);
   `contracts` (types and pure guards); `@thinkrail/ui/*` (including
   `attention-line`, the "Your input is needed" line shared with extension prompts);
-  `@thinkrail/extension-api/web`; `lib`; `@remixicon/react`.
+  `@thinkrail/extension-api/web`; `lib`; `@remixicon/react`; `framer-motion` (`FileChangeCard` only).
 - **Forbidden:** value-importing any `pi` package; `store`/`transport` (renderers stay presentational —
   extraction-ready into a future `packages/chat-ui`).
 

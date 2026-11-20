@@ -177,6 +177,7 @@ export interface FileReveal {
 	line: number;
 	column?: number;
 	length?: number;
+	flash?: boolean;
 	tick: number;
 }
 export interface FileClipboard {
@@ -245,6 +246,8 @@ export function isFileComparison<T extends { kind: string; before?: string | und
 export type ChangesLayout = "stacked" | "single";
 export type MarkdownOutlineSide = "left" | "right";
 type FilesMode = "all" | "changed";
+/** The Changes panel's narrowing: every change in scope, or only the files an agent run touched. */
+export type ChangesFilter = "all" | "agent";
 export type FilesScrollView = "all" | "changedList" | "changedTree";
 export interface FilesTreeView {
 	expanded: readonly string[];
@@ -1199,6 +1202,9 @@ interface AppState {
 	notificationPromptOpen: boolean;
 	searchOpen: boolean;
 	searchSession: number;
+	newWorkspaceRequest: { initialPrompt: string } | null;
+	followAgent: boolean;
+	followPausedByWorkspace: Record<string, true>;
 	shortcutsOpen: boolean;
 	doubleShiftSearch: boolean;
 	theme: ThemeId;
@@ -1411,6 +1417,8 @@ interface AppState {
 	setChangesView: (view: "list" | "tree") => void;
 	filesMode: FilesMode;
 	setFilesMode: (mode: FilesMode) => void;
+	changesFilter: ChangesFilter;
+	setChangesFilter: (filter: ChangesFilter) => void;
 	fileClipboard: FileClipboard | null;
 	setFileClipboard: (clipboard: FileClipboard | null) => void;
 	filesTreeByWorkspace: Record<string, FilesTreeView>;
@@ -1599,6 +1607,11 @@ interface AppState {
 	closeNotificationPrompt: () => void;
 	openSearch: () => void;
 	closeSearch: () => void;
+	requestNewWorkspace: (initialPrompt: string) => void;
+	clearNewWorkspaceRequest: () => void;
+	setFollowAgent: (on: boolean) => void;
+	pauseFollow: (workspaceId: string) => void;
+	resumeFollow: (workspaceId: string) => void;
 	openShortcuts: () => void;
 	closeShortcuts: () => void;
 	setDoubleShiftSearch: (enabled: boolean) => void;
@@ -1610,6 +1623,7 @@ interface AppState {
 	requestToolView: (workspaceId: string, tool: LayoutToolId) => void;
 	requestChangesView: (workspaceId: string, path: string | null, scope?: GitDiffScope) => void;
 	revealChanges: (workspaceId: string) => void;
+	revealAgentChanges: (workspaceId: string) => void;
 	clearChangesRequest: () => void;
 	requestChatLocation: (req: ChatLocationRequest) => void;
 	clearChatLocation: () => void;
@@ -2604,6 +2618,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 	reviewFocusRequest: null,
 	changesView: "tree",
 	filesMode: "all",
+	changesFilter: "all",
 	fileClipboard: null,
 	filesTreeByWorkspace: {},
 	changesLayout: "stacked",
@@ -2625,6 +2640,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 	notificationPromptOpen: false,
 	searchOpen: false,
 	searchSession: 0,
+	newWorkspaceRequest: null,
+	followAgent: true,
+	followPausedByWorkspace: {},
 	shortcutsOpen: false,
 	doubleShiftSearch: true,
 	theme: DEFAULT_CONFIG.theme,
@@ -3591,6 +3609,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 		),
 	setChangesView: (view) => set({ changesView: view }),
 	setFilesMode: (filesMode) => set({ filesMode }),
+	setChangesFilter: (changesFilter) => set({ changesFilter }),
 	setFileClipboard: (fileClipboard) => set({ fileClipboard }),
 	hydrateFilesTree: (filesTreeByWorkspace) => set({ filesTreeByWorkspace }),
 	setFilesTreeExpanded: (workspaceId, paths, expanded) =>
@@ -4897,6 +4916,27 @@ export const useAppStore = create<AppState>((set, get) => ({
 	closeNotificationPrompt: () => set({ notificationPromptOpen: false }),
 	openSearch: () => set((state) => ({ searchOpen: true, searchSession: state.searchSession + 1 })),
 	closeSearch: () => set((state) => (state.searchOpen ? { searchOpen: false } : state)),
+	requestNewWorkspace: (initialPrompt) => set({ newWorkspaceRequest: { initialPrompt } }),
+	clearNewWorkspaceRequest: () =>
+		set((state) => (state.newWorkspaceRequest ? { newWorkspaceRequest: null } : state)),
+	setFollowAgent: (on) =>
+		set((state) =>
+			state.followAgent === on && (!on || Object.keys(state.followPausedByWorkspace).length === 0)
+				? state
+				: { followAgent: on, followPausedByWorkspace: on ? {} : state.followPausedByWorkspace },
+		),
+	pauseFollow: (workspaceId) =>
+		set((state) =>
+			!state.followAgent || state.followPausedByWorkspace[workspaceId]
+				? state
+				: { followPausedByWorkspace: { ...state.followPausedByWorkspace, [workspaceId]: true } },
+		),
+	resumeFollow: (workspaceId) =>
+		set((state) =>
+			state.followPausedByWorkspace[workspaceId]
+				? { followPausedByWorkspace: omitKey(state.followPausedByWorkspace, workspaceId) }
+				: state,
+		),
 	openShortcuts: () => set((state) => (state.shortcutsOpen ? state : { shortcutsOpen: true })),
 	closeShortcuts: () => set((state) => (state.shortcutsOpen ? { shortcutsOpen: false } : state)),
 	setDoubleShiftSearch: (doubleShiftSearch) =>
@@ -4945,6 +4985,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 		}),
 	revealChanges: (workspaceId) =>
 		set((s) => (s.removedWorkspaceIds[workspaceId] ? {} : revealChangedFilesPatch(s, workspaceId))),
+	revealAgentChanges: (workspaceId) =>
+		set((s) =>
+			s.removedWorkspaceIds[workspaceId]
+				? {}
+				: { ...revealChangedFilesPatch(s, workspaceId), changesFilter: "agent" },
+		),
 	clearChangesRequest: () => set({ changesRequest: null }),
 	requestChatLocation: (req) =>
 		set((state) => {

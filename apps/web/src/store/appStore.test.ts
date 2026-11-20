@@ -47,6 +47,7 @@ import {
 	selectCurrentRouteChatTarget,
 	selectDiffScope,
 	selectFilesTreeView,
+	selectFollowActive,
 	selectReadyCompletionAck,
 	selectSkillsStale,
 	selectUnnamedChatFirstPrompts,
@@ -3740,6 +3741,38 @@ test("revealChanges and requestChangesView reveal Files in Changed mode", () => 
 	expect(useAppStore.getState().filesMode).toBe("changed");
 });
 
+test("revealAgentChanges reveals Files in Changed mode narrowed to the agent's files, in one write", () => {
+	useAppStore.setState({ filesMode: "all", changesFilter: "all", layoutIntents: [] });
+	const writes: Array<{ filesMode: string; changesFilter: string }> = [];
+	const stop = useAppStore.subscribe((state) =>
+		writes.push({ filesMode: state.filesMode, changesFilter: state.changesFilter }),
+	);
+	useAppStore.getState().revealAgentChanges("w1");
+	stop();
+
+	expect(writes).toEqual([{ filesMode: "changed", changesFilter: "agent" }]);
+	expect(useAppStore.getState().layoutIntents).toMatchObject([
+		{ kind: "reveal-tool", workspaceId: "w1", tool: "files" },
+	]);
+});
+
+test("the Changes filter is a reading preference that other reveals and the toggle respect", () => {
+	useAppStore.setState({ filesMode: "all", changesFilter: "agent", layoutIntents: [] });
+	useAppStore.getState().revealChanges("w1");
+	useAppStore.getState().requestChangesView("w1", "src/a.ts");
+	expect(useAppStore.getState().changesFilter).toBe("agent");
+
+	useAppStore.getState().setChangesFilter("all");
+	expect(useAppStore.getState().changesFilter).toBe("all");
+
+	const removedBefore = useAppStore.getState().removedWorkspaceIds;
+	useAppStore.setState({ removedWorkspaceIds: { gone: true }, layoutIntents: [] });
+	useAppStore.getState().revealAgentChanges("gone");
+	expect(useAppStore.getState().changesFilter).toBe("all");
+	expect(useAppStore.getState().layoutIntents).toEqual([]);
+	useAppStore.setState({ removedWorkspaceIds: removedBefore });
+});
+
 test("requestChangesView / requestSpecView pair independent path requests with reveal intents", () => {
 	useAppStore.setState({ changesRequest: null, specRequest: null, layoutIntents: [] });
 
@@ -5439,6 +5472,43 @@ test("openSearch starts a fresh palette session even when the palette is already
 	useAppStore.getState().closeSearch();
 	useAppStore.getState().closeSearch();
 	expect(useAppStore.getState()).toMatchObject({ searchOpen: false, searchSession: 2 });
+});
+
+test("requestNewWorkspace holds one prompt-seeded request until the shell clears it", () => {
+	useAppStore.setState({ newWorkspaceRequest: null });
+	useAppStore.getState().requestNewWorkspace("add retry");
+	expect(useAppStore.getState().newWorkspaceRequest).toEqual({ initialPrompt: "add retry" });
+	useAppStore.getState().requestNewWorkspace("add retry, then log");
+	expect(useAppStore.getState().newWorkspaceRequest).toEqual({
+		initialPrompt: "add retry, then log",
+	});
+	useAppStore.getState().clearNewWorkspaceRequest();
+	expect(useAppStore.getState().newWorkspaceRequest).toBeNull();
+	const cleared = useAppStore.getState();
+	useAppStore.getState().clearNewWorkspaceRequest();
+	expect(useAppStore.getState()).toBe(cleared);
+});
+
+test("Follow Agent pauses per workspace, resumes, and turning it back on clears every pause", () => {
+	const s = () => useAppStore.getState();
+	useAppStore.setState({ followAgent: true, followPausedByWorkspace: {} });
+	expect(selectFollowActive(s(), "ws1")).toBe(true);
+	s().pauseFollow("ws1");
+	expect(selectFollowActive(s(), "ws1")).toBe(false);
+	expect(selectFollowActive(s(), "ws2")).toBe(true);
+	const paused = s();
+	s().pauseFollow("ws1");
+	expect(s()).toBe(paused);
+	s().resumeFollow("ws1");
+	expect(selectFollowActive(s(), "ws1")).toBe(true);
+	s().pauseFollow("ws1");
+	s().pauseFollow("ws2");
+	s().setFollowAgent(false);
+	s().pauseFollow("ws3");
+	expect(s().followPausedByWorkspace).toEqual({ ws1: true, ws2: true });
+	s().setFollowAgent(true);
+	expect(s().followPausedByWorkspace).toEqual({});
+	expect(selectFollowActive(s(), "ws1")).toBe(true);
 });
 
 test("revealFileTab stamps a reveal on the file tab, repeats through tick, and switches the renderer when asked", () => {

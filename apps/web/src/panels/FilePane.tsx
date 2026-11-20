@@ -13,8 +13,9 @@ import { LoadingRegion } from "@thinkrail/ui/skeleton";
 import { Suspense, useMemo } from "react";
 import { isPhoneViewport } from "../lib";
 import type { FileTab } from "../store";
-import { selectWorkspaceById, useAppStore } from "../store";
+import { selectWorkspaceById, selectWorkspaceIsRunning, useAppStore } from "../store";
 import { getTransport } from "../transport";
+import { FollowAgentControls } from "./FollowAgentControls";
 import { OpenInBrowserButton, useOpensInBrowser } from "./OpenInBrowserButton";
 import { resourceBytesUrl, useResetViewStateOnImplementationChange } from "./resourcePane";
 import { reviewFlagFor } from "./reviewModel";
@@ -62,7 +63,13 @@ export function FilePane({ tab }: { tab: FileTab }) {
 	);
 	const reviews = reviewable ? [review.worktree] : [];
 	const opensInBrowser = useOpensInBrowser(tab.path);
-	const showToolbar = candidates.length >= 2 || fileHasDraft || opensInBrowser;
+	const followVisible = useAppStore(
+		(state) =>
+			reviewable &&
+			(selectWorkspaceIsRunning(state, tab.workspaceId) ||
+				(state.followAgent && state.followPausedByWorkspace[tab.workspaceId] === true)),
+	);
+	const showToolbar = candidates.length >= 2 || fileHasDraft || opensInBrowser || followVisible;
 	const saveViewState = (state: unknown) => {
 		const current = useAppStore
 			.getState()
@@ -85,6 +92,7 @@ export function FilePane({ tab }: { tab: FileTab }) {
 					aria-label={t("panels.filePane.resourceView")}
 					className="flex h-32 shrink-0 items-center justify-end gap-4 border-border-default border-b bg-container-header-bg px-12"
 				>
+					{followVisible ? <FollowAgentControls workspaceId={tab.workspaceId} /> : null}
 					<OpenInBrowserButton workspaceId={tab.workspaceId} path={tab.path} />
 					<SendReviewButton workspaceId={tab.workspaceId} path={tab.path} />
 					<RendererToggles
@@ -114,6 +122,7 @@ export function FilePane({ tab }: { tab: FileTab }) {
 						onPlacedThreadIds={onPlacedThreadIds}
 						viewState={tab.viewState}
 						onViewState={saveViewState}
+						onUserNavigated={() => useAppStore.getState().pauseFollow(tab.workspaceId)}
 						{...(tab.reveal
 							? {
 									reveal: tab.reveal,

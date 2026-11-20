@@ -69,6 +69,7 @@ import {
 } from "./chordActions";
 import { useResolvedKeybindings } from "./keybindingState";
 import { collectCenterGroups } from "./layout";
+import { applyWorkflowLayoutPreset } from "./layoutPresetActions";
 import { readNativePageZoomBridge } from "./nativePageZoom";
 import { type HostHitTargets, openHostHit } from "./openHostHit";
 import { createPaletteBackfill } from "./paletteBackfill";
@@ -280,6 +281,7 @@ export function useSearchPalette(options: SearchPaletteOptions): SearchPalettePr
 				toggleLeft: () => toggleLeftSide(options.toggleProjectsHome),
 				toggleRight: toggleRightSide,
 				toggleBottom: toggleBottomPanel,
+				applyLayout: (id) => applyWorkflowLayoutPreset(t, id),
 				showTool: (workspaceId, tool) => store().requestToolView(workspaceId, tool),
 				showFiles,
 				focusRegion: focusAdjacentRegion,

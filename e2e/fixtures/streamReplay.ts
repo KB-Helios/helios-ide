@@ -115,6 +115,43 @@ export const textStreamReplay = (
 	};
 };
 
+export const editToolReplay = (
+	sessionId: string,
+	edit: { path: string; oldText: string; newText: string },
+	timestamp: number,
+): StreamReplay => {
+	const push = (event: PiEvent) =>
+		JSON.stringify({ channel: WS_CHANNELS.piEvent, data: { sessionId, event } } satisfies WsPush);
+	const toolCallId = `follow-edit-${timestamp}`;
+	const message = assistantShell(timestamp);
+	const call = { type: "toolCall" as const, id: toolCallId, name: "edit", arguments: edit };
+	const final: AssistantMessage = { ...message, stopReason: "toolUse", content: [call] };
+	const result = { content: [{ type: "text" as const, text: "Edited" }] };
+	return {
+		steps: [
+			[
+				push({ type: "agent_start" }),
+				push({ type: "turn_start" }),
+				push({ type: "message_start", message }),
+			],
+			[
+				push({ type: "message_end", message: final }),
+				push({ type: "tool_execution_start", toolCallId, toolName: "edit", args: edit }),
+			],
+			[
+				push({
+					type: "tool_execution_end",
+					toolCallId,
+					toolName: "edit",
+					result,
+					isError: false,
+				}),
+			],
+		],
+		finalTail: edit.newText,
+	};
+};
+
 export const interceptAppWire = async (page: Page) => {
 	let current: WebSocketRoute | null = null;
 	await page.routeWebSocket(/\/ws(\?|$)/, (browser) => {

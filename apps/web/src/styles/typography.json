@@ -353,6 +353,15 @@
 				"letterSpacing": "normal",
 				"textTransform": "none",
 				"fontStyle": "normal"
+			},
+			"path": {
+				"fontFamily": "code",
+				"fontSize": "s12",
+				"fontWeight": "regular",
+				"lineHeight": "code",
+				"letterSpacing": "normal",
+				"textTransform": "none",
+				"fontStyle": "normal"
 			}
 		}
 	},

@@ -213,6 +213,25 @@
 	font-variant-ligatures: none;
 }
 
+/* Follow Agent: the line the agent just changed, marked by the accent for 1.5s (a Monaco decoration the renderer removes). */
+.follow-flash-line {
+	background: var(--primary-muted);
+	animation: follow-flash 1.5s ease-out forwards;
+}
+@keyframes follow-flash {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+@media (prefers-reduced-motion: reduce) {
+	.follow-flash-line {
+		animation: none;
+	}
+}
+
 .pierre-code-surface {
 	color-scheme: inherit;
 	--diffs-font-family: var(--tr-font-family-code);

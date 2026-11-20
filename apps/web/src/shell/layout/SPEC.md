@@ -326,6 +326,29 @@ rejects the tool, so Layout settings explains that instead of sending it. Built-
 names are display copy: `layoutPresetName` renders them through the locale catalog by preset id while the
 definition keeps its stable `name`; custom preset names are user data and render verbatim.
 
+**Workflow presets.** Three built-ins are appended after Review (`BUILTIN_LAYOUT_PRESETS` order is load-bearing:
+tests and saved defaults index it, so a new preset is only ever appended) and are the ones the topbar menu,
+the command palette and the `layout.*` chords apply (`WORKFLOW_LAYOUT_PRESET_IDS`):
+
+- **`agent-split` — Agent + Code Split.** One horizontal center split at 42/58: the conversation on the left, the
+  code (editor and preview tabs) on the right. Projects visible on the left, right side and bottom hidden
+  (Review Changes and `Mod+J` open them on demand).
+- **`code-focus` — Code Focus.** A 78/22 horizontal center split: the code takes the width and the
+  conversation stays **docked** in the narrow group, where its stream indicator, queue and Send/Stop composer
+  remain. Left side hidden; right side and bottom hidden.
+- **`review-mode` — Review Mode.** One center group (the conversation) beside a wide right side whose main group
+  is the Review tool — the multi-file Changes review, keeping its own local keys (`J` next unreviewed, `Alt+↓`/`Alt+↑`
+  next/previous file, `V` mark viewed; [panels/SPEC.md](../../panels/SPEC.md)) — over Specs/Files/Artifacts as
+  reference. Left hidden. The preset only arranges; a `j`/`k`/`Enter` vocabulary for that pane is the pane's own
+  change, not a layout one.
+
+These are frame templates like every other: instantiation distributes existing center tabs across the leaves
+in visual order, so a chat and a file may land in either group of a split; the split is a starting point, not
+a pin. The default preset stays Codex: the frame is one local workbench shared by every workspace, so a
+per-workspace-kind default (Agent + Code Split for a git workspace) would have to rearrange the frame on every
+workspace switch, which the local-frame model deliberately never does ("ordinary workspace switches retain
+the current frame").
+
 Applying a preset creates one replacement frame, raises this surface's local side/bottom limits if required, and remaps all retained workspace views atomically. Center resources preserve visual order and distribute across destination leaves; terminals map into compatible slots; singleton tool placement ids survive where possible. Omitted tools receive deterministic restore targets, so a sparse preset cannot strand Projects or another tool. The local default preset is the target of the explicit Reset frame command; ordinary workspace switches retain the current frame. Default selection and limits persist locally, not in host settings.
 
 `layoutState` validates and persists the normalized frame/views/attention document under browser endpoint + frontend-surface identity or the native stable adapter's profile/window scope. Reload and supported session restoration reuse it; simultaneous windows never consume each other's storage events. Persistence contains references only. Failure leaves live state intact; unknown schema falls back to the default (Codex) safe frame.

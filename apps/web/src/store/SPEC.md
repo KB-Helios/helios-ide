@@ -569,7 +569,12 @@ re-read while a server starts. The state vocabulary and the attention/active pre
   and an aggregate attention notification ([[submodule-web-notifications]]) open the same instance;
   **`searchSession`** advances on every `openSearch()`, so a notification click on an already-open palette
   remounts it on the empty query (its Waiting view). The palette's query, scope and selection are its own
-  component state, never store state. The ephemeral **`shortcutsOpen`** plus **`openShortcuts()`** /
+  component state, never store state. The ephemeral **`newWorkspaceRequest`** (`{ initialPrompt }` or `null`)
+  plus **`requestNewWorkspace(initialPrompt)`** / **`clearNewWorkspaceRequest()`** is how a surface below the
+  shell — the composer's isolated-worktree mode ([[submodule-web-chat]]) — asks the shell to open its one
+  `NewWorkspaceDialog` for the context project seeded with a prompt; the shell consumes the request (opening
+  the dialog, then clearing it) and a request the shell cannot honour, because a creation is already open, is
+  dropped rather than queued. The request carries no project: the dialog resolves it as it does for `Mod+N`. The ephemeral **`followAgent`** (default `true`) and per-workspace **`followPausedByWorkspace`**, with **`setFollowAgent`** (turning it on clears every pause), **`pauseFollow(workspaceId)`** (a no-op while following is off or already paused) and **`resumeFollow(workspaceId)`**, are the whole state of Follow Agent ([[submodule-web-shell]], *Follow Agent*); **`selectFollowActive(state, workspaceId)`** is the one derivation of "follows now". The ephemeral **`shortcutsOpen`** plus **`openShortcuts()`** /
   **`closeShortcuts()`** is the keyboard-shortcuts dialog's render flag ([[submodule-web-shell]]), so its
   chord, the rail icon and the palette row open the one instance; its filter and section order stay
   component state. The
@@ -814,6 +819,13 @@ so a run that settled while the socket was down still arrives); every other cons
 `null` path means "open the review tab for that scope" rather than "reveal this file". It reveals the
 **Files** tool and sets **`filesMode: "changed"`** in the same write, as does **`revealChanges(workspaceId)`**
 (the chat's commit receipt); `filesMode` (`"all"` default) is app-wide and session-only like `changesView`.
+**`changesFilter`** (`"all"` default | `"agent"`, `setChangesFilter`) is the Changes panel's agent-touched
+narrowing, app-wide and session-only like `changesView`; **`revealAgentChanges(workspaceId)`** is the topbar
+pill's action: the same reveal-Files-in-Changed-mode write as `revealChanges`, plus `changesFilter: "agent"`,
+in one `set` so the panel never renders the filtered Changed mode one frame before the filter lands.
+`revealChanges` and `requestChangesView` leave the filter as it is — a chat receipt for a file the user
+edited must not be hidden by a stale narrowing, but the filter is the user's reading preference and is not
+reset behind them.
 **`filesTreeByWorkspace`** (read through **`selectFilesTreeView`**, a stable empty view when absent) is the
 Files tree's remembered look per workspace: All-mode `expanded` folders, Changed-tree `changedCollapsed`
 folders (one set for every scope), `scroll` per view (`all` / `changedList` / `changedTree`, each tagged with
