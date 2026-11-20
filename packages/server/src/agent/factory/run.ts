@@ -32,6 +32,11 @@ export interface WorktreeMeta extends Worktree {
 	owns: string[];
 	avoid: string[];
 	landed?: boolean;
+	/**
+	 * The commit landing made from the gated worktree, recorded before its merge. A retried landing
+	 * (after a failed merge) merges exactly this commit instead of treating the now-clean worktree as empty.
+	 */
+	committed?: string;
 }
 
 export interface GateRecord {

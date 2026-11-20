@@ -374,6 +374,37 @@ test("landing also needs a fresh passing gate record and the target branch", asy
 	expect(existsSync(meta.path)).toBe(false);
 });
 
+test("a landing retried after a failed merge lands the committed source instead of dropping it", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo, { trusted: true, approved: true });
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "from the coder\n");
+	expect((await runFactoryGates(run, meta)).ok).toBe(true);
+	const plan = { sources: ["coder-a"], release: "release", target: "main" };
+
+	// A conflicting commit on the target makes the first merge fail; it is aborted cleanly.
+	mkdirSync(join(repo, "src", "a"), { recursive: true });
+	writeFileSync(join(repo, "src", "a", "x.txt"), "from main\n");
+	git(repo, "add", "-A");
+	git(repo, "commit", "-m", "conflict");
+	await expect(landFactory(run, plan)).rejects.toThrow("failed and was aborted");
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+	expect(run.readMeta("coder-a")?.committed).toBeTruthy();
+
+	// An edit after the landing commit is never landed unchecked.
+	writeFileSync(join(meta.path, "src", "a", "y.txt"), "late\n");
+	await expect(landFactory(run, plan)).rejects.toThrow("changed after its landing commit");
+	rmSync(join(meta.path, "src", "a", "y.txt"));
+
+	// Once the conflict is gone, the retry merges the recorded commit; nothing is reported as unchanged.
+	git(repo, "reset", "--hard", "HEAD~1");
+	expect(await landFactory(run, plan)).toMatchObject([{ node: "coder-a", status: "landed" }]);
+	expect(lf(readFileSync(join(repo, "src", "a", "x.txt"), "utf8"))).toBe("from the coder\n");
+	expect(git(repo, "log", "--format=%s")).toContain("factory: land coder-a");
+	expect(existsSync(meta.path)).toBe(false);
+});
+
 test("an untrusted project never runs its gates", async () => {
 	const repo = makeRepo();
 	const run = unitRun(repo, { trusted: false, approved: true });

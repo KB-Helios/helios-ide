@@ -89,7 +89,8 @@ export function FactoryStart({
 			className="px-12"
 			data-testid="factory-start"
 			onToggle={(event) => {
-				if (event.currentTarget.open && view === null && !loadFailed) void load();
+				// Reopening after a failed read tries again, so a recovered host can still start a run.
+				if (event.currentTarget.open && view === null) void load();
 			}}
 		>
 			<summary className="cursor-pointer py-8 tr-text-emphasis focus-visible:focus-ring-inset">

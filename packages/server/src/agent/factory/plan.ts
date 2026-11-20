@@ -159,7 +159,8 @@ const OPEN = "<factory-plan>";
 const CLOSE = "</factory-plan>";
 
 export function encodePlanRun(run: PlanRun): string {
-	return `${OPEN}${JSON.stringify(run)}${CLOSE}`;
+	// No "<" in the payload, so a value containing a marker cannot cut the frame; JSON.parse restores it.
+	return `${OPEN}${JSON.stringify(run).replace(/</g, "\\u003c")}${CLOSE}`;
 }
 
 export function parsePlanRun(systemPrompt: string | undefined): PlanRun | undefined {

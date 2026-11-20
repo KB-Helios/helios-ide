@@ -6,7 +6,7 @@ import {
 } from "@thinkrail/contracts";
 import { useT } from "@thinkrail/locales/react";
 import { Button } from "@thinkrail/ui/button";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { historyTarget } from "./factoryModel";
 
 type T = ReturnType<typeof useT>;
@@ -116,15 +116,20 @@ export function NodeOutput({
 	const [shown, setShown] = useState<string | null>(null);
 	const [view, setView] = useState<DagOutputView | null | undefined>(undefined);
 	const [failed, setFailed] = useState(false);
+	// Only the latest read may settle the view: picking A then B must never show A's text (or error) under B.
+	const latest = useRef(0);
 	const toggle = async (name: string) => {
+		latest.current += 1;
+		const ticket = latest.current;
 		if (shown === name) return setShown(null);
 		setShown(name);
 		setView(undefined);
 		setFailed(false);
 		try {
-			setView(await load(nodeId, name));
+			const next = await load(nodeId, name);
+			if (latest.current === ticket) setView(next);
 		} catch {
-			setFailed(true);
+			if (latest.current === ticket) setFailed(true);
 		}
 	};
 	return (

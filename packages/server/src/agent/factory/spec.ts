@@ -86,7 +86,8 @@ const OPEN = "<factory-node>";
 const CLOSE = "</factory-node>";
 
 export function encodeFactoryNode(node: FactoryNode): string {
-	return `${OPEN}${JSON.stringify(node)}${CLOSE}`;
+	// No "<" in the payload, so a value containing a marker cannot cut the frame; JSON.parse restores it.
+	return `${OPEN}${JSON.stringify(node).replace(/</g, "\\u003c")}${CLOSE}`;
 }
 
 /** The factory role of a frozen system prompt; undefined when it carries none or an invalid one. */

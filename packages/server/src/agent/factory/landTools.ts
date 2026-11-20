@@ -52,6 +52,19 @@ export function landFactory(
 			if (!meta) throw new Error(`Node ${nodeId} has no worktree to land`);
 			if (meta.landed) continue;
 			run.activeWorktree(nodeId);
+			if (meta.committed) {
+				// A previous landing committed this source and its merge failed. The gates passed on exactly
+				// this content, so land that commit only if nothing moved since: the branch still points at
+				// it and the worktree has no further edits.
+				const head = (await git(meta.path, ["rev-parse", "HEAD"])).stdout.trim();
+				const dirty = (await git(meta.path, ["status", "--porcelain"])).stdout.trim();
+				if (head !== meta.committed || dirty)
+					throw new Error(
+						`${nodeId} changed after its landing commit; retry the coder and run the gates again.`,
+					);
+				pending.push({ meta, empty: false });
+				continue;
+			}
 			const status = await sourceStatus(run, meta);
 			if (status.ownershipViolations.length)
 				throw new Error(
@@ -74,8 +87,9 @@ export function landFactory(
 		for (const { meta, empty } of pending) {
 			let commit: string | undefined;
 			if (!empty) {
-				const sha = await commitWorktree(meta.path, `factory: ${meta.nodeId}`);
+				const sha = meta.committed ?? (await commitWorktree(meta.path, `factory: ${meta.nodeId}`));
 				if (!sha) throw new Error(`Nothing to commit in ${meta.nodeId}`);
+				if (!meta.committed) run.writeMeta({ ...meta, committed: sha });
 				const merged = await git(repo, [
 					...(await mergeIdentity(repo)),
 					"merge",

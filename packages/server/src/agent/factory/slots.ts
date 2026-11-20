@@ -80,6 +80,8 @@ async function takeFrom(
 	semaphore: Semaphore,
 	signal: AbortSignal | undefined,
 ): Promise<(() => void) | undefined> {
+	// An abort that already fired never reaches a listener added below; never take a slot for it.
+	if (signal?.aborted) return undefined;
 	const slot = semaphore.acquire();
 	let onAbort = () => {};
 	const aborted = new Promise<undefined>((resolve) => {

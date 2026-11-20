@@ -80,25 +80,30 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const [reviews, setReviews] = useState<Record<string, DagReviewView>>({});
 	const refreshRef = useRef<() => void>(() => {});
 	const selectedRef = useRef<string | null>(null);
-	selectedRef.current = selectedId;
 
 	useEffect(() => {
 		setItems(null);
 		setQueue(null);
 		setDag(null);
 		setReviews({});
+		selectedRef.current = null;
 		setSelectedId(null);
 		if (status !== "connected" || !supported) return;
 		const transport = getTransport();
 		let disposed = false;
-		let serial = 0;
+		const tick = { current: 0 };
 		const readReviews = (view: DagView, ticket: number) => {
 			for (const node of view.nodes) {
 				if (!node.reviewer || node.outcome === undefined) continue;
 				void transport
 					.request("dag.review", { workspaceId, dagId: view.dagId, nodeId: node.id })
 					.then((review) => {
-						if (disposed || ticket !== serial || selectedRef.current !== view.dagId || !review)
+						if (
+							disposed ||
+							ticket !== tick.current ||
+							selectedRef.current !== view.dagId ||
+							!review
+						)
 							return;
 						setReviews((current) => ({ ...current, [node.id]: review }));
 					})
@@ -106,18 +111,19 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 			}
 		};
 		const refresh = () => {
-			const ticket = ++serial;
+			tick.current += 1;
+			const ticket = tick.current;
 			void transport
 				.request("dag.list", { workspaceId })
 				.then((list) => {
-					if (!disposed && ticket === serial) setItems(list);
+					if (!disposed && ticket === tick.current) setItems(list);
 				})
 				.catch(() => {});
 			if (queueable)
 				void transport
 					.request("dag.queue", { workspaceId })
 					.then((next) => {
-						if (!disposed && ticket === serial) setQueue(next);
+						if (!disposed && ticket === tick.current) setQueue(next);
 					})
 					.catch(() => {});
 			const dagId = selectedRef.current;
@@ -125,7 +131,7 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 				void transport
 					.request("dag.get", { workspaceId, dagId })
 					.then((view) => {
-						if (!disposed && ticket === serial && selectedRef.current === dagId) {
+						if (!disposed && ticket === tick.current && selectedRef.current === dagId) {
 							setDag(view);
 							if (reviewable) readReviews(view, ticket);
 						}
