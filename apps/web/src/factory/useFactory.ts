@@ -1,10 +1,13 @@
 import {
+	DAG_DETAILS_PROTOCOL_VERSION,
 	DAG_PROTOCOL_VERSION,
 	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
 	type DagChanged,
+	type DagHistoryPage,
 	type DagListItem,
+	type DagOutputView,
 	type DagQueueView,
 	type DagReviewView,
 	type DagView,
@@ -33,6 +36,12 @@ export interface FactoryState {
 	dag: DagView | null;
 	/** Reviewer findings by node id; a node that has submitted none yet is absent. */
 	reviews: Readonly<Record<string, DagReviewView>>;
+	/** The host serves `dag.history` and `dag.output` (v134). */
+	details: boolean;
+	/** One page of the selected DAG's history, oldest first; rejects when nothing is selected. */
+	history: (cursor?: string) => Promise<DagHistoryPage>;
+	/** A named output of one node of the selected DAG, `null` before the node submitted. */
+	output: (nodeId: string, name: string) => Promise<DagOutputView | null>;
 	select: (dagId: string | null) => void;
 	/** Resolves `null` once the host accepted the command. */
 	run: (command: DagWireCommand) => Promise<FactoryFailure | null>;
@@ -51,6 +60,7 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const reviewable = protocol !== null && protocol >= DAG_REVIEW_PROTOCOL_VERSION;
 	const queueable = protocol !== null && protocol >= DAG_QUEUE_PROTOCOL_VERSION;
 	const pushed = protocol !== null && protocol >= DAG_PUSH_PROTOCOL_VERSION;
+	const details = protocol !== null && protocol >= DAG_DETAILS_PROTOCOL_VERSION;
 	const [items, setItems] = useState<DagListItem[] | null>(null);
 	const [queue, setQueue] = useState<DagQueueView | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -154,5 +164,27 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 		[workspaceId, dag],
 	);
 
-	return { items, queue, selectedId, dag, reviews, select, run };
+	const history = useCallback(
+		(cursor?: string) => {
+			const dagId = selectedRef.current;
+			if (!dagId) return Promise.reject(new Error("No workflow selected"));
+			return getTransport().request("dag.history", {
+				workspaceId,
+				dagId,
+				...(cursor ? { cursor } : {}),
+			});
+		},
+		[workspaceId],
+	);
+
+	const output = useCallback(
+		(nodeId: string, name: string) => {
+			const dagId = selectedRef.current;
+			if (!dagId) return Promise.reject(new Error("No workflow selected"));
+			return getTransport().request("dag.output", { workspaceId, dagId, nodeId, name });
+		},
+		[workspaceId],
+	);
+
+	return { items, queue, selectedId, dag, reviews, details, history, output, select, run };
 }

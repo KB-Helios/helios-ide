@@ -1523,6 +1523,16 @@ current runtime generation, not a parent's retained one. Stale versions surface 
 `dag.changed` is pushed for every durable change (see "Live progress push"), not only after wire commands. Reviewer findings, model roles and the per-node
 run log: see "Factory review and model roles".
 
+### History and output reads
+
+`dag.history` (`readWorkspaceHistory`) pages pi-dag's `listHistory` (version-pinned; the host caps a page at 50)
+and projects each row to a manifest: kind, version, time, the caller **kind** (never an id) and target. The event
+content and its captured files stay in storage. `dag.output` (`readWorkspaceOutput`) reads one declared output of
+the node's current proposal through `getOutput`: the name must be in the node's declared outputs, the file is read
+head-only up to `DAG_OUTPUT_MAX_BYTES` (a larger one is cut and flagged `truncated`), an `artifact` output reports
+only its size, and no path is ever returned. `toDagView` adds `outputs` for nodes that already submitted. Tests:
+`dagWire.test.ts`.
+
 ### Live progress push
 
 pi-dag's only prior hook was a persisted notice attachment (it writes into every DAG and only reaches idle chats),

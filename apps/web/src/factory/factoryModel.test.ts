@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test";
 import {
 	bySeverity,
+	dagActions,
 	dependsOn,
+	historyTarget,
 	needsAttention,
+	nodeActions,
+	nodeCommand,
 	orderNodes,
 	pendingTotal,
 	queueLine,
@@ -79,4 +83,45 @@ test("the queue line is absent while idle and flags a saturated cap", () => {
 	});
 	// A lowered cap with more turns still running than the new limit is not "waiting for a slot" unless work waits.
 	expect(queueLine({ limit: 1, running: 3, queued: 0 })?.saturated).toBe(false);
+});
+
+test("a node offers only the controls pi-dag accepts for its state", () => {
+	expect(nodeActions({ status: "pending" })).toEqual([]);
+	expect(nodeActions({ status: "running", attempt: 1, activation: 1 })).toEqual(["cancel"]);
+	expect(nodeActions({ status: "queued", attempt: 2, activation: 1 })).toEqual(["cancel"]);
+	expect(nodeActions({ status: "interrupted", attempt: 1, activation: 2 })).toEqual([
+		"continue",
+		"retry",
+		"cancel",
+	]);
+	expect(nodeActions({ status: "interrupted", attempt: 1 })).toEqual(["retry", "cancel"]);
+	expect(nodeActions({ status: "cancelled", attempt: 1, activation: 1 })).toEqual(["retry"]);
+	expect(nodeActions({ status: "needs-attention", attempt: 3, activation: 1 })).toEqual(["retry"]);
+	expect(nodeActions({ status: "completed", attempt: 1, activation: 1 })).toEqual([]);
+	expect(nodeActions({ status: "waiting-approval", attempt: 1, activation: 1 })).toEqual([]);
+});
+
+test("a node action becomes the exact whitelisted wire command", () => {
+	const node = { id: "coder-a", attempt: 2, activation: 3 };
+	expect(nodeCommand("retry", node)).toEqual({ kind: "retry", nodeId: "coder-a", attempt: 2 });
+	expect(nodeCommand("cancel", node)).toEqual({ kind: "cancel", nodeId: "coder-a" });
+	expect(nodeCommand("continue", node)).toEqual({
+		kind: "continue",
+		nodeId: "coder-a",
+		attempt: 2,
+		activation: 3,
+	});
+	expect(nodeCommand("continue", { id: "x", attempt: 1 })).toBeNull();
+	expect(nodeCommand("retry", { id: "x" })).toBeNull();
+});
+
+test("DAG-wide interrupt needs a running DAG and nothing applies once it is disposed", () => {
+	expect(dagActions({ mode: "running", lifecycle: "active" })).toEqual(["interrupt", "cancel"]);
+	expect(dagActions({ mode: "paused", lifecycle: "active" })).toEqual(["cancel"]);
+	expect(dagActions({ mode: "running", lifecycle: "disposing" })).toEqual([]);
+});
+
+test("a history target reads node, attempt and activation", () => {
+	expect(historyTarget({ target: { nodeId: "a", attempt: 2, activation: 1 } })).toBe("a #2.1");
+	expect(historyTarget({})).toBe("");
 });

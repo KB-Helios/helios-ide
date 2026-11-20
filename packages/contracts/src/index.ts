@@ -13,6 +13,8 @@ export {
 	clampToCodePoints,
 	compareProjectRank,
 	compareResourceHistory,
+	DAG_HISTORY_MAX_PAGE,
+	DAG_OUTPUT_MAX_BYTES,
 	DEFAULT_CONFIG,
 	DEFAULT_WORKSPACE_NAME,
 	FIRST_PROMPT_MAX_LENGTH,

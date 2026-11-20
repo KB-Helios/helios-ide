@@ -67,6 +67,8 @@ import {
 	readSessionSwarm,
 	readSwarmMemberDiff,
 	readWorkspaceDag,
+	readWorkspaceHistory,
+	readWorkspaceOutput,
 	readWorkspaceQueue,
 	readWorkspaceReview,
 	refreshAvailableModels,
@@ -1545,6 +1547,24 @@ const handlers: WsHandlers = {
 	"dag.queue": (params) => {
 		const p = resourceParams(params, ["workspaceId"]);
 		return readWorkspaceQueue(p.workspaceId);
+	},
+	"dag.history": (params) => {
+		const { dagId, cursor, limit, ...ids } = (params ?? {}) as {
+			dagId?: unknown;
+			cursor?: unknown;
+			limit?: unknown;
+		};
+		const p = resourceParams(ids, ["workspaceId"]);
+		return readWorkspaceHistory(p.workspaceId, dagId as string, cursor, limit);
+	},
+	"dag.output": (params) => {
+		const { dagId, nodeId, name, ...ids } = (params ?? {}) as {
+			dagId?: unknown;
+			nodeId?: unknown;
+			name?: unknown;
+		};
+		const p = resourceParams(ids, ["workspaceId"]);
+		return readWorkspaceOutput(p.workspaceId, dagId as string, nodeId as string, name as string);
 	},
 	"dag.review": (params) => {
 		const { dagId, nodeId, ...ids } = (params ?? {}) as { dagId?: unknown; nodeId?: unknown };

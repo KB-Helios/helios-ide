@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+	DAG_HISTORY_MAX_PAGE,
+	DAG_OUTPUT_MAX_BYTES,
 	DEFAULT_CONFIG,
 	isSettleIdleDays,
 	isSubagentMaxConcurrent,
@@ -33,6 +35,7 @@ import {
 	CUSTOM_MODEL_CONTEXT_WINDOW_LIMITS,
 	completionDelivery,
 	customMessageText,
+	DAG_DETAILS_PROTOCOL_VERSION,
 	DAG_PROTOCOL_VERSION,
 	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
@@ -807,4 +810,13 @@ test("dag.changed progress push is pinned to v133", () => {
 	expect(DAG_PUSH_PROTOCOL_VERSION).toBe(133);
 	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_PUSH_PROTOCOL_VERSION);
 	expect(WS_CHANNELS.dagChanged).toBe("dag.changed");
+});
+
+test("the DAG details reads are pinned to v134", () => {
+	expect(DAG_DETAILS_PROTOCOL_VERSION).toBe(134);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_DETAILS_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagHistory).toBe("dag.history");
+	expect(WS_METHODS.dagOutput).toBe("dag.output");
+	expect(DAG_OUTPUT_MAX_BYTES).toBe(64 * 1024);
+	expect(DAG_HISTORY_MAX_PAGE).toBe(50);
 });

@@ -20,10 +20,16 @@ import { Textarea } from "@thinkrail/ui/textarea";
 import { cn } from "@thinkrail/ui/utils";
 import { useState } from "react";
 import { formatCost, formatTokens } from "@/chat/SessionStatsBar";
+import { ConfirmButton, NodeActions, type RunCommand } from "./FactoryControls";
+import { FactoryHistory, NodeOutput } from "./FactoryHistory";
 import {
 	bySeverity,
+	dagActions,
 	dependsOn,
+	type NodeAction,
 	needsAttention,
+	nodeActions,
+	nodeCommand,
 	orderNodes,
 	pendingTotal,
 	queueLine,
@@ -78,9 +84,29 @@ function StatusGlyph({ status }: { status: DagNodeStatus }) {
 	return <RiTimeLine className="mt-2 size-14 shrink-0 text-text-muted" aria-hidden />;
 }
 
-function NodeRow({ node, dag }: { node: DagNodeView; dag: DagView }) {
+function NodeRow({
+	node,
+	dag,
+	run,
+	output,
+}: {
+	node: DagNodeView;
+	dag: DagView;
+	run: RunCommand;
+	/** Present only when the host serves `dag.output`. */
+	output?: Parameters<typeof NodeOutput>[0]["load"] | undefined;
+}) {
 	const t = useT();
 	const after = dependsOn(dag, node.id);
+	const [busy, setBusy] = useState(false);
+	const [failure, setFailure] = useState<FactoryFailure | null>(null);
+	const send = async (action: NodeAction) => {
+		const command = nodeCommand(action, node);
+		if (!command) return;
+		setBusy(true);
+		setFailure(await run(command));
+		setBusy(false);
+	};
 	return (
 		<li
 			className="flex items-start gap-8 px-12 py-8"
@@ -131,6 +157,15 @@ function NodeRow({ node, dag }: { node: DagNodeView; dag: DagView }) {
 					<span className="block tr-text-metadata text-text-muted">
 						{t("factory.node.after", { names: after.join(", ") })}
 					</span>
+				) : null}
+				<NodeActions actions={nodeActions(node)} send={send} disabled={busy} />
+				{failure ? (
+					<span role="alert" className="block tr-text-metadata text-feedback-error">
+						{failure === "stale" ? t("factory.error.stale") : t("factory.error.rejected")}
+					</span>
+				) : null}
+				{output && node.outputs?.length ? (
+					<NodeOutput nodeId={node.id} names={node.outputs} load={output} />
 				) : null}
 			</span>
 		</li>
@@ -273,14 +308,21 @@ function DagDetail({
 	dag,
 	reviews,
 	run,
+	history,
+	output,
 }: {
 	dag: DagView;
 	reviews: Readonly<Record<string, DagReviewView>>;
-	run: Parameters<typeof GateCard>[0]["run"];
+	run: RunCommand;
+	/** Present only when the host serves `dag.history` / `dag.output` (v134). */
+	history?: Parameters<typeof FactoryHistory>[0]["load"] | undefined;
+	output?: Parameters<typeof NodeOutput>[0]["load"] | undefined;
 }) {
 	const t = useT();
 	const [failure, setFailure] = useState<FactoryFailure | null>(null);
-	const control = async (kind: "pause" | "resume") => setFailure(await run({ kind }));
+	const control = async (kind: "pause" | "resume" | "interrupt" | "cancel") =>
+		setFailure(await run({ kind }));
+	const wide = dagActions(dag);
 	const active = dag.lifecycle === "active";
 	const total = totalUsage(dag.nodes);
 	return (
@@ -311,6 +353,22 @@ function DagDetail({
 					>
 						{t("factory.action.pause")}
 					</Button>
+				) : null}
+				{wide.includes("interrupt") ? (
+					<ConfirmButton
+						label={t("factory.action.interrupt")}
+						confirmLabel={t("factory.action.confirm", { action: t("factory.action.interrupt") })}
+						onConfirm={() => void control("interrupt")}
+						testId="factory-interrupt"
+					/>
+				) : null}
+				{wide.includes("cancel") ? (
+					<ConfirmButton
+						label={t("factory.action.cancelDag")}
+						confirmLabel={t("factory.action.confirm", { action: t("factory.action.cancelDag") })}
+						onConfirm={() => void control("cancel")}
+						testId="factory-cancel"
+					/>
 				) : null}
 				{total ? (
 					<span
@@ -350,10 +408,11 @@ function DagDetail({
 				</h3>
 				<ul className="max-h-[40vh] divide-y divide-border-default overflow-y-auto">
 					{orderNodes(dag.nodes).map((node) => (
-						<NodeRow key={node.id} node={node} dag={dag} />
+						<NodeRow key={node.id} node={node} dag={dag} run={run} output={output} />
 					))}
 				</ul>
 			</section>
+			{history ? <FactoryHistory load={history} /> : null}
 		</div>
 	);
 }
@@ -362,7 +421,8 @@ function DagDetail({
 export function FactoryTrigger({ workspaceId }: { workspaceId: string }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
-	const { items, queue, selectedId, dag, reviews, select, run } = useFactory(workspaceId, open);
+	const { items, queue, selectedId, dag, reviews, details, history, output, select, run } =
+		useFactory(workspaceId, open);
 	if (!items?.length) return null;
 	const pending = pendingTotal(items);
 	const line = queueLine(queue);
@@ -427,7 +487,14 @@ export function FactoryTrigger({ workspaceId }: { workspaceId: string }) {
 					))}
 				</ul>
 				{dag ? (
-					<DagDetail key={dag.dagId} dag={dag} reviews={reviews} run={run} />
+					<DagDetail
+						key={dag.dagId}
+						dag={dag}
+						reviews={reviews}
+						run={run}
+						history={details ? history : undefined}
+						output={details ? output : undefined}
+					/>
 				) : (
 					<p className="px-12 py-8 tr-text-ui text-text-muted">{t("factory.select")}</p>
 				)}

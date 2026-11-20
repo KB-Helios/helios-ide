@@ -29,6 +29,8 @@ export {
 	executeWorkspaceDag,
 	listWorkspaceDags,
 	readWorkspaceDag,
+	readWorkspaceHistory,
+	readWorkspaceOutput,
 	readWorkspaceQueue,
 	readWorkspaceReview,
 	stopDagWire,

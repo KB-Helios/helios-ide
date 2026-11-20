@@ -1,10 +1,15 @@
-import { readFile } from "node:fs/promises";
-import type {
-	DagExecuteRequest,
-	DagListItem,
-	DagQueueView,
-	DagReviewView,
-	DagView,
+import { open, readFile } from "node:fs/promises";
+import {
+	DAG_HISTORY_MAX_PAGE,
+	DAG_OUTPUT_MAX_BYTES,
+	type DagExecuteRequest,
+	type DagHistoryItem,
+	type DagHistoryPage,
+	type DagListItem,
+	type DagOutputView,
+	type DagQueueView,
+	type DagReviewView,
+	type DagView,
 } from "@thinkrail/contracts";
 import { CodedError } from "@thinkrail/shared/codedError";
 import type {
@@ -144,6 +149,9 @@ export function toDagView(snapshot: DagSnapshot): DagView {
 			...(node.attempt === undefined ? {} : { attempt: node.attempt }),
 			...(node.activation === undefined ? {} : { activation: node.activation }),
 			...(isReviewerNode(node.outputs) ? { reviewer: true as const } : {}),
+			...(node.proposalId && node.outputs && Object.keys(node.outputs).length
+				? { outputs: Object.keys(node.outputs) }
+				: {}),
 			...nodeRun(node.outcome),
 		})),
 		edges,
@@ -337,4 +345,112 @@ export async function readWorkspaceReview(
 		...parsed,
 		...(node.outcome?.details.model ? { model: node.outcome.details.model } : {}),
 	};
+}
+
+function pageLimit(value: unknown): number | undefined {
+	if (value === undefined) return undefined;
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1)
+		throw new Error("Invalid limit");
+	return Math.min(value, DAG_HISTORY_MAX_PAGE);
+}
+
+/**
+ * The human-read-only `dag.history`: pi-dag's version-pinned event pages, oldest first, reduced to a
+ * manifest (event kind, version, time, caller kind and target). Captured bodies and their paths are
+ * never part of a row.
+ */
+export async function readWorkspaceHistory(
+	workspaceId: string,
+	dagId: string,
+	cursor?: unknown,
+	limit?: unknown,
+): Promise<DagHistoryPage> {
+	const id = dagIdOf(dagId);
+	if (
+		cursor !== undefined &&
+		(typeof cursor !== "string" || cursor.length === 0 || cursor.length > 4096)
+	)
+		throw new Error("Invalid cursor");
+	const size = pageLimit(limit);
+	const page = unwrap(
+		await readClient(workspaceId).listHistory({
+			dagId: id,
+			limit: size ?? 20,
+			...(cursor ? { cursor } : {}),
+		}),
+	);
+	const items: DagHistoryItem[] = page.items.map((entry) => ({
+		id: entry.id,
+		version: entry.version,
+		at: entry.at,
+		kind: entry.kind,
+		...(entry.actor ? { actor: entry.actor.kind } : {}),
+		...(entry.target
+			? {
+					target: {
+						nodeId: entry.target.nodeId,
+						attempt: entry.target.attempt,
+						activation: entry.target.activation,
+					},
+				}
+			: {}),
+	}));
+	return { items, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}) };
+}
+
+/** At most `max` leading bytes of a file, without reading the rest of a large one. */
+async function readHead(path: string, max: number): Promise<{ bytes: Buffer; truncated: boolean }> {
+	const handle = await open(path, "r");
+	try {
+		const buffer = Buffer.alloc(max + 1);
+		const { bytesRead } = await handle.read(buffer, 0, max + 1, 0);
+		return { bytes: buffer.subarray(0, Math.min(bytesRead, max)), truncated: bytesRead > max };
+	} finally {
+		await handle.close();
+	}
+}
+
+/**
+ * The human-read-only `dag.output`: one declared output of a node's current proposal. The name must be
+ * one the node declares, the text is bounded to `DAG_OUTPUT_MAX_BYTES` and an artifact output reports
+ * only its size. Never a path, another node's proposal or a transcript. `null` until the node submitted.
+ */
+export async function readWorkspaceOutput(
+	workspaceId: string,
+	dagId: string,
+	nodeId: string,
+	name: string,
+	/** Tests lower the bound; the wire always uses `DAG_OUTPUT_MAX_BYTES`. */
+	maxBytes = DAG_OUTPUT_MAX_BYTES,
+): Promise<DagOutputView | null> {
+	const id = dagIdOf(dagId);
+	str(nodeId, "nodeId", 128);
+	str(name, "name", 128);
+	const client = readClient(workspaceId);
+	const snapshot = unwrap(await client.getDag({ dagId: id }));
+	const node = snapshot.nodes.find((candidate) => candidate.id === nodeId);
+	if (!node) throw new CodedError("RESOURCE_UNAVAILABLE", "Node unavailable");
+	if (!node.outputs || !Object.hasOwn(node.outputs, name))
+		throw new CodedError("RESOURCE_UNAVAILABLE", "Output unavailable");
+	if (!node.proposalId) return null;
+	const output = unwrap(await client.getOutput({ dagId: id, proposalId: node.proposalId, name }));
+	const base = {
+		nodeId,
+		name,
+		proposalId: node.proposalId,
+		disposition: output.disposition,
+		kind: output.value.kind,
+		sizeBytes: output.value.file.sizeBytes,
+	};
+	if (output.value.kind === "artifact") return { ...base, truncated: false };
+	try {
+		const head = await readHead(output.value.file.localPath, maxBytes);
+		return {
+			...base,
+			text: new TextDecoder("utf-8", { fatal: false }).decode(head.bytes),
+			truncated: head.truncated,
+		};
+	} catch {
+		throw new CodedError("RESOURCE_UNAVAILABLE", "Output unavailable");
+	}
 }

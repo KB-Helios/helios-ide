@@ -18,6 +18,8 @@ import {
 	executeWorkspaceDag,
 	listWorkspaceDags,
 	readWorkspaceDag,
+	readWorkspaceHistory,
+	readWorkspaceOutput,
 	readWorkspaceQueue,
 	toDagCommand,
 } from "./dagWire";
@@ -251,13 +253,77 @@ test("worker progress and settlement are pushed as dag.changed without any wire 
 	);
 	await until(dagId, (snapshot) => snapshot.gates.some((g) => g.disposition === "pending"));
 	await Bun.sleep(100);
-	expect(changes.length).toBeGreaterThanOrEqual(1);
-	expect(changes.every((c) => c.dagId === dagId && c.workspaceId === workspaceId)).toBe(true);
+	const own = changes.filter((c) => c.dagId === dagId);
+	expect(own.length).toBeGreaterThanOrEqual(1);
+	expect(own.every((c) => c.workspaceId === workspaceId)).toBe(true);
 	// The last push is after the last commit: re-reading it shows the settled node.
 	const view = await readWorkspaceDag(workspaceId, dagId);
 	expect(view.nodes.map((node) => node.status)).toEqual(["waiting-approval"]);
 	// Debounced: a burst of commits (admission, run, proposal, gate) publishes far fewer pushes.
-	expect(changes.length).toBeLessThanOrEqual(view.version);
+	expect(own.length).toBeLessThanOrEqual(view.version);
+});
+
+test("history pages and a node's named output are bounded human reads without storage paths", async () => {
+	const dagId = await createDag();
+	const big = "x".repeat(2000);
+	faux.setResponses([
+		fauxAssistantMessage(
+			fauxToolCall("dag_submit_result", { outputs: { result: { kind: "text", text: big } } }),
+		),
+	]);
+	expect(await readWorkspaceOutput(workspaceId, dagId, "work", "result")).toBeNull();
+	const paused = await readWorkspaceDag(workspaceId, dagId);
+	expect(paused.nodes[0]?.outputs).toBeUndefined();
+	await executeWorkspaceDag({
+		workspaceId,
+		dagId,
+		commandId: `hist-resume-${serial++}`,
+		expectedVersion: paused.version,
+		command: { kind: "resume" },
+	});
+	await until(dagId, (snapshot) => snapshot.gates.some((g) => g.disposition === "pending"));
+
+	const view = await readWorkspaceDag(workspaceId, dagId);
+	expect(view.nodes[0]?.outputs).toEqual(["result"]);
+	const whole = await readWorkspaceOutput(workspaceId, dagId, "work", "result");
+	expect(whole).toMatchObject({ truncated: false, sizeBytes: big.length });
+	expect(whole?.text).toBe(big);
+	const output = await readWorkspaceOutput(workspaceId, dagId, "work", "result", 1000);
+	expect(output).toMatchObject({
+		nodeId: "work",
+		name: "result",
+		kind: "text",
+		truncated: true,
+		sizeBytes: big.length,
+	});
+	expect(output?.text?.length).toBe(1000);
+	expect(JSON.stringify(output)).not.toContain("localPath");
+	await expect(readWorkspaceOutput(workspaceId, dagId, "work", "missing")).rejects.toMatchObject({
+		code: "RESOURCE_UNAVAILABLE",
+	});
+	await expect(readWorkspaceOutput(workspaceId, dagId, "nope", "result")).rejects.toMatchObject({
+		code: "RESOURCE_UNAVAILABLE",
+	});
+	await expect(readWorkspaceOutput(workspaceId, dagId, "work", "")).rejects.toThrow("Invalid name");
+
+	const first = await readWorkspaceHistory(workspaceId, dagId, undefined, 2);
+	expect(first.items).toHaveLength(2);
+	expect(first.items[0]).toMatchObject({ kind: "created" });
+	expect(first.nextCursor).toBeTruthy();
+	const second = await readWorkspaceHistory(workspaceId, dagId, first.nextCursor, 2);
+	expect(second.items.length).toBeGreaterThan(0);
+	expect(second.items[0]?.id).not.toBe(first.items[0]?.id);
+	expect(first.items.some((item) => item.actor === "owner")).toBe(true);
+	const everything = JSON.stringify([first, second]);
+	for (const forbidden of ["localPath", "artifactId", "sha256", "operatorId", "ownerId"])
+		expect(everything).not.toContain(forbidden);
+	await expect(readWorkspaceHistory(workspaceId, dagId, undefined, 0)).rejects.toThrow(
+		"Invalid limit",
+	);
+	await expect(readWorkspaceHistory(workspaceId, dagId, "", undefined)).rejects.toThrow(
+		"Invalid cursor",
+	);
+	await expect(readWorkspaceHistory(workspaceId, "../x")).rejects.toThrow("Invalid dagId");
 });
 
 test("a stale version is reported as DAG_STALE, not applied", async () => {

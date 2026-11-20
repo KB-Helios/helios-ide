@@ -1,9 +1,11 @@
 import type {
+	DagHistoryItem,
 	DagNodeStatus,
 	DagQueueView,
 	DagReviewSeverity,
 	DagUsageView,
 	DagView,
+	DagWireCommand,
 } from "@thinkrail/contracts";
 
 /** Statuses that need a person before the DAG can move on; shown first and never hidden. */
@@ -82,4 +84,56 @@ export function queueLine(queue: DagQueueView | null): QueueLine | null {
 		limit: queue.limit,
 		saturated: queue.queued > 0 && queue.running >= queue.limit,
 	};
+}
+
+export type NodeAction = "continue" | "retry" | "cancel";
+
+/**
+ * The controls a node offers, from what pi-dag allows: an interrupted node can continue its own attempt, a
+ * node that stopped without a result (or went stale) can start a new attempt, and work that is queued,
+ * running or held can be cancelled. A node that never ran has no attempt, so nothing targets it.
+ */
+export function nodeActions(
+	node: Pick<DagView["nodes"][number], "status" | "attempt" | "activation">,
+): NodeAction[] {
+	if (node.attempt === undefined) return [];
+	const actions: NodeAction[] = [];
+	if (node.status === "interrupted" && node.activation !== undefined) actions.push("continue");
+	if (["interrupted", "cancelled", "needs-attention", "stale"].includes(node.status))
+		actions.push("retry");
+	if (["queued", "running", "interrupted"].includes(node.status)) actions.push("cancel");
+	return actions;
+}
+
+/** The wire command of a node action; `null` when the node lacks the attempt it needs. */
+export function nodeCommand(
+	action: NodeAction,
+	node: Pick<DagView["nodes"][number], "id" | "attempt" | "activation">,
+): DagWireCommand | null {
+	if (node.attempt === undefined) return null;
+	switch (action) {
+		case "retry":
+			return { kind: "retry", nodeId: node.id, attempt: node.attempt };
+		case "cancel":
+			return { kind: "cancel", nodeId: node.id };
+		case "continue":
+			return node.activation === undefined
+				? null
+				: { kind: "continue", nodeId: node.id, attempt: node.attempt, activation: node.activation };
+	}
+}
+
+/** DAG-wide controls: interrupt only makes sense while it runs, cancel while it is active. */
+export function dagActions(
+	dag: Pick<DagView, "mode" | "lifecycle">,
+): Array<"interrupt" | "cancel"> {
+	if (dag.lifecycle !== "active") return [];
+	return dag.mode === "running" ? ["interrupt", "cancel"] : ["cancel"];
+}
+
+/** A history row's target as one short label; empty for events that have none. */
+export function historyTarget(item: Pick<DagHistoryItem, "target">): string {
+	return item.target
+		? `${item.target.nodeId} #${item.target.attempt}.${item.target.activation}`
+		: "";
 }

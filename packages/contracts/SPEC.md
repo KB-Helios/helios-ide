@@ -1560,6 +1560,15 @@ From **`DAG_QUEUE_PROTOCOL_VERSION`** (v132, additive): `dag.queue` `{ workspace
 `queued` wait for one; the waiting nodes read `queued` in `DagView`). An unknown or invalid workspace fails
 like the other `dag.*` reads. A host older than v132 has no such method and the pane omits the line.
 
+From **`DAG_DETAILS_PROTOCOL_VERSION`** (v134, additive): `dag.history` `{ workspaceId, dagId, cursor?, limit? }`
+returns a `DagHistoryPage` (`items` oldest first, at most `DAG_HISTORY_MAX_PAGE` = 50 per page, default 20, and
+`nextCursor`): each `DagHistoryItem` is a manifest (`id`, `version`, `at`, `kind`, the caller **kind** only, `target`)
+with no event body, captured-file reference or path. `dag.output` `{ workspaceId, dagId, nodeId, name }` returns a
+`DagOutputView` for a name the node declares (an undeclared one fails `RESOURCE_UNAVAILABLE`) or `null` before it
+submitted: `text` at most `DAG_OUTPUT_MAX_BYTES` (64 KiB) with `truncated`, and `sizeBytes`; an `artifact` output is
+reported without content. `DagNodeView.outputs` lists the readable names of nodes that submitted. Both reads are
+human-only like the rest of `dag.*`. Older hosts have neither method and the pane omits history and output.
+
 From **`DAG_PUSH_PROTOCOL_VERSION`** (v133, behavioural): the workspace-scoped `dag.changed` push is no longer limited
 to accepted wire commands. The host publishes it (debounced per DAG) for every durable change pi-dag commits:
 worker admission and settlement, gate decisions and chat-controller commands. No new method or field; a pane

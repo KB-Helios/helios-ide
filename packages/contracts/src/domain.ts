@@ -807,6 +807,8 @@ export interface DagNodeView {
 	usage?: DagUsageView;
 	durationMs?: number;
 	outcome?: "completed" | "error" | "aborted";
+	/** Declared output names that `dag.output` can read: only nodes that already submitted a proposal. */
+	outputs?: string[];
 }
 
 /** Token and cost accounting of one node run, as pi-dag recorded it. */
@@ -842,6 +844,46 @@ export interface DagReviewView {
 	truncated: boolean;
 	model?: string;
 }
+
+/** One durable DAG event, as a manifest: no content body, no captured-file reference, no storage path. */
+export interface DagHistoryItem {
+	id: string;
+	/** The storage version the event was committed at. */
+	version: number;
+	at: string;
+	/** pi-dag's event kind, e.g. `created`, `resumed`, `attempt-settled`. */
+	kind: string;
+	/** Which kind of caller caused it; never an id. Absent for events the engine itself recorded. */
+	actor?: "human" | "controller" | "owner";
+	target?: { nodeId: string; attempt: number; activation: number };
+}
+
+/** A page of a DAG's history, oldest first; pass `nextCursor` back for the next page. */
+export interface DagHistoryPage {
+	items: DagHistoryItem[];
+	nextCursor?: string;
+}
+
+/**
+ * One named output of a node's current proposal, read-only. `text` holds at most `DAG_OUTPUT_MAX_BYTES`
+ * bytes of a text or json output (`truncated` says so); an `artifact` output is a file reference in
+ * pi-dag and is reported without content.
+ */
+export interface DagOutputView {
+	nodeId: string;
+	name: string;
+	proposalId: string;
+	disposition: "pending" | "accepted" | "rejected" | "superseded";
+	kind: "text" | "json" | "artifact";
+	sizeBytes: number;
+	text?: string;
+	truncated: boolean;
+}
+
+/** The most output text `dag.output` returns. */
+export const DAG_OUTPUT_MAX_BYTES = 64 * 1024;
+/** The most history items one `dag.history` page returns. */
+export const DAG_HISTORY_MAX_PAGE = 50;
 
 /** A gate still waiting for a human; decided gates are not projected. */
 export interface DagGateView {
