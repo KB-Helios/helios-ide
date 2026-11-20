@@ -519,6 +519,53 @@ test("a branch switch cannot slip between the target check and the checkout sync
 	rmSync(lock);
 });
 
+test("landing carries the validated snapshot to the merge and keeps edits made after the check", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo, { trusted: true, approved: true });
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "gated\n");
+	const record = await runFactoryGates(run, meta);
+	expect(record.ok).toBe(true);
+	const landed = await landFactory(
+		run,
+		{ sources: ["coder-a"], release: "release", target: "main" },
+		{
+			afterGateCheck: async () => {
+				// A concurrent gate run replaces the record, and someone edits the worktree, after the check.
+				run.writeGateRecord("coder-a", { ...record, ok: false, reason: "replaced" });
+				writeFileSync(join(meta.path, "src", "a", "late.txt"), "late edit\n");
+			},
+		},
+	);
+	expect(landed).toMatchObject([{ node: "coder-a", status: "landed", keptWorktree: true }]);
+	// What landed is exactly the validated snapshot: the gated file, not the late edit.
+	expect(lf(readFileSync(join(repo, "src", "a", "x.txt"), "utf8"))).toBe("gated\n");
+	expect(existsSync(join(repo, "src", "a", "late.txt"))).toBe(false);
+	// The late edit is preserved in the kept worktree.
+	expect(lf(readFileSync(join(meta.path, "src", "a", "late.txt"), "utf8"))).toBe("late edit\n");
+});
+
+test("a person's merge of the same factory commit keeps its MERGE_HEAD and staged resolution", async () => {
+	const repo = makeRepo();
+	const sha = featureCommit(repo, "f.txt", "factory\n");
+	mkdirSync(join(repo, "src"), { recursive: true });
+	writeFileSync(join(repo, "src", "f.txt"), "main\n");
+	git(repo, "add", "-A");
+	git(repo, "commit", "-qm", "main side");
+	// The person merges that very commit by hand, hits the conflict and stages a resolution.
+	expect(Bun.spawnSync(["git", "merge", sha], { cwd: repo }).exitCode).not.toBe(0);
+	writeFileSync(join(repo, "src", "f.txt"), "resolved by hand\n");
+	git(repo, "add", "src/f.txt");
+	const before = git(repo, "rev-parse", "main").trim();
+	await expect(
+		landOnTarget(repo, join(root, "landing-d"), "main", sha, "factory: land f"),
+	).rejects.toThrow();
+	expect(git(repo, "rev-parse", "MERGE_HEAD").trim()).toBe(sha);
+	expect(lf(git(repo, "show", ":src/f.txt"))).toBe("resolved by hand\n");
+	expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+});
+
 test("gates test an immutable snapshot: a gate process cannot change the worktree", async () => {
 	const repo = makeRepo();
 	writeFileSync(

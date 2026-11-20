@@ -15,15 +15,16 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { removeWorktree, runCommand } from "pi-swarm";
 import { Type } from "typebox";
 import { boundFor, toolResult } from "./access";
-import { sourceStatus } from "./gateTools";
 import type { FactoryRun, WorktreeMeta } from "./run";
-import { hasCommit } from "./snapshot";
+import { contentTree, hasCommit } from "./snapshot";
 import { FACTORY_TOOL } from "./spec";
 
 export interface LandedSource {
 	node: string;
 	status: "landed" | "unchanged" | "already-landed";
 	commit?: string;
+	/** The worktree held edits made after the final gate check: kept (with its branch), never deleted. */
+	keptWorktree?: true;
 }
 
 const IDENTITY = ["-c", "user.name=ThinkRail", "-c", "user.email=agents@thinkrail.invalid"];
@@ -197,15 +198,31 @@ export async function landOnTarget(
 
 /** The source's uncommitted change must have clean ownership and a fresh passing host gate record. */
 async function assertGated(run: FactoryRun, meta: WorktreeMeta): Promise<void> {
-	const status = await sourceStatus(run, meta);
-	if (status.ownershipViolations.length)
-		throw new Error(
-			`${meta.nodeId} violates its ownership: ${status.ownershipViolations.join(", ")}`,
-		);
-	if (!status.gates?.ok || !status.gates.fresh)
+	await gatedSnapshot(run, meta);
+}
+
+/**
+ * The snapshot commit to land, validated from one read of the gate record: it passed, it names exactly the
+ * worktree's current content (tree), that tree is the snapshot commit's own tree, and the change has clean
+ * ownership. The caller lands this commit, so a gate run that replaces the record afterwards cannot change
+ * what lands.
+ */
+async function gatedSnapshot(run: FactoryRun, meta: WorktreeMeta): Promise<string> {
+	const record = run.readGateRecord(meta.nodeId);
+	const [tree, { violations }] = await Promise.all([contentTree(meta.path), run.changed(meta)]);
+	if (violations.length)
+		throw new Error(`${meta.nodeId} violates its ownership: ${violations.join(", ")}`);
+	const sha = record?.snapshot;
+	if (!record?.ok || record.diffHash !== tree || !sha)
 		throw new Error(
 			`${meta.nodeId} has no fresh passing gate record; run the gates again after the last change.`,
 		);
+	if (
+		!(await hasCommit(meta.path, sha)) ||
+		(await git(meta.path, ["rev-parse", `${sha}^{tree}`])).stdout.trim() !== tree
+	)
+		throw new Error(`${meta.nodeId} has no gated snapshot of its content; run the gates again.`);
+	return sha;
 }
 
 interface Pending {
@@ -229,6 +246,8 @@ interface Pending {
 export function landFactory(
 	run: FactoryRun,
 	land: { sources: string[]; release: string; target: string },
+	/** Test seam: runs after a source's final gate check, before its snapshot is recorded. */
+	hooks?: { afterGateCheck?: (nodeId: string) => Promise<void> },
 ): Promise<LandedSource[]> {
 	return run.serial("land", async () => {
 		if (!(await run.options.releaseApproved(run.dagId, land.release)))
@@ -274,14 +293,10 @@ export function landFactory(
 				if (dirty) {
 					// Land exactly the snapshot the gates tested: re-check that the record is fresh (the worktree
 					// still holds that content) and sits on the worktree's HEAD, then move the branch onto it.
-					await assertGated(run, meta);
-					const sha = run.readGateRecord(meta.nodeId)?.snapshot;
+					const sha = await gatedSnapshot(run, meta);
+					await hooks?.afterGateCheck?.(meta.nodeId);
 					const head = (await git(meta.path, ["rev-parse", "HEAD"])).stdout.trim();
-					if (
-						!sha ||
-						!(await hasCommit(meta.path, sha)) ||
-						(await git(meta.path, ["rev-parse", `${sha}^`])).stdout.trim() !== head
-					)
+					if ((await git(meta.path, ["rev-parse", `${sha}^`])).stdout.trim() !== head)
 						throw new Error(
 							`${meta.nodeId} has no gated snapshot on its current commit; run the gates again.`,
 						);
@@ -302,11 +317,14 @@ export function landFactory(
 				);
 			}
 			run.writeMeta({ ...meta, landed: true });
-			await removeWorktree(meta, { deleteBranch: true });
+			// Edits made after the final check are not part of what landed; never delete them with the worktree.
+			const later = (await run.changed(meta)).files.length > 0;
+			if (!later) await removeWorktree(meta, { deleteBranch: true });
 			landed.push({
 				node: meta.nodeId,
 				status: empty ? "unchanged" : "landed",
 				...(commit ? { commit } : {}),
+				...(later ? { keptWorktree: true as const } : {}),
 			});
 		}
 		return landed;

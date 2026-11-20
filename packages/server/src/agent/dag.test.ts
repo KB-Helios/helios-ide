@@ -245,6 +245,35 @@ test("a workspace teardown racing host shutdown waits for the shutdown close bef
 	removeWorkspaceDelegation(workspaceId);
 });
 
+test("a failed shutdown close is kept, so a later teardown retries it before touching the store", async () => {
+	const workspaceId = workspace();
+	value(
+		await owner(workspaceId).execute({
+			commandId: "create",
+			command: { kind: "create", definition: definition() },
+		}),
+	);
+	const service = dagServiceFor(workspaceId);
+	const real = service.close.bind(service);
+	let fail = true;
+	let calls = 0;
+	(service as { close: () => Promise<void> }).close = async () => {
+		calls++;
+		if (fail) throw new Error("close failed");
+		return real();
+	};
+	await expect(closeAllDags()).rejects.toThrow("DAG shutdown failed");
+	// The teardown retries the kept service; while that fails too, the store survives.
+	await expect(removeWorkspaceDag(workspaceId)).rejects.toThrow("close failed");
+	expect(calls).toBe(2);
+	expect(existsSync(dagRootDir(workspaceId))).toBe(true);
+	fail = false;
+	await removeWorkspaceDag(workspaceId);
+	expect(calls).toBe(3);
+	expect(existsSync(dagRootDir(workspaceId))).toBe(false);
+	removeWorkspaceDelegation(workspaceId);
+});
+
 test("removing a workspace deletes its DAG store", async () => {
 	const workspaceId = workspace();
 	value(

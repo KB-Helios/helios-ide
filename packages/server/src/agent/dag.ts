@@ -140,9 +140,16 @@ export async function closeAllDags(): Promise<void> {
 	unclosed.clear();
 	for (const [workspaceId] of pending) dropFactorySlots(workspaceId);
 	const shutdowns = pending.map(([workspaceId, service]) => {
-		const close = service.close().finally(() => {
-			if (shuttingDown.get(workspaceId) === close) shuttingDown.delete(workspaceId);
-		});
+		const close = service
+			.close()
+			.catch((error: unknown) => {
+				// Kept for the next teardown to retry: the store is the recovery evidence until a close succeeds.
+				unclosed.set(workspaceId, service);
+				throw error;
+			})
+			.finally(() => {
+				if (shuttingDown.get(workspaceId) === close) shuttingDown.delete(workspaceId);
+			});
 		shuttingDown.set(workspaceId, close);
 		return close;
 	});

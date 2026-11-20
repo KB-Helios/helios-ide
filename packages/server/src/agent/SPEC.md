@@ -1508,7 +1508,8 @@ paused on the next boot (pi-dag ownership/recovery). Archive deletes the store
 service closed cleanly: every teardown waits on the one in-flight close, a failed close is kept and retried by
 the next teardown, and the store stays until a close succeeds. While a close is in flight or has failed,
 `dagServiceFor` refuses (`RESOURCE_UNAVAILABLE`) instead of creating a replacement; the slot pool is dropped only
-after a clean close. A teardown racing host shutdown waits on the shutdown's close of that workspace too.
+after a clean close. A teardown racing host shutdown waits on the shutdown's close of that workspace too, and a failed shutdown
+close is kept for the next teardown to retry.
 
 The wire (`dagWire.ts`: `dag.list`, `dag.get`, `dag.execute`, push `dag.changed`) serves the web Factory
 pane ([[submodule-web-factory]]). It is the one human path: every call binds a `human` caller with the
@@ -1638,9 +1639,11 @@ beyond small host files next to the worktrees.
   re-checks on the host that `release` is `completed` and its latest approval gate was `approved` by a `human`
   actor (`isReleaseApprovedByHuman`, a read of the DAG state), that the checkout is on the `target` branch with no
   merge of its own in progress, and that every uncommitted change has no ownership violation and a fresh passing
-  gate record (a branch with commits the factory did not make is refused). Right before landing a change the host re-checks
-  that its gate record is fresh and that the record's snapshot sits on the worktree's HEAD, then moves the
-  branch onto that very snapshot commit, so what lands is exactly what the gates tested. The commit is recorded
+  gate record (a branch with commits the factory did not make is refused). Right before landing a change the host validates,
+  from one read of the gate record, that it passed, names the worktree's current tree, and that its snapshot
+  commit has that tree and sits on the worktree's HEAD; it then lands that validated commit, so a gate run
+  replacing the record afterwards cannot change what lands. Edits made after that check are not landed and the
+  worktree holding them is kept (`keptWorktree`), never deleted. The commit is recorded
   in the metadata before the merge. `landOnTarget` never runs `git merge` in the person's checkout: it merges that
   commit (`--no-ff`) in a throwaway detached checkout of the target's tip (a conflict is aborted there), moves
   `refs/heads/<target>` by compare-and-swap only if it still points at that tip, and, when the checkout has the
