@@ -163,9 +163,10 @@ export async function landOnTarget(
 	// the person's checkout needs the same lock, so it can neither slip in between nor receive the sync.
 	await withIndexLock(repo, async (index) => {
 		const env = { GIT_INDEX_FILE: index };
-		const onTarget = (await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim() === ref;
-		await hooks?.insideCheckoutLock?.();
-		if (onTarget) {
+		const headIs = async (name: string) =>
+			(await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim() === name;
+		// Refuse before any change when the person's edits touch a landed file.
+		if (await headIs(ref)) {
 			const landed = new Set(
 				(await git(repo, ["diff", "--name-only", "-z", tip, merged])).stdout
 					.split("\0")
@@ -182,15 +183,26 @@ export async function landOnTarget(
 					`Your uncommitted changes touch files this landing changes (${local.join(", ")}); commit or stash them first. Nothing was changed.`,
 				);
 		}
+		// Move the target first, then look at HEAD. The index lock blocks every switch that rewrites the
+		// index; a switch that does not (`checkout -b` at HEAD's commit) can only land on HEAD's current
+		// commit, which from here on is `merged` when HEAD is the target, so the sync below is right for it.
 		const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
 		if (updated.code !== 0)
 			throw new Error(`${target} moved while landing; nothing was changed. Land again.`);
+		const onTarget = await headIs(ref);
+		await hooks?.insideCheckoutLock?.();
 		if (!onTarget) return false;
 		const synced = await git(repo, ["read-tree", "-m", "-u", tip, merged], env);
 		if (synced.code !== 0)
 			throw new Error(
 				`Landed on ${target}, but your checkout could not be brought along (${(synced.stderr || synced.stdout).trim()}); run "git reset --keep HEAD" there.`,
 			);
+		// Belt and braces: if HEAD now names neither the target nor the landed commit, undo the file sync.
+		const head = (await git(repo, ["rev-parse", "HEAD"])).stdout.trim();
+		if (!(await headIs(ref)) && head !== merged) {
+			await git(repo, ["read-tree", "-m", "-u", merged, tip], env);
+			return false;
+		}
 		return true;
 	});
 	return merged;

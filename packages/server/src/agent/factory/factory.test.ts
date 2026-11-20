@@ -493,20 +493,23 @@ test("landing on the checked-out target brings the checkout along and never touc
 test("a branch switch cannot slip between the target check and the checkout sync", async () => {
 	const repo = makeRepo();
 	const sha = featureCommit(repo, "f.txt", "feature\n");
-	let switchCode = 0;
+	let switchCode = -1;
 	const tip = await landOnTarget(repo, join(root, "landing-c"), "main", sha, "factory: land f", {
 		insideCheckoutLock: async () => {
-			// The person tries to switch branches in exactly the interval the review named.
-			switchCode = Bun.spawnSync(["git", "checkout", "-q", "-b", "elsewhere"], {
-				cwd: repo,
-			}).exitCode;
+			// The person switches branches in exactly the interval the review named. `checkout -b` without
+			// `-q` does not rewrite the index, so git lets it through despite the index lock.
+			switchCode = Bun.spawnSync(["git", "checkout", "-b", "elsewhere"], { cwd: repo }).exitCode;
 		},
 	});
-	expect(switchCode).not.toBe(0);
-	expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main");
+	// Whether or not the switch went through: main holds the landed commit, HEAD is on that commit, and the
+	// checkout is exactly that commit; nothing landed was staged onto another commit.
+	expect(git(repo, "rev-parse", "main").trim()).toBe(tip);
 	expect(git(repo, "rev-parse", "HEAD").trim()).toBe(tip);
+	if (switchCode === 0)
+		expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("elsewhere");
 	expect(lf(readFileSync(join(repo, "src", "f.txt"), "utf8"))).toBe("feature\n");
 	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+	git(repo, "checkout", "-q", "main");
 
 	// While git itself holds the checkout's index lock, landing refuses and changes nothing.
 	const next = featureCommit(repo, "g.txt", "g\n");

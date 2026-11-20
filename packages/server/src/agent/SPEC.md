@@ -1648,10 +1648,13 @@ beyond small host files next to the worktrees.
   commit (`--no-ff`) in a throwaway detached checkout of the target's tip (a conflict is aborted there), moves
   `refs/heads/<target>` by compare-and-swap only if it still points at that tip, and, when the checkout has the
   target checked out, brings its index and files along with `read-tree -m -u` after refusing if the person's
-  uncommitted edits touch any landed file. The target check, the ref update and that sync all run while the
-  host holds the checkout's own `index.lock` (git's lock-and-rename protocol, on a private index copy), which a
-  branch switch also needs; a lock someone else holds makes the landing refuse with nothing changed. A branch
-  switch can therefore never redirect a landing or receive its sync. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
+  uncommitted edits touch any landed file. The ref update, the HEAD check and that sync all run while the
+  host holds the checkout's own `index.lock` (git's lock-and-rename protocol, on a private index copy); a lock
+  someone else holds makes the landing refuse with nothing changed. The lock blocks every branch switch that
+  rewrites the index. A switch that does not (`checkout -b` at HEAD's commit) can only land on HEAD's current
+  commit, so the target moves first and HEAD is checked after: such a branch then starts at the landed commit
+  and the sync is exactly right for it. If HEAD ends up on neither the target nor the landed commit, the file
+  sync is undone. A branch switch can therefore never redirect a landing or receive a wrong sync. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
   branch still points at it, and refuses if it moved. Sources are then removed with their branch
   (`removeWorktree`). Landing is all-or-nothing up to the merges; a failure after earlier merges is reported and
   already-landed sources stay marked so a rerun skips them. The checkout is the person's own and is never merged in. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
