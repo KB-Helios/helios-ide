@@ -212,6 +212,39 @@ test("concurrent teardowns share one close, and a failed close keeps the store u
 	removeWorkspaceDelegation(workspaceId);
 });
 
+test("a workspace teardown racing host shutdown waits for the shutdown close before deleting the store", async () => {
+	const workspaceId = workspace();
+	value(
+		await owner(workspaceId).execute({
+			commandId: "create",
+			command: { kind: "create", definition: definition() },
+		}),
+	);
+	const service = dagServiceFor(workspaceId);
+	const real = service.close.bind(service);
+	let open = () => {};
+	const gate = new Promise<void>((resolve) => {
+		open = resolve;
+	});
+	(service as { close: () => Promise<void> }).close = async () => {
+		await gate;
+		return real();
+	};
+	const shutdown = closeAllDags();
+	let removed = false;
+	const teardown = removeWorkspaceDag(workspaceId).then(() => {
+		removed = true;
+	});
+	await Bun.sleep(50);
+	expect(removed).toBe(false);
+	expect(existsSync(dagRootDir(workspaceId))).toBe(true);
+	open();
+	await Promise.all([shutdown, teardown]);
+	expect(removed).toBe(true);
+	expect(existsSync(dagRootDir(workspaceId))).toBe(false);
+	removeWorkspaceDelegation(workspaceId);
+});
+
 test("removing a workspace deletes its DAG store", async () => {
 	const workspaceId = workspace();
 	value(

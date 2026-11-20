@@ -490,6 +490,35 @@ test("landing on the checked-out target brings the checkout along and never touc
 	expect(lf(readFileSync(join(repo, "src", "h.txt"), "utf8"))).toBe("my own draft\n");
 });
 
+test("a branch switch cannot slip between the target check and the checkout sync", async () => {
+	const repo = makeRepo();
+	const sha = featureCommit(repo, "f.txt", "feature\n");
+	let switchCode = 0;
+	const tip = await landOnTarget(repo, join(root, "landing-c"), "main", sha, "factory: land f", {
+		insideCheckoutLock: async () => {
+			// The person tries to switch branches in exactly the interval the review named.
+			switchCode = Bun.spawnSync(["git", "checkout", "-q", "-b", "elsewhere"], {
+				cwd: repo,
+			}).exitCode;
+		},
+	});
+	expect(switchCode).not.toBe(0);
+	expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main");
+	expect(git(repo, "rev-parse", "HEAD").trim()).toBe(tip);
+	expect(lf(readFileSync(join(repo, "src", "f.txt"), "utf8"))).toBe("feature\n");
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+
+	// While git itself holds the checkout's index lock, landing refuses and changes nothing.
+	const next = featureCommit(repo, "g.txt", "g\n");
+	const lock = join(repo, ".git", "index.lock");
+	writeFileSync(lock, "");
+	await expect(
+		landOnTarget(repo, join(root, "landing-c"), "main", next, "factory: land g"),
+	).rejects.toThrow("Git is busy");
+	expect(git(repo, "rev-parse", "main").trim()).toBe(tip);
+	rmSync(lock);
+});
+
 test("gates test an immutable snapshot: a gate process cannot change the worktree", async () => {
 	const repo = makeRepo();
 	writeFileSync(

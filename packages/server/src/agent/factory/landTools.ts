@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, rmSync } from "node:fs";
+import {
+	closeSync,
+	copyFileSync,
+	existsSync,
+	mkdirSync,
+	openSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { removeWorktree, runCommand } from "pi-swarm";
@@ -18,8 +28,49 @@ export interface LandedSource {
 
 const IDENTITY = ["-c", "user.name=ThinkRail", "-c", "user.email=agents@thinkrail.invalid"];
 
-async function git(cwd: string, args: string[]) {
-	return runCommand("git", args, { cwd });
+async function git(cwd: string, args: string[], env?: Record<string, string>) {
+	return runCommand("git", args, { cwd, ...(env ? { env } : {}) });
+}
+
+/**
+ * Runs `use` while holding the checkout's `index.lock`, git's own lock for index and branch changes, on a
+ * private copy of the index; when `use` returns true the copy becomes the index (git's lock-and-rename
+ * protocol). A lock someone else holds means git is busy there: nothing is done.
+ */
+async function withIndexLock(
+	repo: string,
+	use: (index: string) => Promise<boolean>,
+): Promise<void> {
+	const gitDir = (await git(repo, ["rev-parse", "--absolute-git-dir"])).stdout.trim();
+	const index = join(gitDir, "index");
+	const lock = `${index}.lock`;
+	let fd: number;
+	try {
+		fd = openSync(lock, "wx");
+	} catch {
+		throw new Error(
+			"Git is busy in your checkout (its index is locked); nothing was changed. Land again when it is done.",
+		);
+	}
+	const copy = join(gitDir, `factory-index-${randomUUID()}`);
+	let committed = false;
+	try {
+		if (existsSync(index)) copyFileSync(index, copy);
+		if (await use(copy)) {
+			writeSync(fd, readFileSync(copy));
+			closeSync(fd);
+			renameSync(lock, index);
+			committed = true;
+		}
+	} finally {
+		if (!committed) {
+			try {
+				closeSync(fd);
+			} catch {}
+			rmSync(lock, { force: true });
+		}
+		rmSync(copy, { force: true });
+	}
 }
 
 async function mergeIdentity(cwd: string): Promise<string[]> {
@@ -71,6 +122,8 @@ export async function landOnTarget(
 	target: string,
 	sha: string,
 	message: string,
+	/** Test seam: runs while the checkout lock is held, right after the target check. */
+	hooks?: { insideCheckoutLock?: () => Promise<void> },
 ): Promise<string> {
 	const ref = `refs/heads/${target}`;
 	const resolved = await git(repo, ["rev-parse", "--verify", "-q", `${ref}^{commit}`]);
@@ -105,32 +158,40 @@ export async function landOnTarget(
 		rmSync(path, { recursive: true, force: true });
 	}
 
-	const onTarget = async () =>
-		(await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim() === ref;
-	if (await onTarget()) {
-		const landed = new Set(
-			(await git(repo, ["diff", "--name-only", "-z", tip, merged])).stdout
-				.split("\0")
-				.filter(Boolean),
-		);
-		const local = statusPaths(
-			(await git(repo, ["status", "--porcelain", "-z", "--untracked-files=all"])).stdout,
-		).filter((file) => landed.has(file));
-		if (local.length)
-			throw new Error(
-				`Your uncommitted changes touch files this landing changes (${local.join(", ")}); commit or stash them first. Nothing was changed.`,
+	// Git's own index lock is held across the target check, the ref update and the sync: a branch switch in
+	// the person's checkout needs the same lock, so it can neither slip in between nor receive the sync.
+	await withIndexLock(repo, async (index) => {
+		const env = { GIT_INDEX_FILE: index };
+		const onTarget = (await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim() === ref;
+		await hooks?.insideCheckoutLock?.();
+		if (onTarget) {
+			const landed = new Set(
+				(await git(repo, ["diff", "--name-only", "-z", tip, merged])).stdout
+					.split("\0")
+					.filter(Boolean),
 			);
-	}
-	const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
-	if (updated.code !== 0)
-		throw new Error(`${target} moved while landing; nothing was changed. Land again.`);
-	if (await onTarget()) {
-		const synced = await git(repo, ["read-tree", "-m", "-u", tip, merged]);
+			const status = await git(
+				repo,
+				["--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"],
+				env,
+			);
+			const local = statusPaths(status.stdout).filter((file) => landed.has(file));
+			if (local.length)
+				throw new Error(
+					`Your uncommitted changes touch files this landing changes (${local.join(", ")}); commit or stash them first. Nothing was changed.`,
+				);
+		}
+		const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
+		if (updated.code !== 0)
+			throw new Error(`${target} moved while landing; nothing was changed. Land again.`);
+		if (!onTarget) return false;
+		const synced = await git(repo, ["read-tree", "-m", "-u", tip, merged], env);
 		if (synced.code !== 0)
 			throw new Error(
 				`Landed on ${target}, but your checkout could not be brought along (${(synced.stderr || synced.stdout).trim()}); run "git reset --keep HEAD" there.`,
 			);
-	}
+		return true;
+	});
 	return merged;
 }
 

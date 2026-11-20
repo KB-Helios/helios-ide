@@ -36,6 +36,11 @@ const services = new Map<string, DagService>();
 const closing = new Map<string, Promise<void>>();
 /** Services whose close failed: the next teardown retries them; no replacement until one succeeds. */
 const unclosed = new Map<string, DagService>();
+/**
+ * Host-shutdown closes per workspace. A workspace teardown racing shutdown waits on them (so it never
+ * deletes a store under a closing service), but they do not gate `dagServiceFor`.
+ */
+const shuttingDown = new Map<string, Promise<void>>();
 
 export function dagServiceFor(workspaceId: string): DagService {
 	let service = services.get(workspaceId);
@@ -103,7 +108,7 @@ export function dagExtensionFor(workspaceId: string): ExtensionFactory {
 
 /** Settles live DAG work and releases process ownership; durable state stays resumable. */
 export function closeWorkspaceDag(workspaceId: string): Promise<void> {
-	const inflight = closing.get(workspaceId);
+	const inflight = closing.get(workspaceId) ?? shuttingDown.get(workspaceId);
 	if (inflight) return inflight;
 	const service = services.get(workspaceId) ?? unclosed.get(workspaceId);
 	if (!service) return Promise.resolve();
@@ -134,7 +139,14 @@ export async function closeAllDags(): Promise<void> {
 	services.clear();
 	unclosed.clear();
 	for (const [workspaceId] of pending) dropFactorySlots(workspaceId);
-	const settling = [...pending.map(([, service]) => service.close()), ...closing.values()];
+	const shutdowns = pending.map(([workspaceId, service]) => {
+		const close = service.close().finally(() => {
+			if (shuttingDown.get(workspaceId) === close) shuttingDown.delete(workspaceId);
+		});
+		shuttingDown.set(workspaceId, close);
+		return close;
+	});
+	const settling = [...shutdowns, ...closing.values()];
 	const failures = (await Promise.allSettled(settling)).filter(
 		(result): result is PromiseRejectedResult => result.status === "rejected",
 	);
