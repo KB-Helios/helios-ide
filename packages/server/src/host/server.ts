@@ -15,6 +15,7 @@ import {
 	ARTIFACTS_PROTOCOL_VERSION,
 	COMMIT_ANALYSIS_PROTOCOL_VERSION,
 	CONTINUATION_PROTOCOL_VERSION,
+	DAG_PROTOCOL_VERSION,
 	FEEDBACK_SURVEY_PROTOCOL_VERSION,
 	FONTS_PROTOCOL_VERSION,
 	GITHUB_STAR_PROTOCOL_VERSION,
@@ -66,6 +67,7 @@ import {
 	sessionImageSource,
 	setAgentReviewEnabledResolver,
 	setContinueToolHost,
+	setDagPublisher,
 	setDisabledExtensionsResolver,
 	setDisabledPackagesResolver,
 	setExtensionSettingsResolver,
@@ -95,6 +97,7 @@ import {
 	settleCredentialWritesForShutdown,
 	settleSessionsForShutdown,
 	setWorkspaceToolsHost,
+	stopDagWire,
 	watchUserMcpConfig,
 } from "../agent";
 import {
@@ -548,6 +551,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 					ws.subscribe(WS_CHANNELS.subagentRosterChanged);
 				if (ws.data.protocolVersion >= SWARM_PROTOCOL_VERSION)
 					ws.subscribe(WS_CHANNELS.swarmChanged);
+				if (ws.data.protocolVersion >= DAG_PROTOCOL_VERSION) ws.subscribe(WS_CHANNELS.dagChanged);
 				ws.subscribe(WS_CHANNELS.sessionState);
 				ws.subscribe(WS_CHANNELS.providerLogin);
 				ws.subscribe(WS_CHANNELS.providerChanged);
@@ -1181,6 +1185,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 	setSwarmPublisher((payload) => {
 		publishScoped(WS_CHANNELS.swarmChanged, payload, { workspaceId: payload.workspaceId });
 	});
+	setDagPublisher((payload) => {
+		publishScoped(WS_CHANNELS.dagChanged, payload, { workspaceId: payload.workspaceId });
+	});
 
 	const turnTracker = new TurnTracker((sessionId) => {
 		const workspaceId = getSessionWorkspaceId(sessionId);
@@ -1410,6 +1417,8 @@ function restoreSeamDefaults(): void {
 	setSessionResourcesPublisher(() => {});
 	setSubagentRosterPublisher(() => {});
 	setSwarmPublisher(null);
+	setDagPublisher(null);
+	stopDagWire();
 	setTurnPublisher(() => {});
 	setArtifactsPublisher(null);
 	setSessionPublisher(() => {});

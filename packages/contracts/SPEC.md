@@ -1538,6 +1538,23 @@ range) or `COMMIT_ANALYSIS_NO_SESSION` (no live chat to parent the run); `commit
 is immutable per sha. The workspace-scoped `commit.analyzed` channel carries `CommitAnalyzedPayload`
 (`completed` or `failed` with a code) once a run settles.
 
+From **`DAG_PROTOCOL_VERSION`** (v130): the workspace factory ([[module-pi-dag]]). `dag.list` `{ workspaceId }`
+returns `DagListItem[]` (title, mode, version, pending-gate count); `dag.get` `{ workspaceId, dagId }` returns
+a `DagView` (nodes with status and task preview, dependency edges and only the gates still pending);
+`dag.execute` `{ workspaceId, dagId, commandId, expectedVersion, command }` takes a `DagWireCommand`
+(`pause`/`resume`/`interrupt`, `cancel`, `retry`, `continue`, `approve`/`reject` with a reason, `answer`) and returns
+`{ dag }`. The wire names no caller: the host always acts as the local human. A stale `expectedVersion`
+fails with `DAG_STALE`, any other refusal with `DAG_REJECTED`. The workspace-scoped `dag.changed` channel
+(`DagChanged` `{ workspaceId, dagId }`) follows commands accepted through this wire. The views are a UI
+projection, never pi-dag's snapshot format.
+
+From **`DAG_REVIEW_PROTOCOL_VERSION`** (v131, additive over v130): `DagView` nodes also carry what their
+latest run used, read from pi-dag's durable outcome (`model`, `thinkingLevel`, `usage` tokens and cost,
+`durationMs`, `outcome`) and `reviewer: true` on a node whose only output is the json `findings` port.
+`dag.review` `{ workspaceId, dagId, nodeId }` returns that node's `DagReviewView` (`valid`, `total`, at
+most 50 `findings` of `severity`/`file`/`summary`, `disposition`, `model`) or `null` before it submitted;
+a node that is not a reviewer fails with `DAG_REJECTED`. A host older than v131 simply omits these fields.
+
 ## Get right
 
 - **Mirrors are not version-pinned in comments.** A shape re-declared here because its real home is

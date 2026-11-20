@@ -23,6 +23,15 @@ export {
 	removeCustomEndpoint,
 	saveCustomEndpoint,
 } from "./customEndpoints";
+export { trashWorkspaceDag } from "./dag";
+export {
+	executeWorkspaceDag,
+	listWorkspaceDags,
+	readWorkspaceDag,
+	readWorkspaceReview,
+	setDagPublisher,
+	stopDagWire,
+} from "./dagWire";
 export {
 	type ReviewSubagentRun,
 	readChildTranscript,

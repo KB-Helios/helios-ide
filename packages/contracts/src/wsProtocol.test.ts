@@ -33,6 +33,8 @@ import {
 	CUSTOM_MODEL_CONTEXT_WINDOW_LIMITS,
 	completionDelivery,
 	customMessageText,
+	DAG_PROTOCOL_VERSION,
+	DAG_REVIEW_PROTOCOL_VERSION,
 	DEFAULT_MODEL_PROTOCOL_VERSION,
 	EXTENSION_CATALOG_PROTOCOL_VERSION,
 	EXTENSION_EDITOR_TEXT_PROTOCOL_VERSION,
@@ -776,4 +778,19 @@ test("commit analysis methods and channel are pinned to v129", () => {
 	expect(WS_METHODS.commitAnalysis).toBe("commit.analysis");
 	expect(WS_METHODS.commitAnalysisList).toBe("commit.analysisList");
 	expect(WS_CHANNELS.commitAnalyzed).toBe("commit.analyzed");
+});
+
+test("DAG methods and channel are pinned to v130", () => {
+	expect(DAG_PROTOCOL_VERSION).toBe(130);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagList).toBe("dag.list");
+	expect(WS_METHODS.dagGet).toBe("dag.get");
+	expect(WS_METHODS.dagExecute).toBe("dag.execute");
+	expect(WS_CHANNELS.dagChanged).toBe("dag.changed");
+});
+
+test("the DAG review method is pinned to v131", () => {
+	expect(DAG_REVIEW_PROTOCOL_VERSION).toBe(131);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_REVIEW_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagReview).toBe("dag.review");
 });

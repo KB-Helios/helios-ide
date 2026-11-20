@@ -755,6 +755,137 @@ export interface SwarmDiff {
 	truncated: boolean;
 }
 
+export type DagNodeStatus =
+	| "pending"
+	| "queued"
+	| "running"
+	| "waiting-input"
+	| "waiting-approval"
+	| "needs-attention"
+	| "interrupted"
+	| "uncertain"
+	| "stale"
+	| "completed"
+	| "cancelled"
+	| "skipped";
+
+/** One workspace DAG in the factory list (UI projection of pi-dag's summary). */
+export interface DagListItem {
+	dagId: string;
+	title: string;
+	version: number;
+	mode: "paused" | "running";
+	lifecycle: "active" | "disposing" | "disposed";
+	updatedAt: string;
+	/** Gates still waiting for a decision. */
+	pendingGates: number;
+}
+
+export interface DagNodeView {
+	id: string;
+	status: DagNodeStatus;
+	held: boolean;
+	/** Bounded preview of the node's task. */
+	task: string;
+	attempt?: number;
+	activation?: number;
+	/** The node's only output is a reviewer's `findings`; `dag.review` can read it. */
+	reviewer?: true;
+	/** What the node's latest run actually used (pi-dag outcome details), absent until it has run. */
+	model?: string;
+	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	usage?: DagUsageView;
+	durationMs?: number;
+	outcome?: "completed" | "error" | "aborted";
+}
+
+/** Token and cost accounting of one node run, as pi-dag recorded it. */
+export interface DagUsageView {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: number;
+	turns: number;
+}
+
+export type DagReviewSeverity = "critical" | "high" | "medium" | "low" | "info";
+
+export interface DagReviewFinding {
+	severity: DagReviewSeverity;
+	file: string;
+	summary: string;
+}
+
+/**
+ * A reviewer node's `findings` output, read-only and bounded. `valid: false` means the node submitted
+ * something other than the findings shape: the count is then unknown, never zero.
+ */
+export interface DagReviewView {
+	nodeId: string;
+	proposalId: string;
+	disposition: "pending" | "accepted" | "rejected" | "superseded";
+	valid: boolean;
+	/** Findings the reviewer submitted; `findings` holds at most the first page of them. */
+	total: number;
+	findings: DagReviewFinding[];
+	truncated: boolean;
+	model?: string;
+}
+
+/** A gate still waiting for a human; decided gates are not projected. */
+export interface DagGateView {
+	id: string;
+	kind: "approval" | "input";
+	authority: "human" | "human-or-controller";
+	/** Bounded preview of the question. */
+	question: string;
+	target: { nodeId: string; attempt: number; activation: number };
+}
+
+/** UI projection of a pi-dag snapshot: no storage paths, captured-file references or consumed values. */
+export interface DagView {
+	dagId: string;
+	title: string;
+	version: number;
+	mode: "paused" | "running";
+	lifecycle: "active" | "disposing" | "disposed";
+	executionOwner: "local" | "other" | "none";
+	createdAt: string;
+	updatedAt: string;
+	nodes: DagNodeView[];
+	/** Dependency edges between nodes (`from` must finish before `to`). */
+	edges: Array<{ from: string; to: string }>;
+	gates: DagGateView[];
+}
+
+/**
+ * The commands the UI may issue. Authority is never part of the wire: the host always acts as the
+ * local human operator. Graph edits, dispose, skip, steer, reconcile and manual result acceptance
+ * stay with the chat controller.
+ */
+export type DagWireCommand =
+	| { kind: "pause" | "resume" | "interrupt" }
+	| { kind: "cancel"; nodeId?: string }
+	| { kind: "retry"; nodeId: string; attempt: number }
+	| { kind: "continue"; nodeId: string; attempt: number; activation: number }
+	| { kind: "approve" | "reject"; gateId: string; reason: string }
+	| { kind: "answer"; gateId: string; text: string };
+
+export interface DagExecuteRequest {
+	workspaceId: string;
+	dagId: string;
+	/** Caller-supplied idempotency key; replaying it with the same command returns the original receipt. */
+	commandId: string;
+	expectedVersion: number;
+	command: DagWireCommand;
+}
+
+export interface DagChanged {
+	workspaceId: string;
+	dagId: string;
+}
+
 export type ResourceRecord =
 	| { kind: "command"; summary: BackgroundCommandSummary }
 	| { kind: "subagent"; summary: SubagentResourceSummary };

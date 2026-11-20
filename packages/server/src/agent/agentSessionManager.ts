@@ -90,6 +90,7 @@ import {
 } from "./anthropicExtraUsage";
 import { applyCacheWarmingDefault } from "./cacheWarming";
 import { archiveCommandHistory, publishSessionResourcesChanged } from "./chatResources";
+import { closeAllDags, dagExtensionFor, removeWorkspaceDag } from "./dag";
 import {
 	disposeSessionChildren,
 	hasLiveSessionChildren,
@@ -138,6 +139,7 @@ import {
 	settledAvailableModels,
 	settlePiCredentialWrites,
 } from "./piRuntime";
+import { piTrustsProjectPath } from "./projectTrust";
 import { catalogProviderAuth } from "./providerAuth";
 import { REQUEST_REVIEW_TOOL_NAME } from "./requestReviewTool";
 import { projectSessionEvent } from "./sessionEventProjection";
@@ -720,6 +722,21 @@ export function setMcpToolGrantWriter(writer: McpToolGrantWriter): void {
 
 function piResourceTrustFor(workspaceId: string): boolean {
 	return skillAdmissionResolver(workspaceId).piResourceTrusted;
+}
+
+/**
+ * Project trust for work with no chat session behind it (a DAG resumed from the UI): the same two
+ * conditions a live session checks — pi's own project trust for the folder and ThinkRail's per-workspace
+ * resource trust — evaluated on every call, so revoking trust takes effect for the next gate run.
+ */
+export function sessionlessProjectTrust(workspaceId: string, cwd: string): () => boolean {
+	return () => {
+		try {
+			return piTrustsProjectPath(cwd) && piResourceTrustFor(workspaceId);
+		} catch {
+			return false;
+		}
+	};
 }
 
 const enabledByDefault = (): boolean => true;
@@ -1586,6 +1603,7 @@ async function createParentSessionInternal(
 				[
 					subagents.extension,
 					swarm.extension,
+					dagExtensionFor(workspaceId),
 					createBackgroundCommandsExtension({ service: commands }),
 					...mcpHost.extensions,
 					extraUsageModelSelectExtension(sessionId),
@@ -3211,6 +3229,7 @@ export function disposeAllSessions(): void {
 	sessions.clear();
 	tearingDownEntries.clear();
 	deletedSessions.clear();
+	void closeAllDags().catch(() => {});
 }
 
 /** Settle pending credential writes on every runtime a live chat still uses, plus the active one. */
@@ -3245,7 +3264,7 @@ export async function settleSessionsForShutdown(
 	for (const pending of pendingCascades.values()) {
 		for (const cascade of pending) settling.add(cascade);
 	}
-	if (settling.size === 0) return;
+	settling.add(closeAllDags().catch((error) => log.warn("could not close DAG services", error)));
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
 		await Promise.race([
@@ -3294,6 +3313,7 @@ export async function closeWorkspaceSessions<T>(
 
 export function removeWorkspaceSessions(workspaceId: string, cwd?: string): Promise<void> {
 	return closeWorkspaceSessions(workspaceId, async () => {
+		await removeWorkspaceDag(workspaceId);
 		removeWorkspaceDelegation(workspaceId);
 		removeWorkspaceResourceHistory(workspaceId);
 		if (cwd) await purgeDiskSessions(cwd);

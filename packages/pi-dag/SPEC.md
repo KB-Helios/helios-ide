@@ -12,8 +12,9 @@ tags: [dag, pi-extension, backend]
 
 A portable backend DAG service and pi extension over [[module-pi-delegation]], independent of
 `pi-subagents` and ThinkRail. Pi owns every model invocation, session, compaction and usage record;
-this package owns graph scheduling, durable evidence, gates, commands and recovery. It is not
-bundled into ThinkRail and exposes no UI or wire implementation.
+this package owns graph scheduling, durable evidence, gates, commands and recovery. ThinkRail's
+server composes it per workspace ([[submodule-server-agent]] DAG owner); the package itself exposes
+no UI or wire implementation.
 
 ## Boundary
 

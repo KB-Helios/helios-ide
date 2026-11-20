@@ -9,6 +9,7 @@ import {
 	closeWorkspaceSessions,
 	deleteSession,
 	listSessions,
+	trashWorkspaceDag,
 	trashWorkspaceDelegation,
 } from "../agent";
 import { removeWorkspaceArtifacts } from "../artifacts";
@@ -184,6 +185,7 @@ async function runChatDeletion(workspace: Workspace): Promise<void> {
 			taskObservation.forget(summary.sessionId);
 			await deleteSession(summary.sessionId, id, cwd);
 		}
+		await trashWorkspaceDag(id);
 		await trashWorkspaceDelegation(id);
 	});
 	closeWorkspaceTerminals(id);

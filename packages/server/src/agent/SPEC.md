@@ -4,7 +4,7 @@ type: submodule-design
 status: active
 title: agent — in-process pi sessions
 parent: module-server
-depends-on: [module-contracts, module-pi-delegation, module-pi-subagents, module-pi-background-commands]
+depends-on: [module-contracts, module-pi-delegation, module-pi-subagents, module-pi-background-commands, module-pi-dag]
 references: [module-spec-graph, central-integration, submodule-server-extensions, submodule-server-agent-packages]
 tags: [pi]
 ---
@@ -1490,6 +1490,139 @@ owner, over the same workspace `DelegationService`, with worktrees under
 subagent limit and appear in the roster); `swarmMemberExtension` is in the curated child set so only
 members get board tools. `onChange` publishes the full snapshot on `swarm.changed`; `swarm.get` and
 `swarm.diff` read it. The owner is disposed with the session's resources. Board state is in memory.
+
+## DAG owner
+
+Each workspace gets one [[module-pi-dag]] service (`dag.ts` `dagServiceFor`) over that workspace's
+`DelegationService`, with snapshots under `<dataDir>/dags/<workspaceId>` (scope = workspace id). It
+is workspace-owned, not session-owned: closing or switching a chat never closes it, and a DAG keeps
+its state when its controlling chat is gone. Every parent session gets the controller adapter
+(`dagExtensionFor`, tools `dag_create`/`dag_edit`/`dag_control`/`dag_decide`/`dag_read` and `/dag`),
+whose execution context is the parent's exact retained `ModelRuntime`, cwd, model, thinking level and
+project trust from `liveParentContext` — never the latest registry; a session the host no longer
+serves projects no context. Host shutdown closes every DAG service inside the session-shutdown budget
+(`settleSessionsForShutdown`) and emergency disposal fires the same close; process loss restores
+paused on the next boot (pi-dag ownership/recovery). Archive deletes the store
+(`removeWorkspaceDag`, before `removeWorkspaceDelegation`); deleting a chat without a project trashes it
+(`trashWorkspaceDag`, before `trashWorkspaceDelegation`).
+
+The wire (`dagWire.ts`: `dag.list`, `dag.get`, `dag.execute`, push `dag.changed`) serves the web Factory
+pane ([[submodule-web-factory]]). It is the one human path: every call binds a `human` caller with the
+fixed operator id `thinkrail-ui` and a signal that lives as long as the host (`stopDagWire` revokes it at
+shutdown), and no wire field can name a caller, so only a person at the desktop can answer human-only
+gates or release. Reads project pi-dag's snapshot to a narrow `DagView` (pending gates only, bounded
+previews, no captured-file paths). `dag.execute` accepts a whitelist (`pause`, `resume`, `interrupt`,
+`cancel`, `retry`, `continue`, `approve`, `reject`, `answer`); the command is rebuilt field by field, so
+create, edit, dispose, skip, steer, reconcile, notice attachment and manual result acceptance stay with the
+chat controller. Commands bind an execution context because they can admit work: the host's current
+`ModelRuntime` from `getPiRuntime()` and the workspace worktree as cwd (pi-dag substitutes the cwd saved
+when the DAG was created). A DAG belongs to no chat, so project trust is
+`sessionlessProjectTrust(workspaceId, cwd)`: pi's folder trust (`piTrustsProjectPath`) and the workspace's
+resource trust, the two conditions a live session checks, re-read on every call. Children run on the
+current runtime generation, not a parent's retained one. Stale versions surface as `DAG_STALE`, other refusals as `DAG_REJECTED`.
+`dag.changed` is published after each accepted wire command; changes made by the controller or workers are
+not pushed, so the pane re-reads on an interval while open. Reviewer findings, model roles and the per-node
+run log: see "Factory review and model roles".
+
+## Factory worker nodes
+
+`factory/` is step 3 of the AI factory (ai-factory.md): the node roles, tools and template that turn a
+[[module-pi-dag]] definition into parallel coders in their own git worktrees, host-run gates and a human-released
+landing. It reuses [[module-pi-swarm]]'s `createWorktree`, `worktreeDiff`, `commitWorktree`, `removeWorktree`,
+ownership globs and `detectGates`/`runGates` (re-exported from its barrel) and adds no scheduler or state store
+beyond small host files next to the worktrees.
+
+- **Wiring, DAG children only.** `dagServiceFor` hands pi-dag a delegation service wrapped by
+  `withFactoryWorkers`. pi-dag exposes no child-extension option, but its `registerResource` call (resource id =
+  DAG id) accepts `childExtensionFactories`; the wrapper adds `factoryWorkerExtension` there and nowhere else, so
+  ordinary subagents and swarm members never get the tools. The wrapper also maps each child session to its node:
+  a node is a factory node only if its frozen system prompt ends in a `<factory-node>{json}</factory-node>`
+  block (`spec.ts`, schema-validated), which a controller or person wrote into the definition and a worker cannot
+  edit. Every tool resolves the calling session to its node and role (`ROLE_TOOLS`) and refuses otherwise.
+- **Roles.** `coder` (owns/avoid; read, list, write, edit, run gates, report), `gate` (one source; runs gates),
+  `release` (the join: read-only, report, diff), `inspector` (read-only over named sources; the step-4 reviewer
+  uses `factoryInspector(sources)`), `land` (only `factory_land`). Nodes list only `factory_*` tools plus pi-dag's
+  protocol tools, so no node has pi's `write`/`edit`/`bash`.
+- **Worktree and cwd.** pi-dag gives a node no cwd of its own (every child runs in the DAG's checkout, and a
+  reopened child ignores any workspace provider), so confinement does not rest on cwd. The host creates a coder's
+  worktree when its session is created (`ensureWorktree`, idempotent; a retried attempt fixes forward in the same
+  tree) under `<dataDir>/factory-worktrees/<workspaceId>/factory-<dag>/<node>` on branch
+  `swarm/factory-<dag>/<node>`, and a fresh coder session also starts with that as its cwd via the
+  `WorkspaceProvider`. Metadata (`.meta/<dag>/<node>.json`: path, branch, base, owns/avoid, landed) and gate records
+  live beside it, outside any worktree. File tools resolve paths inside the worktree only: no `..`, no symlink out
+  (realpath), no `.git` or `node_modules`.
+- **Ownership.** Writes outside `owns`, inside `avoid`, or to a build/gate manifest (`package.json`, lockfiles,
+  `Cargo.toml`, `go.mod`, ...) that `owns` does not name are refused at the tool; the same rule runs over the
+  worktree's changed files before gates and landing, so edits made any other way still fail. The manifests are
+  protected because they decide what a gate executes. `buildFactoryDefinition` rejects coders whose `owns` may
+  overlap (a conservative literal-prefix test) or that have none among several, instead of serializing them.
+- **Gates and trust.** `factory_run_gates` takes no command. It runs the repository's declared
+  `typecheck`/`lint`/`test` scripts (`detectGates`, read from the checkout) in the worktree, and only when the
+  DAG resource context's `isProjectTrusted()` returns true (`context.isProjectTrusted?.() === true`: unset means
+  untrusted, whatever pi's own trust default is). Untrusted, no declared gate, or an ownership violation each
+  record `ok: false` with a reason and run nothing. The verdict is a host-written record carrying the SHA-256 of
+  the worktree diff it ran against; a later edit makes it stale. A model's own report text is never trusted.
+- **Landing enforcement.** pi-dag's `approval` gates the release of the node's output, not its start, so the flow
+  is `gate-* -> release (approval: human) -> land`, with the land node consuming the release output.
+  pi-dag therefore never starts `land` before a person approved `release` (only a `human` caller can; a chat
+  controller or `owner` binding cannot). Because a model-driven node could still be wired wrongly, `factory_land`
+  re-checks on the host that `release` is `completed` and its latest approval gate was `approved` by a `human`
+  actor (`isReleaseApprovedByHuman`, a read of the DAG state), that the checkout is on the `target` branch, and
+  that every source has no ownership violation and a fresh passing gate record. Only then does each source get
+  committed on its branch (`commitWorktree`), merged `--no-ff` into the checkout (a conflict is aborted so the
+  tree is never left mid-merge), and removed with its branch (`removeWorktree`). Landing is all-or-nothing up to
+  the merges; a failure after earlier merges is reported and already-landed sources stay marked so a rerun skips
+  them. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
+  uncommitted changes in the checkout stay untouched unless they overlap.
+- **Template and the step-4 hook.** `buildFactoryDefinition({ title, target, coders, maxConcurrent?, beforeRelease? })`
+  builds `coder-*` -> `gate-<coder>` -> `release` (human approval) -> `land`. `beforeRelease(ctx)` is the single
+  insertion point for review: it returns extra `nodes`, `connections` and the extra input ports
+  (`releaseInputs`) the `release` node needs, and receives `{ coders, gates, release, gateOutput }`. A node that
+  only has a control connection into `release` also holds it. Give a reviewer read access to the worktrees with
+  `factoryInspector(ctx.coders)` (tools plus system-prompt suffix); it then reads the host's diff via
+  `factory_diff` instead of copying one through a model.
+- **Not yet.** Automatic coder retry on failed gates (the controller or person issues `retry`) and a planner
+  node that emits coders. UI-resumed DAGs get the host's sessionless project trust from the wire.
+
+## Factory review and model roles
+
+`factoryReview/` is the step-4 building block of the AI factory (ai-factory.md): standalone, it owns no DAG
+and returns node specs for a template to insert.
+
+- **Roles** (`roles.ts`): `resolveRoleModels(available, options)` maps `planner`/`coder`/`reviewer`/`scout`
+  to a model and thinking level; `resolveFactoryRoles` runs it over `accountAvailableModels(getPiRuntime())`
+  (credentials and listings applied). The result is written into plain `session.model` /
+  `session.thinkingLevel`, so the definition stays the authority and a person can override any role.
+  Coder: override, else the host default, else the strongest model (reasoning, then context). Planner:
+  the coder's model. Scout: the cheapest model of the coder's family. Reviewer: the strongest model of a
+  **different family** (`modelFamily`: the model id wins over the provider so an aggregator's
+  `anthropic/claude-...` counts as Anthropic; an unknown provider is its own family). With no other
+  family the resolution **fails** with `FactoryRoleError("no-cross-family-reviewer")`: independence is the
+  point. `allowSameFamilyReviewer: true` instead falls back to the coder's model and returns a
+  `same-family-reviewer` note the caller must record; a same-family reviewer override is held to the same rule.
+- **Reviewer piece** (`reviewer.ts`): `buildReviewerPiece({ reviewer, diff, release })` returns the
+  `review` node, the `diff` data connection from the join node's output, and a control connection that
+  holds `release` behind it. The node has read-only tools only (`read`, `grep`, `find`, `ls`: no
+  write, edit or bash), one json output `findings` (`{findings:[{severity,file,summary}]}`) and a
+  **human-authority approval**. It is therefore completed, and the release unblocked, only after a person
+  approves in the pane or via `dag.execute` as `thinkrail-ui`; a reject keeps it and the release
+  blocked, and a chat controller cannot decide it. Zero findings still go through the gate: release is
+  always a person's. The gate question is static pi-dag text, so the count is not in it; the pane
+  shows the findings count and list (`dag.review`) beside the gate.
+- **Per-node log**: `toDagView` projects pi-dag's persisted outcome (effective model, thinking level,
+  token usage and cost, duration, how it ended) onto each node; nothing is estimated and no new store
+  exists. `dag.review` serves one reviewer node's `findings` port, parsed strictly (`parseFindings`:
+  one malformed entry makes the whole value `valid: false`, never a clean count), at most 50 findings,
+  256 KiB read, no paths.
+
+Plugging into the step-3 template (`factoryHook.ts`): resolve roles once, pass
+`models: factoryModels(roles)` (coders on the coder model; gate, release and land on the scout) and
+`beforeRelease: factoryReviewHook({ roles })`. The hook's `review` node reads the coders' worktrees through
+`factoryInspector` (`factory_diff`/`factory_report`/`factory_read`/`factory_list`, nothing that writes or runs),
+takes every gate report as input so it starts after all gates, carries a human approval, and feeds its
+`findings` into the release node's `review` input — release cannot start until a person approved the review,
+and landing still needs the release approval. `buildReviewerPiece` remains for graphs that have a diff output
+port to feed it. Integration test: `factoryHook.test.ts`.
 
 ## Session titles
 
