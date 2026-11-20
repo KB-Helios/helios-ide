@@ -10,6 +10,16 @@ import {
 } from "./followAgent";
 import { collectCenterGroups } from "./layout";
 
+/** True when `tabId` sits in the group that shows the chat: selecting it there would hide the conversation. */
+function fileSharesChatGroup(workspaceId: string, tabId: string, chatTabId: string): boolean {
+	const document = useAppStore.getState().layoutDocumentsByWorkspace[workspaceId];
+	const groups = document ? collectCenterGroups(document.center) : [];
+	return groups.some(
+		(group) =>
+			group.tabs.some((tab) => tab.id === tabId) && group.tabs.some((tab) => tab.id === chatTabId),
+	);
+}
+
 async function follow(
 	workspaceId: string,
 	chatTabId: string,
@@ -29,6 +39,7 @@ async function follow(
 			mutation.path,
 			changedLine(content, mutation),
 			followTargetGroupId(groups, chatTabId),
+			(tabId) => !fileSharesChatGroup(workspaceId, tabId, chatTabId),
 		);
 	} catch {
 		// The file may be gone again by the time we read it; there is nothing to follow.

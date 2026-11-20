@@ -323,6 +323,8 @@ export async function followFileAtLine(
 	path: string,
 	line: number,
 	targetGroupId?: string,
+	/** Vetoes the select when the file already lives somewhere the caller must not surface (the chat's group). */
+	canSelect: (tabId: string) => boolean = () => true,
 ): Promise<void> {
 	// Canonicalize once so the tab, the reveal and the select intent all name the same file.
 	const canonical = projectRelativePath(
@@ -337,6 +339,7 @@ export async function followFileAtLine(
 	const state = useAppStore.getState();
 	const tabId = tupleKey("file", workspaceId, canonical);
 	if (!(state.tabsByWorkspace[workspaceId] ?? []).some((tab) => tab.id === tabId)) return;
+	if (!canSelect(tabId)) return;
 	state.enqueueLayoutIntent({
 		kind: "select",
 		workspaceId,
