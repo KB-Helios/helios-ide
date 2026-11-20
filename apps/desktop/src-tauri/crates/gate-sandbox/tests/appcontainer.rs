@@ -416,3 +416,18 @@ fn a_parent_folder_grant_opens_nothing_inside_it_and_is_revoked() {
     let acl = acl_of(&parent);
     assert!(!acl.contains("S-1-15-2-"), "{acl}");
 }
+
+#[test]
+fn the_user_profile_and_its_parents_are_never_opened_for_listing() {
+    let fixture = Fixture::new("noprofile");
+    let home = PathBuf::from(std::env::var("USERPROFILE").unwrap());
+    let before = acl_of(&home);
+    let mut args = fixture.base_args("exit 0");
+    args.extend(["--traverse".to_string(), home.display().to_string()]);
+    if let Some(parent) = home.parent() {
+        args.extend(["--traverse".to_string(), parent.display().to_string()]);
+    }
+    let output = run_helper(&args);
+    assert_eq!(output.code, 0, "{}", output.stderr);
+    assert_eq!(acl_of(&home), before, "the profile's ACL was touched");
+}

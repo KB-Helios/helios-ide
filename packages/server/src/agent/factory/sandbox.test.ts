@@ -2,10 +2,18 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 
 setDefaultTimeout(120_000);
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { runFactoryGates, sourceStatus } from "./gateTools";
 import { FactoryRun } from "./run";
 import {
@@ -319,9 +327,10 @@ describe("fail closed", () => {
 		expect(req?.scratch.startsWith(req?.cwd ?? "")).toBe(false);
 		expect(existsSync(req?.scratch ?? "")).toBe(false);
 		// The linked dependency folder is readable (it is the real folder behind the link).
-		expect(req?.readPaths.map((p) => p.toLowerCase())).toContain(
-			join(repo, "node_modules").toLowerCase().replace(/\//g, "\\"),
-		);
+		expect(req?.readPaths).toContain(realpathSync(join(repo, "node_modules")));
+		// The scratch folder lives with the gate checkouts, so no parent of it is ever the user profile.
+		expect(req?.scratch).toContain(".gate-scratch");
+		expect(req?.traversePaths ?? []).not.toContain(dirname(req?.scratch ?? ""));
 	});
 
 	test("a sandboxed gate's exit code decides the result like any gate", async () => {

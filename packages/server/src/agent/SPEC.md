@@ -1639,7 +1639,7 @@ beyond small host files next to the worktrees.
   `sandbox.ts` (`GateSandbox`) through pi-swarm's `runGates` runner hook, and the OS enforces what the snapshot
   checkout promises. The checkout and the linked dependency folders (`dependencyTargets`) are readable and never
   writable (so a gate cannot change a file, nor change it and put it back), exactly one private scratch directory is
-  writable (it is also `TEMP` and the home directory, and is deleted after the run), there is no network at all
+  writable (a `.gate-scratch` folder beside the gate checkouts, never under the user's profile; it is also `TEMP` and the home directory, and is deleted after the run), there is no network at all
   (loopback included) and none of the user's other files are readable. The environment is an allowlist
   (`gateEnvironment`), never the host's: API keys and tokens do not reach a gate. Windows runs
   `thinkrail-gate-sandbox.exe` (an AppContainer, see apps/desktop), found next to the host executable or at
@@ -1651,7 +1651,7 @@ beyond small host files next to the worktrees.
   executed, so nothing lands. There is no unconfined mode. An AppContainer cannot start Bun in an ordinary profile
   folder (Bun opens every parent of its working directory and fails on one the container cannot list;
   `C:\Users` cannot be changed), so the Windows sandbox asks for its own checkout folder (`checkoutRoot`:
-  `<drive>:\helios-gates`), lists those parents through non-inherited entries, and puts a `bun.cmd` shim first on
+  `<drive>:\helios-gates`), lists only the checkout's parents (all inside that folder) through non-inherited entries, and puts a `bun.cmd` shim first on
   the gate's PATH that adds `--shell=system` to `bun run` (Bun's own shell opens its working directory for writing).
   Tests of the gate flow itself inject `unconfinedTestSandbox` through `setDefaultGateSandbox`; `sandbox.test.ts`
   covers argument construction and the fail-closed refusals everywhere and, on Windows, runs the real helper (a

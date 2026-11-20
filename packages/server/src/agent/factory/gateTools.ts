@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { detectGates, runGates } from "pi-swarm";
 import { Type } from "typebox";
@@ -83,19 +83,25 @@ export function runFactoryGates(
 					// Fail closed: gate code never runs unconfined, and the record says why nothing ran.
 					record = refuse(available.reason);
 				} else {
+					const gateRoot =
+						sandbox.checkoutRoot?.(run.options.worktreeRoot) ?? run.options.worktreeRoot;
 					const { results, unavailable } = await inSnapshotCheckout(
 						repo,
-						sandbox.checkoutRoot?.(run.options.worktreeRoot) ?? run.options.worktreeRoot,
+						gateRoot,
 						snap.commit,
 						(checkout) =>
-							withGateSandbox(sandbox, { checkout, commands }, async (gates) => ({
-								results: await runGates(commands, checkout, {
-									timeoutMs: GATE_TIMEOUT_MS,
-									runner: gates.runner,
-									...(signal ? { signal } : {}),
+							withGateSandbox(
+								sandbox,
+								{ checkout, commands, scratchRoot: join(gateRoot, ".gate-scratch") },
+								async (gates) => ({
+									results: await runGates(commands, checkout, {
+										timeoutMs: GATE_TIMEOUT_MS,
+										runner: gates.runner,
+										...(signal ? { signal } : {}),
+									}),
+									unavailable: gates.unavailable(),
 								}),
-								unavailable: gates.unavailable(),
-							})),
+							),
 					);
 					// A cancelled run says nothing about quality: never record it, so the next call runs the gates.
 					if (signal?.aborted) throw signal.reason ?? new Error("The gate run was cancelled");

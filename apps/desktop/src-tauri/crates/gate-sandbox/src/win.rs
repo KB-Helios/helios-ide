@@ -423,6 +423,11 @@ pub fn run(spec: &RunSpec) -> Result<i32, String> {
         grants.add(path, WRITE_MASK, true)?;
     }
     for path in &spec.traverse {
+        // Listing is only for the sandbox's own folders: the profile and its parents are never opened.
+        if let Some(why) = forbidden_grant(path, home_dir().as_deref()) {
+            verbose(&format!("skipped traversing {}: it {why}", path.display()));
+            continue;
+        }
         if let Err(error) = grants.add(path, TRAVERSE_MASK, false) {
             verbose(&format!("skipped a traverse grant: {error}"));
         }

@@ -720,7 +720,7 @@ non-inherited access on each `--traverse` parent folder (written through `SetKer
 child inherits the helper's pipes) and the exit code, enforces `--timeout-ms` (exit 124), then revokes every entry
 and deletes the profile. The helper's own stdin is the control channel: the host closing it (cancel, host exit)
 stops the command and cleans up (exit 130). It refuses to grant a drive root, the user profile or a parent of it,
-or a relative path. Setup failures print `HELIOS_GATE_SANDBOX_ERROR: <why>` and exit 125 (a gate that exits 125
+or a relative path, and silently skips a `--traverse` of the profile or one of its parents. Setup failures print `HELIOS_GATE_SANDBOX_ERROR: <why>` and exit 125 (a gate that exits 125
 without the marker is an ordinary failure); `check` runs a trivial command in a fresh container to prove the
 sandbox works; `cleanup` (also run at the start of every `run`) deletes the profiles of helper processes that were
 killed outright. Read grants include `FILE_WRITE_ATTRIBUTES` because Bun asks for it on every file it opens, so a

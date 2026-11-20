@@ -701,7 +701,13 @@ export interface ConfinedGates {
  */
 export async function withGateSandbox<T>(
 	sandbox: GateSandbox,
-	context: { checkout: string; commands: readonly string[]; env?: Env },
+	context: {
+		checkout: string;
+		commands: readonly string[];
+		/** Where the scratch directory is made; keep it with the checkouts, away from the user's profile. */
+		scratchRoot?: string;
+		env?: Env;
+	},
 	use: (gates: ConfinedGates) => Promise<T>,
 ): Promise<T> {
 	const env = context.env ?? process.env;
@@ -713,12 +719,15 @@ export async function withGateSandbox<T>(
 		}
 	};
 	const checkout = real(context.checkout);
-	const scratch = real(mkdtempSync(join(tmpdir(), "helios-gate-")));
+	const scratchRoot = context.scratchRoot ?? tmpdir();
+	mkdirSync(scratchRoot, { recursive: true });
+	const scratch = real(mkdtempSync(join(scratchRoot, "gate-")));
 	const readPaths = [...new Set(dependencyTargets(context.checkout).map(real))].filter(
 		(path) => path !== checkout,
 	);
 	const toolPaths = toolchainFolders(context.commands, env);
-	const traversePaths = ancestorsOf([checkout, scratch, ...readPaths, ...toolPaths]);
+	// Only the checkout's parents: they sit inside the sandbox's own folder, never in the user's profile.
+	const traversePaths = ancestorsOf([checkout]);
 	let unavailable: string | undefined;
 	const runner: GateRunner = async (command, options) => {
 		try {
