@@ -29,6 +29,13 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   under **Waiting for you**, and once the planner step completed the pane offers **Create factory run**
   (`dag.startFromPlan`, which the host re-checks). Multi-coder plans are the planner's or the wire's
   (`dag.start` `coders`); the form itself only offers one coder.
+- **Graph** — a collapsible drawing of the DAG above the Steps list: steps as boxes (id plus the status word,
+  border colour as a second channel) in columns by their longest dependency chain, joined by curved dependency
+  edges. `layoutDag` in `graphLayout.ts` is a pure layered layout (columns by depth, rows ordered by the average
+  row of their dependencies to limit crossings, unknown or repeated edges ignored, cycle-safe) with no graph
+  library; the pane scrolls it when wider than itself. It is a picture of what Steps already lists, so it is one
+  `role="img"` with a summary and the list stays the accessible, actionable view. Uses design tokens only
+  (`bg-container-elevated-bg`, `border-*`, `currentColor` strokes); no inline colours.
 - **Steps** — every node with glyph + word + colour status, its task preview and what it runs after;
   nodes that need a person (waiting, needs attention, uncertain, stale) are listed first.
 - **Resume / Pause** for the DAG as a whole, plus **Interrupt** (while it runs) and **Cancel workflow**. Both ask

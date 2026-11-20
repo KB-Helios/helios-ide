@@ -21,8 +21,10 @@ import { cn } from "@thinkrail/ui/utils";
 import { useState } from "react";
 import { formatCost, formatTokens } from "@/chat/SessionStatsBar";
 import { ConfirmButton, NodeActions, type RunCommand } from "./FactoryControls";
+import { FactoryGraph } from "./FactoryGraph";
 import { FactoryHistory, NodeOutput } from "./FactoryHistory";
 import { FactoryStart } from "./FactoryStart";
+import { statusLabel } from "./factoryLabels";
 import {
 	bySeverity,
 	dagActions,
@@ -40,23 +42,6 @@ import {
 import { type FactoryFailure, useFactory } from "./useFactory";
 
 type T = ReturnType<typeof useT>;
-
-function statusLabel(t: T, status: DagNodeStatus): string {
-	return {
-		pending: t("factory.status.pending"),
-		queued: t("factory.status.queued"),
-		running: t("factory.status.running"),
-		"waiting-input": t("factory.status.waitingInput"),
-		"waiting-approval": t("factory.status.waitingApproval"),
-		"needs-attention": t("factory.status.needsAttention"),
-		interrupted: t("factory.status.interrupted"),
-		uncertain: t("factory.status.uncertain"),
-		stale: t("factory.status.stale"),
-		completed: t("factory.status.completed"),
-		cancelled: t("factory.status.cancelled"),
-		skipped: t("factory.status.skipped"),
-	}[status];
-}
 
 function severityLabel(t: T, severity: DagReviewSeverity): string {
 	return {
@@ -439,6 +424,7 @@ function DagDetail({
 					<p className="px-12 py-8 tr-text-ui text-text-muted">{t("factory.gates.none")}</p>
 				)}
 			</section>
+			<FactoryGraph dag={dag} />
 			<section aria-label={t("factory.nodes.heading")}>
 				<h3 className="px-12 pt-8 tr-text-metadata text-text-muted">
 					{t("factory.nodes.heading")} ({dag.nodes.length})

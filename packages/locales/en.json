@@ -653,6 +653,8 @@
 	"factory.gate.target": "Step {{node}}",
 	"factory.gates.heading": "Waiting for you",
 	"factory.gates.none": "Nothing is waiting for a decision.",
+	"factory.graph.heading": "Graph",
+	"factory.graph.summary": "Dependency graph: {{steps}} steps in {{columns}} columns. The list below has the same steps.",
 	"factory.history.actor.controller": "chat",
 	"factory.history.actor.human": "you",
 	"factory.history.actor.owner": "host",
