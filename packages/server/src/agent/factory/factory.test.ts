@@ -35,7 +35,7 @@ import {
 	parseFactoryNode,
 } from "./index";
 import { landOnTarget } from "./landTools";
-import { confinedPath, writeAtomically } from "./run";
+import { confinedPath, setRecordWriteSeamForTests, writeAtomically } from "./run";
 
 const model = { provider: "factory-faux", id: "worker" };
 const faux = createFauxCore({
@@ -669,6 +669,33 @@ test("a host stop after the branch moved but before the move was recorded resume
 	expect(saved?.committed).toBeUndefined();
 	expect(git(meta.path, "rev-parse", "HEAD").trim()).toBe(saved?.recording?.to ?? "");
 	// The next landing finishes the recorded move and lands.
+	expect(await landFactory(run, plan)).toMatchObject([{ node: "coder-a", status: "landed" }]);
+	expect(lf(readFileSync(join(repo, "src", "a", "x.txt"), "utf8"))).toBe("x\n");
+});
+
+test("a host stop inside the metadata write that records the move resumes from the saved intent", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo, { trusted: true, approved: true });
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "x\n");
+	expect((await runFactoryGates(run, meta)).ok).toBe(true);
+	const plan = { sources: ["coder-a"], release: "release", target: "main" };
+	// The write that records the finished move stops after its temp file, before the rename.
+	setRecordWriteSeamForTests((file, content) => {
+		const record = JSON.parse(content) as { committed?: string; landed?: boolean };
+		if (file.endsWith("coder-a.json") && record.committed && !record.landed)
+			throw new Error("host stopped mid-write");
+	});
+	try {
+		await expect(landFactory(run, plan)).rejects.toThrow("host stopped mid-write");
+	} finally {
+		setRecordWriteSeamForTests(undefined);
+	}
+	const saved = run.readMeta("coder-a");
+	expect(saved?.recording).toBeTruthy();
+	expect(saved?.committed).toBeUndefined();
+	expect(git(meta.path, "rev-parse", "HEAD").trim()).toBe(saved?.recording?.to ?? "");
 	expect(await landFactory(run, plan)).toMatchObject([{ node: "coder-a", status: "landed" }]);
 	expect(lf(readFileSync(join(repo, "src", "a", "x.txt"), "utf8"))).toBe("x\n");
 });

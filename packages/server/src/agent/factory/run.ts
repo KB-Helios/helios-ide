@@ -258,11 +258,19 @@ export class FactoryRun {
  * Host records are replaced, never rewritten in place: the new content goes to a private temp file that is
  * renamed over the record, so a host stop mid-write leaves the previous record intact and readable.
  */
+let beforeRename: ((file: string, content: string) => void) | undefined;
+
+/** Test seam: runs after the temp file is written and before it is renamed over the record. */
+export function setRecordWriteSeamForTests(seam: typeof beforeRename): void {
+	beforeRename = seam;
+}
+
 export function writeAtomically(file: string, content: string): void {
 	mkdirSync(dirname(file), { recursive: true });
 	const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
 	try {
 		writeFileSync(temp, content);
+		beforeRename?.(file, content);
 		renameSync(temp, file);
 	} catch (error) {
 		rmSync(temp, { force: true });
