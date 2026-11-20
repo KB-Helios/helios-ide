@@ -9,6 +9,7 @@ import {
 	type DagOutputView,
 	type DagQueueView,
 	type DagReviewView,
+	type DagStartResult,
 	type DagView,
 } from "@thinkrail/contracts";
 import { CodedError } from "@thinkrail/shared/codedError";
@@ -24,7 +25,8 @@ import { getWorkspace } from "../workspaces";
 import { sessionlessProjectTrust } from "./agentSessionManager";
 import { dagServiceFor } from "./dag";
 import { cancelPendingDagChanges, publishDagChangedNow } from "./dagChanges";
-import { factoryQueueOf } from "./factory";
+import { startFactory, startFactoryFromPlan } from "./dagStart";
+import { factoryQueueOf, isPlannerNode } from "./factory";
 import { FINDINGS_PORT, isReviewerNode, parseFindings } from "./factoryReview/reviewer";
 import { getPiRuntime } from "./piRuntime";
 import { isHostResourceId } from "./resourceIdentity";
@@ -149,6 +151,7 @@ export function toDagView(snapshot: DagSnapshot): DagView {
 			...(node.attempt === undefined ? {} : { attempt: node.attempt }),
 			...(node.activation === undefined ? {} : { activation: node.activation }),
 			...(isReviewerNode(node.outputs) ? { reviewer: true as const } : {}),
+			...(isPlannerNode(node.outputs) ? { planner: true as const } : {}),
 			...(node.proposalId && node.outputs && Object.keys(node.outputs).length
 				? { outputs: Object.keys(node.outputs) }
 				: {}),
@@ -453,4 +456,31 @@ export async function readWorkspaceOutput(
 	} catch {
 		throw new CodedError("RESOURCE_UNAVAILABLE", "Output unavailable");
 	}
+}
+
+function startWorkspaceId(params: unknown): string {
+	if (!params || typeof params !== "object" || Array.isArray(params))
+		throw new Error("Invalid DAG start request");
+	const { workspaceId } = params as { workspaceId?: unknown };
+	if (!isHostResourceId(workspaceId)) throw new Error("Invalid workspaceId");
+	return workspaceId;
+}
+
+/**
+ * `dag.start`: a person starts a factory run (see `startFactory`). The DAG is created by the human
+ * binding, paused, and announced like any other change.
+ */
+export async function startWorkspaceFactory(params: unknown): Promise<DagStartResult> {
+	const workspaceId = startWorkspaceId(params);
+	const result = await startFactory(await commandClient(workspaceId), params);
+	publishDagChangedNow({ workspaceId, dagId: result.dagId });
+	return result;
+}
+
+/** `dag.startFromPlan`: the factory DAG from a planning DAG whose plan a person approved. */
+export async function startWorkspaceFactoryFromPlan(params: unknown): Promise<DagStartResult> {
+	const workspaceId = startWorkspaceId(params);
+	const result = await startFactoryFromPlan(await commandClient(workspaceId), params);
+	publishDagChangedNow({ workspaceId, dagId: result.dagId });
+	return result;
 }

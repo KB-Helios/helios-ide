@@ -25,6 +25,7 @@ export {
 } from "./customEndpoints";
 export { trashWorkspaceDag } from "./dag";
 export { setDagPublisher } from "./dagChanges";
+export { readFactoryRoles } from "./dagStart";
 export {
 	executeWorkspaceDag,
 	listWorkspaceDags,
@@ -33,6 +34,8 @@ export {
 	readWorkspaceOutput,
 	readWorkspaceQueue,
 	readWorkspaceReview,
+	startWorkspaceFactory,
+	startWorkspaceFactoryFromPlan,
 	stopDagWire,
 } from "./dagWire";
 export {

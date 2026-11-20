@@ -19,6 +19,16 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   is optional and defaults to a localized note) and **Reject** (a reason is required, as pi-dag requires
   one); an input gate takes a text answer. This is the done-when of the factory roadmap step: a decision
   needs no chat.
+- **Start a run** — a collapsed **Start a run** form (host v135): the task, **Planner** or **One coder** as
+  the splitter, and a model per role from `dag.roles` (**Automatic (…)** leaves the choice to the host; only
+  an actual pick is sent). A reviewer in the coder's vendor family (`reviewerSharesFamily`, judged on the
+  family the host reports) needs the explicit **Allow a reviewer from the coder's model family** switch; the
+  host records that in the run and refuses it otherwise, so the form never sends it silently. The run is
+  created **paused** and selected: starting work stays your Resume. A Planner run is a planning DAG: its
+  planner's `plan` output is readable in the step's Output viewer, its approval is an ordinary human gate
+  under **Waiting for you**, and once the planner step completed the pane offers **Create factory run**
+  (`dag.startFromPlan`, which the host re-checks). Multi-coder plans are the planner's or the wire's
+  (`dag.start` `coders`); the form itself only offers one coder.
 - **Steps** — every node with glyph + word + colour status, its task preview and what it runs after;
   nodes that need a person (waiting, needs attention, uncertain, stale) are listed first.
 - **Resume / Pause** for the DAG as a whole, plus **Interrupt** (while it runs) and **Cancel workflow**. Both ask
@@ -60,7 +70,8 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   while the pane is open. The trigger itself only reads on connect and on push.
 - A host older than `DAG_PROTOCOL_VERSION` hides the surface; one older than `DAG_REVIEW_PROTOCOL_VERSION`
   shows it without the run log and findings, one older than `DAG_QUEUE_PROTOCOL_VERSION` without the
-  worker-slots line, and one older than `DAG_DETAILS_PROTOCOL_VERSION` (v134) without output and history.
+  worker-slots line, and one older than `DAG_DETAILS_PROTOCOL_VERSION` (v134) without output and history, and one older than
+  `DAG_START_PROTOCOL_VERSION` (v135) without the start form (the trigger then still needs a DAG to appear).
 - Not here yet: creating or editing a DAG, skip/steer/reconcile and manual result acceptance.
 - Pure derivations (dependency lookup, node ordering, pending total) live in `factoryModel.ts` and are
   unit tested.

@@ -809,6 +809,8 @@ export interface DagNodeView {
 	outcome?: "completed" | "error" | "aborted";
 	/** Declared output names that `dag.output` can read: only nodes that already submitted a proposal. */
 	outputs?: string[];
+	/** The node is a factory planner: its only output is the json `plan` of coders; see `dag.startFromPlan`. */
+	planner?: true;
 }
 
 /** Token and cost accounting of one node run, as pi-dag recorded it. */
@@ -878,6 +880,70 @@ export interface DagOutputView {
 	sizeBytes: number;
 	text?: string;
 	truncated: boolean;
+}
+
+/** The model roles of a factory run. */
+export type FactoryRoleName = "planner" | "coder" | "reviewer" | "scout";
+
+export interface FactoryModelChoice {
+	provider: string;
+	id: string;
+}
+
+/** A model the host can serve right now, with the vendor family the reviewer rule is judged on. */
+export interface FactoryRoleModel extends FactoryModelChoice {
+	name: string;
+	family: string;
+	reasoning: boolean;
+}
+
+/** What `dag.roles` offers a person starting a run: the available models and the host's default pick per role. */
+export interface FactoryRolesView {
+	models: FactoryRoleModel[];
+	defaults: Record<FactoryRoleName, FactoryModelChoice>;
+	/** No model of another family than the coder's exists: a reviewer then needs `allowSameFamilyReviewer`. */
+	sameFamilyOnly: boolean;
+}
+
+export interface FactoryCoderPlanWire {
+	/** Lower-case letters, digits and dashes; also the coder's worktree and branch name. */
+	id: string;
+	task: string;
+	/** Globs the coder may change; required when several coders run, and disjoint between them. */
+	owns?: string[];
+	avoid?: string[];
+}
+
+/**
+ * Starts a factory run. With `coders` the factory DAG is created straight away; without them a planning
+ * DAG is created whose planner proposes the coders and a person approves that plan first. Either DAG is
+ * created paused: starting work, like every later decision, is the person's `resume`.
+ */
+export interface DagStartRequest {
+	workspaceId: string;
+	/** Caller-supplied idempotency key; replaying it returns the DAG the first call created. */
+	commandId: string;
+	task: string;
+	coders?: FactoryCoderPlanWire[];
+	/** A person's model pick per role; a role left out gets the host's default. */
+	roles?: Partial<Record<FactoryRoleName, FactoryModelChoice>>;
+	/** The reviewer must be another family than the coder unless this is set; the DAG then records a note. */
+	allowSameFamilyReviewer?: boolean;
+	/** Gate corrections per coder attempt, 0 to 5; the host default when absent. */
+	gateRetries?: number;
+}
+
+/** Creates the factory DAG from a planning DAG whose plan a person approved. */
+export interface DagStartFromPlanRequest {
+	workspaceId: string;
+	planDagId: string;
+}
+
+export interface DagStartResult {
+	dagId: string;
+	kind: "plan" | "factory";
+	/** Departures from the ideal setup, recorded in the DAG (for example a same-family reviewer). */
+	notes: string[];
 }
 
 /** The most output text `dag.output` returns. */

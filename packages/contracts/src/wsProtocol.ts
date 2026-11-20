@@ -15,6 +15,9 @@ import type {
 	DagOutputView,
 	DagQueueView,
 	DagReviewView,
+	DagStartFromPlanRequest,
+	DagStartRequest,
+	DagStartResult,
 	DagView,
 	DelegationRunStatus,
 	DetectedAccount,
@@ -22,6 +25,7 @@ import type {
 	EditorInfo,
 	ExistingWorktreeCandidate,
 	ExtensionCatalogEntry,
+	FactoryRolesView,
 	FileNode,
 	GitCommit,
 	GitDiffScope,
@@ -159,7 +163,7 @@ export type TemplateReadLocation =
 	| { projectId: string; workspaceId?: never }
 	| { workspaceId?: never; projectId?: never };
 
-export const PROTOCOL_VERSION = 134;
+export const PROTOCOL_VERSION = 135;
 /** `dag.list` / `dag.get` / `dag.execute` and the `dag.changed` channel: the workspace factory view. */
 export const DAG_PROTOCOL_VERSION = 130;
 /** `dag.review` plus per-node model, thinking level, usage and outcome on `DagView` nodes. */
@@ -170,6 +174,8 @@ export const DAG_QUEUE_PROTOCOL_VERSION = 132;
 export const DAG_PUSH_PROTOCOL_VERSION = 133;
 /** `dag.history` (paged event manifest), `dag.output` (a node's named output) and `DagNodeView.outputs`. */
 export const DAG_DETAILS_PROTOCOL_VERSION = 134;
+/** `dag.roles`, `dag.start` and `dag.startFromPlan`: start a factory run (optionally planned) with per-role models. */
+export const DAG_START_PROTOCOL_VERSION = 135;
 /** `commit.*` methods and the `commit.analyzed` channel. */
 export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 129;
 /** `swarm.get` / `swarm.diff` and the `swarm.changed` channel: a chat's swarm board. */
@@ -599,6 +605,9 @@ export const WS_METHODS = {
 	dagQueue: "dag.queue",
 	dagHistory: "dag.history",
 	dagOutput: "dag.output",
+	dagRoles: "dag.roles",
+	dagStart: "dag.start",
+	dagStartFromPlan: "dag.startFromPlan",
 	subagentStop: "subagent.stop",
 	subagentStopAll: "subagent.stopAll",
 	modelList: "model.list",
@@ -1486,6 +1495,18 @@ export interface WsMethodMap {
 	"dag.history": {
 		params: { workspaceId: string; dagId: string; cursor?: string; limit?: number };
 		result: DagHistoryPage;
+	};
+	"dag.roles": {
+		params: { workspaceId: string };
+		result: FactoryRolesView;
+	};
+	"dag.start": {
+		params: DagStartRequest;
+		result: DagStartResult;
+	};
+	"dag.startFromPlan": {
+		params: DagStartFromPlanRequest;
+		result: DagStartResult;
 	};
 	"dag.output": {
 		params: { workspaceId: string; dagId: string; nodeId: string; name: string };

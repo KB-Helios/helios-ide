@@ -64,6 +64,7 @@ import {
 	readBackgroundCommandOutput,
 	readCacheWarmingSetting,
 	readChildTranscript,
+	readFactoryRoles,
 	readSessionSwarm,
 	readSwarmMemberDiff,
 	readWorkspaceDag,
@@ -88,6 +89,8 @@ import {
 	setModelContextWindow,
 	setSessionModel,
 	setSessionThinkingLevel,
+	startWorkspaceFactory,
+	startWorkspaceFactoryFromPlan,
 	steerSession,
 	stopAllSubagents,
 	stopBackgroundCommand,
@@ -1548,6 +1551,12 @@ const handlers: WsHandlers = {
 		const p = resourceParams(params, ["workspaceId"]);
 		return readWorkspaceQueue(p.workspaceId);
 	},
+	"dag.roles": (params) => {
+		const p = resourceParams(params, ["workspaceId"]);
+		return readFactoryRoles(p.workspaceId);
+	},
+	"dag.start": (params) => startWorkspaceFactory(params),
+	"dag.startFromPlan": (params) => startWorkspaceFactoryFromPlan(params),
 	"dag.history": (params) => {
 		const { dagId, cursor, limit, ...ids } = (params ?? {}) as {
 			dagId?: unknown;

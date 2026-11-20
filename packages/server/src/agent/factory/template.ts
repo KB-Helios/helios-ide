@@ -51,6 +51,8 @@ export interface FactoryPlan {
 	 * `MAX_GATE_RETRIES`, `0` turns the loop off). The budget is written into each coder node.
 	 */
 	gateRetries?: number;
+	/** Departures from the ideal setup (a same-family reviewer, say); written into the release question so the person sees them. */
+	notes?: string[];
 	/** The step-4 insertion point. Absent: gates feed the release node directly. */
 	beforeRelease?: (context: BeforeReleaseContext) => BeforeRelease;
 	/** Per-role model choice written into each template node's session; absent roles use DAG defaults. */
@@ -232,7 +234,10 @@ export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
 				outputs: { summary: { kind: "text" } },
 				approval: {
 					authority: "human",
-					question: `Land ${ids.coders.length} change set(s) on ${plan.target}? Review the diffs and gate results first. Approving releases the landing.`,
+					question: [
+						`Land ${ids.coders.length} change set(s) on ${plan.target}? Review the diffs and gate results first. Approving releases the landing.`,
+						...(plan.notes?.length ? [`Notes: ${plan.notes.join(" ")}`] : []),
+					].join(" "),
 				},
 			},
 		),

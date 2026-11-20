@@ -3,9 +3,13 @@ import type {
 	DagNodeStatus,
 	DagQueueView,
 	DagReviewSeverity,
+	DagStartRequest,
 	DagUsageView,
 	DagView,
 	DagWireCommand,
+	FactoryModelChoice,
+	FactoryRoleName,
+	FactoryRolesView,
 } from "@thinkrail/contracts";
 
 /** Statuses that need a person before the DAG can move on; shown first and never hidden. */
@@ -136,4 +140,88 @@ export function historyTarget(item: Pick<DagHistoryItem, "target">): string {
 	return item.target
 		? `${item.target.nodeId} #${item.target.attempt}.${item.target.activation}`
 		: "";
+}
+
+export type RunMode = "plan" | "single";
+
+/** The start form's state: the task, who splits it, and a model pick per role (`""` is the host's default). */
+export interface StartForm {
+	task: string;
+	mode: RunMode;
+	picks: Partial<Record<FactoryRoleName, string>>;
+	allowSameFamily: boolean;
+}
+
+export const START_TASK_MAX = 8000;
+export const ROLE_ORDER: readonly FactoryRoleName[] = ["planner", "coder", "reviewer", "scout"];
+
+export const modelKey = (model: FactoryModelChoice): string => `${model.provider}/${model.id}`;
+
+function familyOfKey(view: FactoryRolesView, key: string): string | undefined {
+	return view.models.find((model) => modelKey(model) === key)?.family;
+}
+
+/** The model a role would run on: the person's pick, else the host's default. */
+export function effectiveKey(
+	view: FactoryRolesView,
+	form: Pick<StartForm, "picks">,
+	role: FactoryRoleName,
+): string {
+	return form.picks[role] || modelKey(view.defaults[role]);
+}
+
+/**
+ * Whether the reviewer would share the coder's vendor family: the host refuses that unless the person
+ * explicitly allows it, so the form asks for that decision instead of failing after the click.
+ */
+export function reviewerSharesFamily(
+	view: FactoryRolesView,
+	form: Pick<StartForm, "picks">,
+): boolean {
+	if (!form.picks.reviewer && !form.picks.coder && view.sameFamilyOnly) return true;
+	const coder = familyOfKey(view, effectiveKey(view, form, "coder"));
+	const reviewer = familyOfKey(view, effectiveKey(view, form, "reviewer"));
+	return coder !== undefined && coder === reviewer;
+}
+
+/** Why the form cannot be sent yet, or `null` when it can. */
+export function startBlocker(
+	view: FactoryRolesView,
+	form: StartForm,
+): "task" | "same-family" | null {
+	const task = form.task.trim();
+	if (task.length === 0 || task.length > START_TASK_MAX) return "task";
+	if (reviewerSharesFamily(view, form) && !form.allowSameFamily) return "same-family";
+	return null;
+}
+
+/**
+ * The wire request for the form. A role left on the default sends nothing, so the host's choice stays
+ * the host's; a same-family reviewer is sent only when the person switched it on (and it applies).
+ */
+export function startRequest(
+	view: FactoryRolesView,
+	form: StartForm,
+): Omit<DagStartRequest, "workspaceId" | "commandId"> | null {
+	if (startBlocker(view, form) === "task") return null;
+	const roles: Partial<Record<FactoryRoleName, FactoryModelChoice>> = {};
+	for (const role of ROLE_ORDER) {
+		const key = form.picks[role];
+		const model = key ? view.models.find((candidate) => modelKey(candidate) === key) : undefined;
+		if (model) roles[role] = { provider: model.provider, id: model.id };
+	}
+	const task = form.task.trim();
+	return {
+		task,
+		...(form.mode === "single" ? { coders: [{ id: "coder", task }] } : {}),
+		...(Object.keys(roles).length ? { roles } : {}),
+		...(form.allowSameFamily && reviewerSharesFamily(view, form)
+			? { allowSameFamilyReviewer: true }
+			: {}),
+	};
+}
+
+/** A planning DAG whose planner finished (its approval is checked again on the host). */
+export function planReady(dag: Pick<DagView, "nodes">): boolean {
+	return dag.nodes.some((node) => node.planner === true && node.status === "completed");
 }

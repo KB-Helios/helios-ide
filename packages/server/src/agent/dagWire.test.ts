@@ -13,6 +13,7 @@ import type { DagChanged } from "@thinkrail/contracts";
 import type { DagClient, DagDefinition, DagResult, DagSnapshot } from "pi-dag";
 import { closeAllDags, dagServiceFor } from "./dag";
 import { setDagChangeDebounce, setDagPublisher } from "./dagChanges";
+import { readFactoryRoles } from "./dagStart";
 import {
 	DAG_OPERATOR_ID,
 	executeWorkspaceDag,
@@ -21,6 +22,8 @@ import {
 	readWorkspaceHistory,
 	readWorkspaceOutput,
 	readWorkspaceQueue,
+	startWorkspaceFactory,
+	startWorkspaceFactoryFromPlan,
 	toDagCommand,
 } from "./dagWire";
 import { configurePiRuntime } from "./piRuntime";
@@ -29,6 +32,12 @@ const model = { provider: "dag-wire-faux", id: "worker" };
 const faux = createFauxCore({
 	provider: model.provider,
 	api: "dag-wire-faux",
+	tokensPerSecond: 100_000,
+});
+const otherModel = { provider: "dag-wire-other", id: "reviewer" };
+const otherFaux = createFauxCore({
+	provider: otherModel.provider,
+	api: "dag-wire-other",
 	tokensPerSecond: 100_000,
 });
 const root = mkdtempSync(join(tmpdir(), "trdagwire-"));
@@ -75,6 +84,23 @@ beforeAll(async () => {
 			{
 				id: model.id,
 				name: "Worker",
+				reasoning: false,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 100_000,
+				maxTokens: 4096,
+			},
+		],
+	});
+	runtime.registerProvider(otherModel.provider, {
+		api: otherFaux.api,
+		baseUrl: "http://faux.local",
+		apiKey: "synthetic",
+		streamSimple: otherFaux.streamSimple,
+		models: [
+			{
+				id: otherModel.id,
+				name: "Reviewer",
 				reasoning: false,
 				input: ["text"],
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -387,4 +413,248 @@ test("the queue read reports the workspace cap and is validated like the other r
 	expect(readWorkspaceQueue(workspaceId)).toEqual({ limit: 4, running: 0, queued: 0 });
 	expect(() => readWorkspaceQueue("../escape")).toThrow("Invalid workspaceId");
 	expect(() => readWorkspaceQueue("nosuchworkspace")).toThrow("Workspace unavailable");
+});
+
+async function definitionOf(dagId: string) {
+	const snapshot = value(await owner().getDag({ dagId }));
+	return JSON.parse(await Bun.file(snapshot.definition.localPath).text()) as DagDefinition;
+}
+
+// The runtime also offers built-in models, so every start names its coder and reviewer explicitly.
+const fauxRef = { provider: model.provider, id: model.id };
+const otherRef = { provider: otherModel.provider, id: otherModel.id };
+const startBase = () => ({
+	workspaceId,
+	commandId: `start-${serial++}`,
+	task: "Add the thing",
+	roles: { coder: fauxRef, reviewer: otherRef },
+});
+const twoCoders = [
+	{ id: "api", task: "Build the api", owns: ["src/api/**"] },
+	{ id: "web", task: "Build the web", owns: ["src/web/**"] },
+];
+
+test("the roles read offers the available models and the host's defaults", async () => {
+	const roles = await readFactoryRoles(workspaceId);
+	const families = new Map(roles.models.map((m) => [`${m.provider}/${m.id}`, m.family]));
+	expect(families.get("dag-wire-faux/worker")).toBe("provider:dag-wire-faux");
+	expect(families.get("dag-wire-other/reviewer")).toBe("provider:dag-wire-other");
+	expect(Object.keys(roles.defaults).sort()).toEqual(["coder", "planner", "reviewer", "scout"]);
+	expect(roles.defaults.planner).toEqual(roles.defaults.coder);
+	expect(families.has(`${roles.defaults.reviewer.provider}/${roles.defaults.reviewer.id}`)).toBe(
+		true,
+	);
+	expect(roles.sameFamilyOnly).toBe(false);
+	await expect(readFactoryRoles("nosuchworkspace")).rejects.toMatchObject({
+		code: "RESOURCE_UNAVAILABLE",
+	});
+});
+
+test("a person starts a factory with chosen coders and role models; it is created paused", async () => {
+	const result = await startWorkspaceFactory({
+		...startBase(),
+		coders: twoCoders,
+	});
+	expect(result).toMatchObject({ kind: "factory", notes: [] });
+	const view = await readWorkspaceDag(workspaceId, result.dagId);
+	expect(view.mode).toBe("paused");
+	expect(view.nodes.map((n) => n.id)).toEqual([
+		"api",
+		"gate-api",
+		"web",
+		"gate-web",
+		"review",
+		"release",
+		"land",
+	]);
+	const definition = await definitionOf(result.dagId);
+	const model = (id: string) => definition.nodes.find((n) => n.id === id)?.session?.model;
+	expect(model("api")).toEqual({ provider: "dag-wire-faux", id: "worker" });
+	// The reviewer is another family than the coder, by default and by rule.
+	expect(model("review")).toEqual({ provider: "dag-wire-other", id: "reviewer" });
+	expect(definition.nodes.find((n) => n.id === "release")?.approval?.authority).toBe("human");
+});
+
+test("the reviewer must be another family unless the person explicitly allows it, and that is recorded", async () => {
+	const sameFamily = {
+		...startBase(),
+		coders: twoCoders,
+		roles: { coder: fauxRef, reviewer: fauxRef },
+	};
+	await expect(startWorkspaceFactory(sameFamily)).rejects.toMatchObject({
+		code: "DAG_REJECTED",
+		message: expect.stringContaining("different model family"),
+	});
+	const allowed = await startWorkspaceFactory({
+		...sameFamily,
+		commandId: `start-${serial++}`,
+		allowSameFamilyReviewer: true,
+	});
+	expect(allowed.notes).toHaveLength(1);
+	expect(allowed.notes[0]).toContain("same family");
+	const definition = await definitionOf(allowed.dagId);
+	expect(definition.nodes.find((n) => n.id === "release")?.approval?.question).toContain(
+		"same family",
+	);
+	await expect(
+		startWorkspaceFactory({
+			...startBase(),
+			coders: twoCoders,
+			roles: { coder: { provider: "x", id: "y" } },
+		}),
+	).rejects.toMatchObject({ code: "DAG_REJECTED" });
+});
+
+test("a start request is validated and replays by command id", async () => {
+	const base = startBase();
+	const first = await startWorkspaceFactory({ ...base, coders: twoCoders });
+	expect((await startWorkspaceFactory({ ...base, coders: twoCoders })).dagId).toBe(first.dagId);
+	for (const bad of [
+		{ task: "" },
+		{ task: "x".repeat(8001) },
+		{ commandId: "" },
+		{ gateRetries: 6 },
+		{ gateRetries: 1.5 },
+		{ roles: { cook: { provider: "a", id: "b" } } },
+		{ roles: { coder: { provider: "a", id: "b", extra: 1 } } },
+		{ allowSameFamilyReviewer: "yes" },
+		{ extra: 1 },
+		{ coders: [] },
+		{ coders: [{ id: "Bad Id", task: "x" }] },
+		{ coders: [{ id: "release", task: "x" }] },
+		{ coders: [{ id: "gate-x", task: "x" }] },
+		{ coders: [{ id: "a", task: "x", owns: ["../outside/**"] }] },
+		{ coders: [{ id: "a", task: "x", owns: ["/abs/**"] }] },
+		{ coders: [{ id: "a", task: "x", extra: true }] },
+		{
+			coders: [
+				{ id: "a", task: "x" },
+				{ id: "b", task: "y" },
+			],
+		},
+		{
+			coders: [
+				{ id: "a", task: "x", owns: ["src/**"] },
+				{ id: "b", task: "y", owns: ["src/b/**"] },
+			],
+		},
+	])
+		await expect(startWorkspaceFactory({ ...startBase(), ...bad })).rejects.toThrow();
+	await expect(startWorkspaceFactory({ ...startBase(), workspaceId: "../x" })).rejects.toThrow(
+		"Invalid workspaceId",
+	);
+});
+
+function submitPlan(plan: Record<string, unknown>) {
+	return fauxAssistantMessage(
+		fauxToolCall("dag_submit_result", {
+			outputs: { plan: { kind: "json", value: plan as never } },
+		}),
+	);
+}
+
+async function plannedAndApproved(plan: Record<string, unknown>) {
+	faux.setResponses([submitPlan(plan)]);
+	const started = await startWorkspaceFactory(startBase());
+	expect(started.kind).toBe("plan");
+	const paused = await readWorkspaceDag(workspaceId, started.dagId);
+	expect(paused.nodes).toHaveLength(1);
+	expect(paused.nodes[0]).toMatchObject({ id: "planner", planner: true });
+	await executeWorkspaceDag({
+		workspaceId,
+		dagId: started.dagId,
+		commandId: `plan-resume-${serial++}`,
+		expectedVersion: paused.version,
+		command: { kind: "resume" },
+	});
+	const waiting = await until(started.dagId, (s) =>
+		s.gates.some((g) => g.disposition === "pending"),
+	);
+	return { dagId: started.dagId, waiting };
+}
+
+test("a planner proposes coders; nothing is built until a person approves, then the host validates and builds", async () => {
+	const plan = { coders: twoCoders };
+	const { dagId, waiting } = await plannedAndApproved(plan);
+
+	// The plan is readable like any output, and the planner is read-only on a model of its role.
+	const output = await readWorkspaceOutput(workspaceId, dagId, "planner", "plan");
+	expect(JSON.parse(output?.text ?? "null")).toEqual(plan);
+	const planning = await definitionOf(dagId);
+	expect(planning.nodes[0]?.session?.tools).toEqual(["read", "grep", "find", "ls"]);
+	expect(planning.nodes[0]?.approval?.authority).toBe("human");
+
+	// Before the approval: refused. A chat controller cannot approve it either.
+	await expect(startWorkspaceFactoryFromPlan({ workspaceId, planDagId: dagId })).rejects.toThrow(
+		"not been completed",
+	);
+	const gateId = waiting.gates.find((g) => g.disposition === "pending")?.id ?? "";
+	expect(
+		(
+			await controller().execute({
+				commandId: "chat-plan-approve",
+				dagId,
+				expectedVersion: waiting.version,
+				command: { kind: "approve", gateId, reason: "chat says yes" },
+			})
+		).ok,
+	).toBe(false);
+	await expect(startWorkspaceFactoryFromPlan({ workspaceId, planDagId: dagId })).rejects.toThrow(
+		"not been completed",
+	);
+
+	await executeWorkspaceDag({
+		workspaceId,
+		dagId,
+		commandId: `plan-approve-${serial++}`,
+		expectedVersion: (await readWorkspaceDag(workspaceId, dagId)).version,
+		command: { kind: "approve", gateId, reason: "Plan is fine" },
+	});
+	await until(dagId, (s) => s.nodes.every((n) => n.status === "completed"));
+
+	const built = await startWorkspaceFactoryFromPlan({ workspaceId, planDagId: dagId });
+	expect(built.kind).toBe("factory");
+	const view = await readWorkspaceDag(workspaceId, built.dagId);
+	expect(view.mode).toBe("paused");
+	expect(view.nodes.map((n) => n.id)).toContain("api");
+	expect(view.nodes.map((n) => n.id)).toContain("land");
+	const definition = await definitionOf(built.dagId);
+	expect(definition.nodes.find((n) => n.id === "release")?.approval?.authority).toBe("human");
+	expect(definition.nodes.find((n) => n.id === "review")?.session?.model).toEqual({
+		provider: "dag-wire-other",
+		id: "reviewer",
+	});
+	// Building again from the same approved plan returns the same factory DAG.
+	expect((await startWorkspaceFactoryFromPlan({ workspaceId, planDagId: dagId })).dagId).toBe(
+		built.dagId,
+	);
+});
+
+test("a plan that breaks the rules is rejected by the host even after a person approved it", async () => {
+	const { dagId, waiting } = await plannedAndApproved({
+		coders: [
+			{ id: "a", task: "x", owns: ["src/**"] },
+			{ id: "b", task: "y", owns: ["src/b/**"] },
+		],
+	});
+	const gateId = waiting.gates.find((g) => g.disposition === "pending")?.id ?? "";
+	await executeWorkspaceDag({
+		workspaceId,
+		dagId,
+		commandId: `bad-plan-approve-${serial++}`,
+		expectedVersion: (await readWorkspaceDag(workspaceId, dagId)).version,
+		command: { kind: "approve", gateId, reason: "ok" },
+	});
+	await until(dagId, (s) => s.nodes.every((n) => n.status === "completed"));
+	await expect(startWorkspaceFactoryFromPlan({ workspaceId, planDagId: dagId })).rejects.toThrow(
+		"may touch the same files",
+	);
+	// A DAG that is not a planning DAG is refused outright.
+	const plain = await createDag();
+	await expect(startWorkspaceFactoryFromPlan({ workspaceId, planDagId: plain })).rejects.toThrow(
+		"not a planning DAG",
+	);
+	await expect(startWorkspaceFactoryFromPlan({ workspaceId, planDagId: "../x" })).rejects.toThrow(
+		"Invalid dagId",
+	);
 });

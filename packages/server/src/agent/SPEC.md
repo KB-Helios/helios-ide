@@ -1523,6 +1523,40 @@ current runtime generation, not a parent's retained one. Stale versions surface 
 `dag.changed` is pushed for every durable change (see "Live progress push"), not only after wire commands. Reviewer findings, model roles and the per-node
 run log: see "Factory review and model roles".
 
+### Starting a run and the planner
+
+`dag.start` / `dag.startFromPlan` / `dag.roles` (`dagStart.ts`, wired in `dagWire.ts`) are how a person creates a
+factory DAG from the pane; before them only the chat controller could. They act as the human binding with the same
+execution context as `dag.execute`, and always create the DAG **paused**.
+
+- **Roles.** `dag.roles` is `resolveFactoryRoles` plus the available models (with `modelFamily`). `dag.start` runs
+  `resolveFactoryRoles({ overrides, allowSameFamilyReviewer })` over the person's picks: an unavailable pick, or a
+  reviewer in the coder's family without the explicit flag, is `DAG_REJECTED`; with the flag the
+  `same-family-reviewer` note is returned and written into the release approval question, so the person who
+  releases sees it. The wire never accepts a model for a node, only for a role.
+- **Two shapes.** With `coders`, the factory DAG is built straight away
+  (`buildFactoryDefinition` + `factoryModels` + `factoryReviewHook`, target = the workspace's branch). Without
+  them a **planning DAG** (`factory/plan.ts` `buildPlanningDefinition`) is created: one read-only planner node
+  (`read`/`grep`/`find`/`ls`, on the planner role's model) with one json output `plan` and a **human approval**.
+  The person's choices (title, target branch, gate budget, notes and the coder/reviewer/scout selections) are
+  frozen into the planner's system prompt as a `<factory-plan>` block, so what gets built later is what they
+  picked, not what a model writes or the host would pick again.
+- **From plan to factory.** The design is **two DAGs, not a graph edit**: the planner's output never mutates a
+  running graph. `startFactoryFromPlan` checks on the host that the DAG carries a `<factory-plan>` marker, the
+  `planner` node is `completed`, and its latest approval was decided by a **human** actor
+  (`isReleaseApprovedByHuman`); it then reads the `plan` output (256 KiB) and validates it with `parseCoderPlans` as
+  if a person had typed it: 1..8 coders, ids `[a-z][a-z0-9-]{0,31}` and not `release`/`land`/`review`/`planner`/
+  `gate-*`, unique, task at most 8000 characters, owns/avoid at most 64 globs that stay inside the repository (no
+  absolute path, no `..`), owns required and disjoint (`mayOverlap`) when several coders run, no unknown field.
+  Only then does `buildFactoryDefinition` create the factory DAG (idempotent: command id `factory-from-<plan>`).
+  The factory DAG keeps its own gates, reviewer and **human release**, so a plan reaches the checkout only after
+  a person approved the plan and, separately, the release. Rejecting the plan keeps the planner blocked; the
+  person retries that step (pane control) and approves again. The planning DAG has no `<factory-node>` marker, so
+  the factory worker extension never serves it.
+- Tests: `dagWire.test.ts` (roles read, chosen coders and models, same-family refusal and note, validation and
+  replay, planner approved by a person vs refused for a chat controller, invalid plans rejected after approval),
+  `factory/plan.test.ts`.
+
 ### History and output reads
 
 `dag.history` (`readWorkspaceHistory`) pages pi-dag's `listHistory` (version-pinned; the host caps a page at 50)
@@ -1622,7 +1656,7 @@ beyond small host files next to the worktrees.
   cannot loop. A person can still `retry` a node, which is a new attempt with a fresh budget. Tests:
   `factory.test.ts` (end-to-end fix after a refusal; the guard's bound, untrusted, `retries: 0`, other roles;
   template validation).
-- **Not yet.** A planner node that emits coders. UI-resumed DAGs get the host's sessionless project trust from the wire.
+- **Not yet.** Nothing of the roadmap; see "Starting a run and the planner". UI-resumed DAGs get the host's sessionless project trust from the wire.
 
 ## Factory review and model roles
 

@@ -40,6 +40,7 @@ import {
 	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
+	DAG_START_PROTOCOL_VERSION,
 	DEFAULT_MODEL_PROTOCOL_VERSION,
 	EXTENSION_CATALOG_PROTOCOL_VERSION,
 	EXTENSION_EDITOR_TEXT_PROTOCOL_VERSION,
@@ -819,4 +820,12 @@ test("the DAG details reads are pinned to v134", () => {
 	expect(WS_METHODS.dagOutput).toBe("dag.output");
 	expect(DAG_OUTPUT_MAX_BYTES).toBe(64 * 1024);
 	expect(DAG_HISTORY_MAX_PAGE).toBe(50);
+});
+
+test("starting a factory run is pinned to v135", () => {
+	expect(DAG_START_PROTOCOL_VERSION).toBe(135);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_START_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagRoles).toBe("dag.roles");
+	expect(WS_METHODS.dagStart).toBe("dag.start");
+	expect(WS_METHODS.dagStartFromPlan).toBe("dag.startFromPlan");
 });

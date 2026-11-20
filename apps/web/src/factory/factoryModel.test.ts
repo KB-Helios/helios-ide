@@ -3,13 +3,19 @@ import {
 	bySeverity,
 	dagActions,
 	dependsOn,
+	effectiveKey,
 	historyTarget,
 	needsAttention,
 	nodeActions,
 	nodeCommand,
 	orderNodes,
 	pendingTotal,
+	planReady,
 	queueLine,
+	reviewerSharesFamily,
+	type StartForm,
+	startBlocker,
+	startRequest,
 	totalUsage,
 } from "./factoryModel";
 
@@ -124,4 +130,84 @@ test("DAG-wide interrupt needs a running DAG and nothing applies once it is disp
 test("a history target reads node, attempt and activation", () => {
 	expect(historyTarget({ target: { nodeId: "a", attempt: 2, activation: 1 } })).toBe("a #2.1");
 	expect(historyTarget({})).toBe("");
+});
+
+const rolesView = (sameFamilyOnly = false) => ({
+	models: [
+		{ provider: "a", id: "big", name: "Big", family: "alpha", reasoning: true },
+		{ provider: "a", id: "small", name: "Small", family: "alpha", reasoning: false },
+		{ provider: "b", id: "other", name: "Other", family: "beta", reasoning: true },
+	],
+	defaults: {
+		planner: { provider: "a", id: "big" },
+		coder: { provider: "a", id: "big" },
+		reviewer: { provider: "b", id: "other" },
+		scout: { provider: "a", id: "small" },
+	},
+	sameFamilyOnly,
+});
+const form = (patch: Partial<StartForm> = {}): StartForm => ({
+	task: "Add the thing",
+	mode: "plan",
+	picks: {},
+	allowSameFamily: false,
+	...patch,
+});
+
+test("a role left on its default sends no model, and a pick sends exactly that model", () => {
+	const view = rolesView();
+	expect(startRequest(view, form())).toEqual({ task: "Add the thing" });
+	expect(effectiveKey(view, form(), "reviewer")).toBe("b/other");
+	expect(startRequest(view, form({ picks: { coder: "a/small", scout: "" } }))).toEqual({
+		task: "Add the thing",
+		roles: { coder: { provider: "a", id: "small" } },
+	});
+	// A pick the host does not list is dropped rather than invented.
+	expect(startRequest(view, form({ picks: { coder: "z/ghost" } }))).toEqual({
+		task: "Add the thing",
+	});
+});
+
+test("one coder mode sends the task as the single coder; planner mode sends none", () => {
+	const view = rolesView();
+	expect(startRequest(view, form({ mode: "single", task: "  Fix it  " }))).toEqual({
+		task: "Fix it",
+		coders: [{ id: "coder", task: "Fix it" }],
+	});
+	expect(startRequest(view, form({ task: "   " }))).toBeNull();
+	expect(startRequest(view, form({ task: "x".repeat(8001) }))).toBeNull();
+});
+
+test("a reviewer in the coder's family must be allowed explicitly and is then sent as such", () => {
+	const view = rolesView();
+	const same = form({ picks: { reviewer: "a/small" } });
+	expect(reviewerSharesFamily(view, same)).toBe(true);
+	expect(startBlocker(view, same)).toBe("same-family");
+	expect(startBlocker(view, form({ ...same, allowSameFamily: true }))).toBeNull();
+	expect(startRequest(view, form({ ...same, allowSameFamily: true }))).toMatchObject({
+		allowSameFamilyReviewer: true,
+	});
+	// The switch has no effect when the reviewer is independent.
+	expect(startRequest(view, form({ allowSameFamily: true }))).toEqual({ task: "Add the thing" });
+	// Moving the coder onto the reviewer's default family makes them share it.
+	expect(reviewerSharesFamily(view, form({ picks: { coder: "b/other" } }))).toBe(true);
+	expect(reviewerSharesFamily(view, form({ picks: { coder: "b/other", reviewer: "a/big" } }))).toBe(
+		false,
+	);
+	// A host with a single family needs the explicit allowance for the defaults too.
+	expect(startBlocker(rolesView(true), form())).toBe("same-family");
+	expect(startBlocker(rolesView(true), form({ allowSameFamily: true }))).toBeNull();
+});
+
+test("a plan is ready for the factory once its planner completed", () => {
+	const node = (status: "running" | "completed", planner?: true) => ({
+		id: "planner",
+		status,
+		held: false,
+		task: "",
+		...(planner ? { planner } : {}),
+	});
+	expect(planReady({ nodes: [node("running", true)] })).toBe(false);
+	expect(planReady({ nodes: [node("completed", true)] })).toBe(true);
+	expect(planReady({ nodes: [node("completed")] })).toBe(false);
 });

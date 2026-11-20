@@ -10,6 +10,18 @@ import { registerWorktreeTools } from "./worktreeTools";
 
 export { formatGateFailure, isFixable } from "./gateGuard";
 export { landFactory } from "./landTools";
+export {
+	buildPlanningDefinition,
+	isPlannerNode,
+	MAX_PLAN_CODERS,
+	PLAN_PORT,
+	PLANNER_NODE_ID,
+	PlanError,
+	type PlanRun,
+	parseCoderPlans,
+	parsePlanRun,
+	planRunRoles,
+} from "./plan";
 export { FactoryRun } from "./run";
 export {
 	DEFAULT_FACTORY_SLOTS,

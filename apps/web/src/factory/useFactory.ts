@@ -4,14 +4,18 @@ import {
 	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
+	DAG_START_PROTOCOL_VERSION,
 	type DagChanged,
 	type DagHistoryPage,
 	type DagListItem,
 	type DagOutputView,
 	type DagQueueView,
 	type DagReviewView,
+	type DagStartRequest,
+	type DagStartResult,
 	type DagView,
 	type DagWireCommand,
+	type FactoryRolesView,
 	WS_CHANNELS,
 } from "@thinkrail/contracts";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -42,6 +46,13 @@ export interface FactoryState {
 	history: (cursor?: string) => Promise<DagHistoryPage>;
 	/** A named output of one node of the selected DAG, `null` before the node submitted. */
 	output: (nodeId: string, name: string) => Promise<DagOutputView | null>;
+	/** The host can start runs (v135): `roles`, `start` and `startFromPlan` work. */
+	startable: boolean;
+	roles: () => Promise<FactoryRolesView>;
+	/** Starts a run and selects the DAG it created; rejects with the host's refusal. */
+	start: (request: Omit<DagStartRequest, "workspaceId" | "commandId">) => Promise<DagStartResult>;
+	/** Creates the factory DAG from the selected planning DAG's approved plan and selects it. */
+	startFromPlan: (planDagId: string) => Promise<DagStartResult>;
 	select: (dagId: string | null) => void;
 	/** Resolves `null` once the host accepted the command. */
 	run: (command: DagWireCommand) => Promise<FactoryFailure | null>;
@@ -61,6 +72,7 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const queueable = protocol !== null && protocol >= DAG_QUEUE_PROTOCOL_VERSION;
 	const pushed = protocol !== null && protocol >= DAG_PUSH_PROTOCOL_VERSION;
 	const details = protocol !== null && protocol >= DAG_DETAILS_PROTOCOL_VERSION;
+	const startable = protocol !== null && protocol >= DAG_START_PROTOCOL_VERSION;
 	const [items, setItems] = useState<DagListItem[] | null>(null);
 	const [queue, setQueue] = useState<DagQueueView | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -186,5 +198,47 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 		[workspaceId],
 	);
 
-	return { items, queue, selectedId, dag, reviews, details, history, output, select, run };
+	const roles = useCallback(
+		() => getTransport().request("dag.roles", { workspaceId }),
+		[workspaceId],
+	);
+
+	const start = useCallback(
+		async (request: Omit<DagStartRequest, "workspaceId" | "commandId">) => {
+			const result = await getTransport().request("dag.start", {
+				...request,
+				workspaceId,
+				commandId: randomId("ui-start"),
+			});
+			select(result.dagId);
+			return result;
+		},
+		[workspaceId, select],
+	);
+
+	const startFromPlan = useCallback(
+		async (planDagId: string) => {
+			const result = await getTransport().request("dag.startFromPlan", { workspaceId, planDagId });
+			select(result.dagId);
+			return result;
+		},
+		[workspaceId, select],
+	);
+
+	return {
+		items,
+		queue,
+		selectedId,
+		dag,
+		reviews,
+		details,
+		history,
+		output,
+		startable,
+		roles,
+		start,
+		startFromPlan,
+		select,
+		run,
+	};
 }

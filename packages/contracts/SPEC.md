@@ -1569,6 +1569,19 @@ submitted: `text` at most `DAG_OUTPUT_MAX_BYTES` (64 KiB) with `truncated`, and 
 reported without content. `DagNodeView.outputs` lists the readable names of nodes that submitted. Both reads are
 human-only like the rest of `dag.*`. Older hosts have neither method and the pane omits history and output.
 
+From **`DAG_START_PROTOCOL_VERSION`** (v135, additive): starting a factory run. `dag.roles` `{ workspaceId }` returns
+`FactoryRolesView` (the models the host can serve with their vendor `family` and `reasoning`, at most 500, the host's
+`defaults` per role `planner`/`coder`/`reviewer`/`scout`, and `sameFamilyOnly` when no model outside the coder's
+family exists). `dag.start` `DagStartRequest` (`workspaceId`, an idempotency `commandId`, `task`, optional `coders`
+(`FactoryCoderPlanWire`: id, task, owns, avoid), `roles` (a person's pick per role), `allowSameFamilyReviewer`,
+`gateRetries`) creates a **paused** DAG and returns `DagStartResult { dagId, kind, notes }`: `kind: "factory"` when
+`coders` were given, `"plan"` (a planning DAG) otherwise; a reviewer in the coder's family is refused with
+`DAG_REJECTED` unless `allowSameFamilyReviewer` is true, and then `notes` carries the recorded departure.
+`dag.startFromPlan` `{ workspaceId, planDagId }` creates the factory DAG from a planning DAG whose planner completed
+under a **human** approval (checked on the host, not on the wire) and returns the same `DagStartResult`; repeating
+it returns the same DAG. `DagNodeView.planner` marks the planning DAG's node. Validation failures are
+`DAG_REJECTED` with the host's plain reason; no field names a caller. Older hosts have none of these methods.
+
 From **`DAG_PUSH_PROTOCOL_VERSION`** (v133, behavioural): the workspace-scoped `dag.changed` push is no longer limited
 to accepted wire commands. The host publishes it (debounced per DAG) for every durable change pi-dag commits:
 worker admission and settlement, gate decisions and chat-controller commands. No new method or field; a pane
