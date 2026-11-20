@@ -1631,7 +1631,10 @@ beyond small host files next to the worktrees.
   index, runs the gates in a throwaway detached checkout of it (dependency folders linked in) and removes that
   checkout, so a gate process cannot change the worker's files. The host-written record names the snapshot's
   tree (`diffHash`) and commit (`snapshot`); it is fresh exactly while the worktree holds that content, and the
-  snapshot's own changes are what ownership and definition checks judge. A model's own report text is never trusted.
+  snapshot's own changes are what ownership and definition checks judge. The gate commands come from the
+  checkout but run in the snapshot, so gates refuse when the root build/gate definitions differ between the two
+  (by blob id). A cancelled run is never recorded. The readiness report (changed files, ownership, stat and
+  freshness) is computed from one captured tree. A model's own report text is never trusted.
 - **Landing enforcement.** pi-dag's `approval` gates the release of the node's output, not its start, so the flow
   is `gate-* -> release (approval: human) -> land`, with the land node consuming the release output.
   pi-dag therefore never starts `land` before a person approved `release` (only a `human` caller can; a chat
@@ -1643,7 +1646,9 @@ beyond small host files next to the worktrees.
   from one read of the gate record, that it passed, names the worktree's current tree, and that its snapshot
   commit has that tree and sits on the worktree's HEAD; it then lands that validated commit, so a gate run
   replacing the record afterwards cannot change what lands. Edits made after that check are not landed and the
-  worktree holding them is kept (`keptWorktree`), never deleted. The commit is recorded
+  worktree holding them is kept (`keptWorktree`), never deleted. Moving the source branch onto that commit is
+  recorded as an intent (`recording`) first, so a landing that stopped mid-move resumes it, or forgets it when
+  the move never happened. The commit is recorded
   in the metadata before the merge. `landOnTarget` never runs `git merge` in the person's checkout: it merges that
   commit (`--no-ff`) in a throwaway detached checkout of the target's tip (a conflict is aborted there), moves
   `refs/heads/<target>` by compare-and-swap only if it still points at that tip, and, when the checkout has the

@@ -4,8 +4,17 @@ import { detectGates, runGates } from "pi-swarm";
 import { Type } from "typebox";
 import { boundFor, sourcesOf, sourceWorktree, toolResult } from "./access";
 import { clip, type FactoryRun, type GateRecord, type WorktreeMeta } from "./run";
-import { contentTree, inSnapshotCheckout, snapshotCommit, snapshotFiles } from "./snapshot";
-import { FACTORY_TOOL, isProtectedBasename } from "./spec";
+import {
+	blobAt,
+	contentTree,
+	inSnapshotCheckout,
+	snapshotCommit,
+	snapshotFiles,
+	treeFiles,
+	treeStat,
+	workingBlob,
+} from "./snapshot";
+import { FACTORY_TOOL, isProtectedBasename, PROTECTED_BASENAMES } from "./spec";
 
 const GATE_TIMEOUT_MS = 15 * 60_000;
 /** The refusal for a worktree that changed a build/gate definition; the coder can fix it by reverting. */
@@ -57,8 +66,14 @@ export function runFactoryGates(
 			// scripts exist nor what they are called.
 			const repo = await run.repo();
 			const commands = detectGates(repo);
+			const drifted = await definitionDrift(repo, meta.path, snap.commit);
 			if (commands.length === 0) {
 				record = refuse("The project declares no quality gates (typecheck, lint or test).");
+			} else if (drifted.length) {
+				// The commands come from the checkout but run in the snapshot: they must mean the same there.
+				record = refuse(
+					`The checkout's gate definitions changed since this worktree was made (${drifted.join(", ")}); the worktree needs a fresh base before its gates can run.`,
+				);
 			} else {
 				const results = await inSnapshotCheckout(
 					repo,
@@ -70,6 +85,8 @@ export function runFactoryGates(
 							...(signal ? { signal } : {}),
 						}),
 				);
+				// A cancelled run says nothing about quality: never record it, so the next call runs the gates.
+				if (signal?.aborted) throw signal.reason ?? new Error("The gate run was cancelled");
 				const passed = results.length === commands.length && results.every((result) => result.ok);
 				record = { ok: passed, commands, results, ...base };
 			}
@@ -79,20 +96,39 @@ export function runFactoryGates(
 	});
 }
 
+/**
+ * Root build/gate definitions that differ between the trusted checkout (where the gate commands are
+ * detected) and the snapshot (where they run). Compared by blob id, so only real content differences count.
+ */
+async function definitionDrift(repo: string, worktree: string, commit: string): Promise<string[]> {
+	const drifted: string[] = [];
+	for (const name of PROTECTED_BASENAMES) {
+		const [checkout, snapshot] = await Promise.all([
+			workingBlob(repo, name),
+			blobAt(worktree, commit, name),
+		]);
+		if (checkout !== snapshot) drifted.push(name);
+	}
+	return drifted;
+}
+
 /** The host's verdict on one worktree: ownership, a fresh passing gate record, nothing stale. */
 export async function sourceStatus(run: FactoryRun, meta: WorktreeMeta) {
-	const [{ files, violations }, diff, tree] = await Promise.all([
-		run.changed(meta),
-		run.diff(meta),
-		contentTree(meta.path),
+	// One captured tree is the source of the change list, the ownership verdict, the stat and freshness,
+	// so an edit between separate reads can never pair one change list with another tree's gate result.
+	const tree = await contentTree(meta.path);
+	const [files, stat] = await Promise.all([
+		treeFiles(meta.path, "HEAD", tree),
+		treeStat(meta.path, "HEAD", tree),
 	]);
+	const violations = run.violations(meta, files);
 	const record = run.readGateRecord(meta.nodeId);
 	const fresh = record?.diffHash === tree;
 	return {
 		node: meta.nodeId,
 		branch: meta.branch,
 		changedFiles: files,
-		diffStat: diff.stat,
+		diffStat: stat,
 		ownershipViolations: violations,
 		gates: record
 			? {

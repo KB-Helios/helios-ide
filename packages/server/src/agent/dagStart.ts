@@ -9,7 +9,7 @@ import type {
 	FactoryRolesView,
 } from "@thinkrail/contracts";
 import { CodedError } from "@thinkrail/shared/codedError";
-import type { DagClient, DagDefinition } from "pi-dag";
+import type { DagClient, DagDefinition, DagSnapshot } from "pi-dag";
 import { getWorkspace } from "../workspaces";
 import {
 	buildFactoryDefinition,
@@ -215,8 +215,8 @@ function unwrapDag<T>(
 }
 
 /** The roles, target and budget frozen into a planning DAG's planner node, from its stored definition. */
-async function planRunOf(client: DagClient, dagId: string): Promise<PlanRun | undefined> {
-	const snapshot = unwrapDag(await client.getDag({ dagId }));
+/** The planning settings frozen into the planner, read from the given snapshot's own definition. */
+async function planRunOf(snapshot: DagSnapshot): Promise<PlanRun | undefined> {
 	try {
 		const raw = await readFile(snapshot.definition.localPath, "utf8");
 		const definition = JSON.parse(raw) as DagDefinition;
@@ -251,9 +251,10 @@ export async function startFactoryFromPlan(
 	if (typeof planDagId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(planDagId))
 		throw new Error("Invalid dagId");
 
-	const run = await planRunOf(client, planDagId);
-	if (!run) throw new CodedError("DAG_REJECTED", "This DAG is not a planning DAG");
+	// Settings, approval and proposal all come from this one snapshot, so they always belong together.
 	const snapshot = unwrapDag(await client.getDag({ dagId: planDagId }));
+	const run = await planRunOf(snapshot);
+	if (!run) throw new CodedError("DAG_REJECTED", "This DAG is not a planning DAG");
 	const planner = snapshot.nodes.find((node) => node.id === PLANNER_NODE_ID);
 	if (planner?.status !== "completed" || !planner.proposalId)
 		throw new CodedError("DAG_REJECTED", "The plan has not been completed yet");

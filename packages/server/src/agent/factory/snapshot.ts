@@ -3,16 +3,25 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { linkDependencies, runCommand, unlinkDependencies } from "pi-swarm";
+import { logger } from "../../log";
+
+const log = logger("factory");
 
 const IDENTITY = ["-c", "user.name=ThinkRail", "-c", "user.email=agents@thinkrail.invalid"];
 /** What a snapshot leaves out: dependency links are the host's, never the worker's content. */
 const CONTENT = ["--", ".", ":(exclude,glob)**/node_modules/**", ":(exclude,glob)**/node_modules"];
 
-async function git(cwd: string, args: string[], env?: Record<string, string>): Promise<string> {
+/** Raw stdout: NUL-delimited path lists keep every byte, including leading or trailing spaces. */
+async function gitRaw(cwd: string, args: string[], env?: Record<string, string>): Promise<string> {
 	const result = await runCommand("git", args, { cwd, ...(env ? { env } : {}) });
 	if (result.code !== 0)
 		throw new Error(`git ${args[0]} failed: ${(result.stderr || result.stdout).trim()}`);
-	return result.stdout.trim();
+	return result.stdout;
+}
+
+/** Trimmed stdout, for scalar answers such as object ids. */
+async function git(cwd: string, args: string[], env?: Record<string, string>): Promise<string> {
+	return (await gitRaw(cwd, args, env)).trim();
 }
 
 /** Builds the worktree's current content into a throwaway index; the worktree and its index stay untouched. */
@@ -61,7 +70,7 @@ export function snapshotCommit(
 
 /** Files the snapshot changes against its parent, as repository-relative paths with forward slashes. */
 export async function snapshotFiles(path: string, commit: string): Promise<string[]> {
-	const out = await git(path, [
+	const out = await gitRaw(path, [
 		"diff-tree",
 		"--no-commit-id",
 		"--name-only",
@@ -71,6 +80,35 @@ export async function snapshotFiles(path: string, commit: string): Promise<strin
 		commit,
 	]);
 	return out.split("\0").filter(Boolean);
+}
+
+/** Paths whose content differs between commit-ish `base` and `tree`, from one captured tree. */
+export async function treeFiles(path: string, base: string, tree: string): Promise<string[]> {
+	const out = await gitRaw(path, ["diff-tree", "--name-only", "-r", "-z", base, tree]);
+	return out.split("\0").filter(Boolean);
+}
+
+/** The diff stat between `base` and `tree`. */
+export function treeStat(path: string, base: string, tree: string): Promise<string> {
+	return git(path, ["diff", "--stat", base, tree]);
+}
+
+/** A file's blob id in `commit`, or undefined when the commit has no such file. */
+export async function blobAt(
+	path: string,
+	commit: string,
+	file: string,
+): Promise<string | undefined> {
+	const result = await runCommand("git", ["rev-parse", "-q", "--verify", `${commit}:${file}`], {
+		cwd: path,
+	});
+	return result.code === 0 ? result.stdout.trim() : undefined;
+}
+
+/** The blob id the working-tree file would have, or undefined when it does not exist. */
+export async function workingBlob(path: string, file: string): Promise<string | undefined> {
+	const result = await runCommand("git", ["hash-object", "--", file], { cwd: path });
+	return result.code === 0 ? result.stdout.trim() : undefined;
 }
 
 /**
@@ -92,8 +130,19 @@ export async function inSnapshotCheckout<T>(
 		return await use(path);
 	} finally {
 		unlinkDependencies(path);
-		await runCommand("git", ["worktree", "remove", "--force", path], { cwd: repo }).catch(() => {});
+		const removed = await runCommand("git", ["worktree", "remove", "--force", path], {
+			cwd: repo,
+		}).catch(() => undefined);
 		rmSync(path, { recursive: true, force: true });
+		// A registration git could not remove is pruned once its directory is gone; neither step may mask
+		// the gate result or an earlier gate error, so a failure here is only logged for cleanup.
+		if (removed?.code !== 0) {
+			const pruned = await runCommand("git", ["worktree", "prune"], { cwd: repo }).catch(
+				() => undefined,
+			);
+			if (pruned?.code !== 0)
+				log.warn(`could not remove the gate checkout ${path}; run "git worktree prune"`);
+		}
 	}
 }
 

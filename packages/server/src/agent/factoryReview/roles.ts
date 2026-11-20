@@ -99,6 +99,15 @@ const FAMILY_BY_PROVIDER: ReadonlyArray<readonly [RegExp, string]> = [
 export function modelFamily(ref: ModelRef): string {
 	for (const [pattern, family] of FAMILY_BY_MODEL_ID) if (pattern.test(ref.id)) return family;
 	for (const [pattern, family] of FAMILY_BY_PROVIDER) if (pattern.test(ref.provider)) return family;
+	// Bedrock hosts many vendors: its ids name the vendor first (`cohere.command-r…`, optionally behind a
+	// region prefix such as `us.`), so unmatched Bedrock models get their vendor as the family.
+	if (/bedrock/i.test(ref.provider)) {
+		const segments = ref.id.split(".");
+		const vendor = /^(us|eu|apac|us-gov|global)$/i.test(segments[0] ?? "")
+			? segments[1]
+			: segments[0];
+		if (vendor && segments.length > 1) return `vendor:${vendor.toLowerCase()}`;
+	}
 	return `provider:${ref.provider}`;
 }
 

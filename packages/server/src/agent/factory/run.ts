@@ -46,6 +46,8 @@ export interface WorktreeMeta extends Worktree {
 	 * (after a failed merge) merges exactly this commit instead of treating the now-clean worktree as empty.
 	 */
 	committed?: string;
+	/** A landing's in-flight move of the branch from `from` onto the gated commit `to` (see landTools). */
+	recording?: { from: string; to: string };
 }
 
 export interface GateRecord {

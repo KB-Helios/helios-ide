@@ -34,9 +34,9 @@ async function git(cwd: string, args: string[], env?: Record<string, string>) {
 }
 
 /**
- * Runs `use` while holding the checkout's `index.lock`, git's own lock for index and branch changes, on a
- * private copy of the index; when `use` returns true the copy becomes the index (git's lock-and-rename
- * protocol). A lock someone else holds means git is busy there: nothing is done.
+ * Runs `use` while holding the checkout's `index.lock` on a private copy of the index; when `use` returns
+ * true the copy becomes the index (git's lock-and-rename protocol). It blocks index writes, not every HEAD
+ * change (`withHeadLock` covers those). A lock someone else holds means git is busy there: nothing is done.
  */
 async function withIndexLock(
 	repo: string,
@@ -89,7 +89,7 @@ async function withHeadLock<T>(repo: string, target: string, use: () => Promise<
 		} catch {
 			if (attempt >= 40)
 				throw new Error(
-					`Landed on ${target}, but git kept your checkout busy, so it was not brought along; run "git reset --keep HEAD" there.`,
+					`Landed on ${target}, but git kept your checkout busy, so it was not brought along; when git is done, run "git read-tree -m -u <old> <new>" there with the commits from the landing report.`,
 				);
 			await new Promise((resolve) => setTimeout(resolve, 50));
 		}
@@ -131,8 +131,13 @@ function statusPaths(porcelainZ: string): string[] {
 		const record = records[i] ?? "";
 		if (record.length < 4) continue;
 		paths.push(record.slice(3));
-		// A rename or copy carries its original path as the next record.
-		if (record[0] === "R" || record[0] === "C") i++;
+		// A rename or copy carries its original path as the next record. A rename changes that path too;
+		// a copy leaves its source as it was.
+		if (record[0] === "R" || record[1] === "R") {
+			const from = records[i + 1];
+			if (from) paths.push(from);
+			i++;
+		} else if (record[0] === "C" || record[1] === "C") i++;
 	}
 	return paths;
 }
@@ -225,7 +230,7 @@ export async function landOnTarget(
 			const synced = await git(repo, ["read-tree", "-m", "-u", tip, merged], env);
 			if (synced.code !== 0)
 				throw new Error(
-					`Landed on ${target}, but your checkout could not be brought along (${(synced.stderr || synced.stdout).trim()}); run "git reset --keep HEAD" there.`,
+					`Landed on ${target} (${tip} -> ${merged}), but your checkout could not be brought along: ${(synced.stderr || synced.stdout).trim()}. Move the files it names aside, then run "git read-tree -m -u ${tip} ${merged}" in your checkout to bring it to the landed commit without touching your other edits.`,
 				);
 			return true;
 		});
@@ -313,11 +318,24 @@ export function landFactory(
 		// Preflight everything before touching the target: all-or-nothing up to the merges themselves.
 		const pending: Pending[] = [];
 		for (const nodeId of land.sources) {
-			const meta = run.readMeta(nodeId);
+			let meta = run.readMeta(nodeId);
 			if (!meta) throw new Error(`Node ${nodeId} has no worktree to land`);
 			if (meta.landed) continue;
 			run.activeWorktree(nodeId);
 			const head = (await git(meta.path, ["rev-parse", "HEAD"])).stdout.trim();
+			// A landing that stopped while recording its gated commit left the intent behind: finish it when
+			// the move happened, forget it when it did not, and refuse anything else.
+			if (meta.recording) {
+				const { from, to } = meta.recording;
+				const { recording: _done, ...rest } = meta;
+				if (head === to) meta = { ...rest, committed: to };
+				else if (head === from) meta = rest;
+				else
+					throw new Error(
+						`${nodeId} moved while its landing was recording a commit; retry the coder and run the gates again.`,
+					);
+				run.writeMeta(meta);
+			}
 			// Same notion of a change as the gates (dependency links are never content).
 			const dirty = (await run.changed(meta)).files.length > 0;
 			if (meta.committed && head !== meta.committed)
@@ -353,6 +371,8 @@ export function landFactory(
 						throw new Error(
 							`${meta.nodeId} has no gated snapshot on its current commit; run the gates again.`,
 						);
+					// Record the intent first, so a host stop between the move and the record is recoverable.
+					run.writeMeta({ ...meta, recording: { from: head, to: sha } });
 					if ((await git(meta.path, ["reset", "-q", sha])).code !== 0)
 						throw new Error(`Could not record the gated snapshot of ${meta.nodeId}`);
 					meta = { ...meta, committed: sha };

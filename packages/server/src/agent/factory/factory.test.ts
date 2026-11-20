@@ -570,6 +570,60 @@ test("a person's merge of the same factory commit keeps its MERGE_HEAD and stage
 	expect(git(repo, "rev-parse", "main").trim()).toBe(before);
 });
 
+test("a staged rename of a landed file blocks the landing before the target moves", async () => {
+	const repo = makeRepo();
+	mkdirSync(join(repo, "src"), { recursive: true });
+	writeFileSync(join(repo, "src", "f.txt"), "base\n");
+	git(repo, "add", "-A");
+	git(repo, "commit", "-qm", "base f");
+	const sha = featureCommit(repo, "f.txt", "landed\n");
+	const before = git(repo, "rev-parse", "main").trim();
+	// The person renames the very file the landing changes; status lists the new path first.
+	git(repo, "mv", "src/f.txt", "src/renamed.txt");
+	await expect(
+		landOnTarget(repo, join(root, "landing-e"), "main", sha, "factory: land f"),
+	).rejects.toThrow("src/f.txt");
+	expect(git(repo, "rev-parse", "main").trim()).toBe(before);
+});
+
+test("a landing that stopped while recording its gated commit resumes it", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo, { trusted: true, approved: true });
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "x\n");
+	const record = await runFactoryGates(run, meta);
+	const sha = record.snapshot ?? "";
+	const head = git(meta.path, "rev-parse", "HEAD").trim();
+	// The host stopped right after moving the branch onto the gated commit, before recording it.
+	run.writeMeta({ ...meta, recording: { from: head, to: sha } });
+	git(meta.path, "reset", "-q", sha);
+	expect(
+		await landFactory(run, { sources: ["coder-a"], release: "release", target: "main" }),
+	).toMatchObject([{ node: "coder-a", status: "landed" }]);
+	expect(lf(readFileSync(join(repo, "src", "a", "x.txt"), "utf8"))).toBe("x\n");
+});
+
+test("a cancelled gate run is never recorded, and drifted gate definitions refuse", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo);
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "x\n");
+	const cancelled = new AbortController();
+	cancelled.abort(new Error("cancelled"));
+	await expect(runFactoryGates(run, meta, cancelled.signal)).rejects.toThrow();
+	expect(run.readGateRecord("coder-a")).toBeUndefined();
+	// The checkout's test script changes after the worktree was made: the snapshot would run the old one.
+	writeFileSync(
+		join(repo, "package.json"),
+		JSON.stringify({ name: "demo", scripts: { test: 'bun -e "process.exit(1)"' } }),
+	);
+	const record = await runFactoryGates(run, meta);
+	expect(record.ok).toBe(false);
+	expect(record.reason).toContain("gate definitions changed");
+});
+
 test("gates test an immutable snapshot: a gate process cannot change the worktree", async () => {
 	const repo = makeRepo();
 	writeFileSync(

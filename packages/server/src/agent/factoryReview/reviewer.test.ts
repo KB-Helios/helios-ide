@@ -393,3 +393,13 @@ test("a rejected review keeps the release blocked", async () => {
 	expect(after.nodes.find((n) => n.id === "land")?.status).toBe("pending");
 	expect(coderFaux.state.callCount).toBe(calls);
 }, 30_000);
+
+test("Bedrock models of different vendors are different families", () => {
+	const bedrock = (id: string) => modelFamily({ provider: "amazon-bedrock", id });
+	expect(bedrock("cohere.command-r-plus-v1:0")).toBe("vendor:cohere");
+	expect(bedrock("ai21.jamba-1-5-large-v1:0")).toBe("vendor:ai21");
+	expect(bedrock("us.meta.llama3-1-70b-instruct-v1:0")).toBe("meta");
+	expect(bedrock("anthropic.claude-sonnet-4-20250514-v1:0")).toBe("anthropic");
+	expect(bedrock("amazon.nova-pro-v1:0")).toBe("amazon");
+	expect(bedrock("cohere.command-r-plus-v1:0")).not.toBe(bedrock("ai21.jamba-1-5-large-v1:0"));
+});

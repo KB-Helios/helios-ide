@@ -63,6 +63,11 @@ export interface FactoryState {
  * (the host debounces and pushes every committed change); only a pre-push host is polled while open. The host is the authority; nothing here is cached beyond
  * the component.
  */
+/** A reviewer attempt's identity: findings read for one attempt never stand in for another. */
+function attemptKey(node: { attempt?: number; activation?: number }): string {
+	return `${node.attempt ?? 0}.${node.activation ?? 0}`;
+}
+
 export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const status = useAppStore((state) => state.status);
 	const generation = useAppStore((state) => state.connectionGeneration);
@@ -77,7 +82,10 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const [queue, setQueue] = useState<DagQueueView | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [dag, setDag] = useState<DagView | null>(null);
-	const [reviews, setReviews] = useState<Record<string, DagReviewView>>({});
+	// Each stored review remembers the reviewer attempt it was read for; only matching ones are shown.
+	const [reviews, setReviews] = useState<
+		Record<string, { attempt: string; review: DagReviewView }>
+	>({});
 	const refreshRef = useRef<() => void>(() => {});
 	const selectedRef = useRef<string | null>(null);
 
@@ -97,21 +105,31 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 		let disposed = false;
 		const tick = { current: 0 };
 		const readReviews = (view: DagView, ticket: number) => {
+			const forget = (nodeId: string) =>
+				setReviews((current) => {
+					if (!(nodeId in current)) return current;
+					const rest = { ...current };
+					delete rest[nodeId];
+					return rest;
+				});
 			for (const node of view.nodes) {
-				if (!node.reviewer || node.outcome === undefined) continue;
+				if (!node.reviewer) continue;
+				// A reviewer with no outcome (a retry in flight) has no findings to show.
+				if (node.outcome === undefined) {
+					forget(node.id);
+					continue;
+				}
+				const attempt = attemptKey(node);
 				void transport
 					.request("dag.review", { workspaceId, dagId: view.dagId, nodeId: node.id })
 					.then((review) => {
-						if (
-							disposed ||
-							ticket !== tick.current ||
-							selectedRef.current !== view.dagId ||
-							!review
-						)
-							return;
-						setReviews((current) => ({ ...current, [node.id]: review }));
+						if (disposed || ticket !== tick.current || selectedRef.current !== view.dagId) return;
+						if (!review) forget(node.id);
+						else setReviews((current) => ({ ...current, [node.id]: { attempt, review } }));
 					})
-					.catch(() => {});
+					.catch(() => {
+						if (!disposed && ticket === tick.current) forget(node.id);
+					});
 			}
 		};
 		const refresh = () => {
@@ -235,12 +253,19 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 		[workspaceId, select],
 	);
 
+	const currentReviews: Record<string, DagReviewView> = {};
+	if (dag)
+		for (const node of dag.nodes) {
+			const stored = reviews[node.id];
+			if (stored && stored.attempt === attemptKey(node)) currentReviews[node.id] = stored.review;
+		}
+
 	return {
 		items,
 		queue,
 		selectedId,
 		dag,
-		reviews,
+		reviews: currentReviews,
 		details,
 		history,
 		output,

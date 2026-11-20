@@ -701,6 +701,7 @@
 	"factory.review.severity.medium": "Среднее",
 	"factory.select": "Выберите рабочий процесс, чтобы увидеть его шаги и решения.",
 	"factory.start.automatic": "Автоматически ({{model}})",
+	"factory.start.automaticOtherFamily": "Автоматически (другое семейство, чем у кодера)",
 	"factory.start.heading": "Запустить фабрику",
 	"factory.start.mode": "Кто разбивает задачу",
 	"factory.start.mode.plan": "Планировщик",

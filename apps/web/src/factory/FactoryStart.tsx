@@ -146,7 +146,11 @@ export function FactoryStart({
 									data-testid={`factory-start-${role}`}
 								>
 									<option value="">
-										{t("factory.start.automatic", { model: effectiveKeyName(view, role) })}
+										{role === "reviewer" &&
+										form.picks.coder &&
+										form.picks.coder !== modelKey(view.defaults.coder)
+											? t("factory.start.automaticOtherFamily")
+											: t("factory.start.automatic", { model: effectiveKeyName(view, role) })}
 									</option>
 									{view.models.map((model) => (
 										<option key={modelKey(model)} value={modelKey(model)}>
