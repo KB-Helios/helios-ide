@@ -40,6 +40,12 @@ async function follow(
 			changedLine(content, mutation),
 			followTargetGroupId(groups, chatTabId),
 			(tabId) => !fileSharesChatGroup(workspaceId, tabId, chatTabId),
+			() => {
+				const current = useAppStore.getState();
+				return (
+					current.activeWorkspaceId === workspaceId && selectFollowActive(current, workspaceId)
+				);
+			},
 		);
 	} catch {
 		// The file may be gone again by the time we read it; there is nothing to follow.

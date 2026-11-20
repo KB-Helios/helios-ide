@@ -325,16 +325,23 @@ export async function followFileAtLine(
 	targetGroupId?: string,
 	/** Vetoes the select when the file already lives somewhere the caller must not surface (the chat's group). */
 	canSelect: (tabId: string) => boolean = () => true,
+	/** Re-checked once the file is open: false when the user paused or turned following off meanwhile. */
+	stillFollowing: () => boolean = () => true,
 ): Promise<void> {
 	// Canonicalize once so the tab, the reveal and the select intent all name the same file.
 	const canonical = projectRelativePath(
 		path,
 		selectWorkspaceById(useAppStore.getState(), workspaceId)?.worktreePath,
 	);
-	await openFileAtLine(workspaceId, canonical, { line, flash: true }, "preview", {
+	await openFileInTab(workspaceId, canonical, "preview", null, {
 		activate: false,
 		...(targetGroupId ? { targetGroupId } : {}),
 	});
+	// Opening may have waited on a read; the user's pause or off switch wins over a stale follow.
+	if (!stillFollowing()) return;
+	useAppStore
+		.getState()
+		.revealFileTab(workspaceId, canonical, { line, flash: true }, SOURCE_RENDERER_ID);
 	if (!targetGroupId) return;
 	const state = useAppStore.getState();
 	const tabId = tupleKey("file", workspaceId, canonical);
