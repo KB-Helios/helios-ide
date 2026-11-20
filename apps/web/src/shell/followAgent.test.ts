@@ -71,6 +71,16 @@ describe("changedLine", () => {
 		expect(changedLine(content, { kind: "edit", newText: "" })).toBe(1);
 		expect(changedLine(content, { kind: "edit", newText: "missing" })).toBe(1);
 	});
+
+	it("never picks an unrelated twin when the text matches more than once", () => {
+		const twins = "return 2;\nx\nreturn 2;\n";
+		expect(changedLine(twins, { kind: "edit", newText: "return 2;" })).toBe(1);
+	});
+
+	it("prefers the location the host reported, even for repeated text", () => {
+		const twins = "return 2;\nx\nreturn 2;\n";
+		expect(changedLine(twins, { kind: "edit", newText: "return 2;", firstChangedLine: 3 })).toBe(3);
+	});
 });
 
 describe("followTargetGroupId", () => {

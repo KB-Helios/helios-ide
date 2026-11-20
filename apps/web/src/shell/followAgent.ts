@@ -10,6 +10,17 @@ export interface FileMutation {
 	readonly path: string;
 	/** The text the edit put in the file; empty for a write, which reveals line 1. */
 	readonly newText: string;
+	/** The 1-based line the host reports as the first one the edit changed (`details.firstChangedLine`). */
+	readonly firstChangedLine?: number;
+}
+
+/** The host's own location for an edit, when its result carries one. */
+function reportedChangedLine(raw: unknown): number | undefined {
+	if (typeof raw !== "object" || raw === null) return undefined;
+	const details: unknown = Reflect.get(raw, "details");
+	if (typeof details !== "object" || details === null) return undefined;
+	const line: unknown = Reflect.get(details, "firstChangedLine");
+	return typeof line === "number" && Number.isInteger(line) && line >= 1 ? line : undefined;
 }
 
 const NEW_TEXT_KEYS = ["newText", "new_string", "new"] as const;
@@ -43,7 +54,15 @@ export function newFileMutations(
 				block.name === "write"
 					? ""
 					: (NEW_TEXT_KEYS.map((key) => stringArg(block.arguments, key)).find(Boolean) ?? "");
-			found.push({ toolCallId: block.id, kind: block.name, path, newText });
+			const reported =
+				block.name === "edit" ? reportedChangedLine(toolResults[block.id]?.raw) : undefined;
+			found.push({
+				toolCallId: block.id,
+				kind: block.name,
+				path,
+				newText,
+				...(reported ? { firstChangedLine: reported } : {}),
+			});
 		}
 	}
 	return found;
@@ -52,9 +71,10 @@ export function newFileMutations(
 /** The 1-based line the mutation starts at in `content`, or `1` when it cannot be found. */
 export function changedLine(
 	content: string,
-	mutation: Pick<FileMutation, "kind" | "newText">,
+	mutation: Pick<FileMutation, "kind" | "newText"> & { firstChangedLine?: number | undefined },
 ): number {
 	if (mutation.kind === "write") return 1;
+	if (mutation.firstChangedLine) return mutation.firstChangedLine;
 	const text = mutation.newText.trimStart();
 	const at = text ? content.indexOf(text) : -1;
 	// Several matches cannot say which one the edit changed; the top of the file beats an unrelated twin.

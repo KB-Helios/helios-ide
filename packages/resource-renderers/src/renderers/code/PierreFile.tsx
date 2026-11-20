@@ -102,10 +102,13 @@ function PierreFileSurface({
 	const [composer, setComposer] = useState<OpenComposer | null>(null);
 	const [selectedLines, setSelectedLines] = useState<SelectedLineRange | null>(null);
 	const nextComposerId = useRef(0);
+	const flashTimerRef = useRef(0);
 	const reviewRef = useRef(review);
 	reviewRef.current = review;
 	const openSelection = useCallback((range: SelectedLineRange | null) => {
 		if (!range || !reviewRef.current) return;
+		// A selection of the user's own must not be cleared by a flash that is still counting down.
+		window.clearTimeout(flashTimerRef.current);
 		const startLine = Math.min(range.start, range.end);
 		const endLine = Math.max(range.start, range.end);
 		setSelectedLines({ start: startLine, end: endLine });
@@ -174,7 +177,6 @@ function PierreFileSurface({
 	}, [rootRef]);
 	// The flash outlives the reveal's acknowledgment (which clears the tab's reveal and re-runs the effect
 	// below), so its timer is owned here: replaced by a newer flash, cleared on unmount.
-	const flashTimerRef = useRef(0);
 	useEffect(() => () => window.clearTimeout(flashTimerRef.current), []);
 	useEffect(() => {
 		if (revealLine === undefined || revealTick === undefined) return;
