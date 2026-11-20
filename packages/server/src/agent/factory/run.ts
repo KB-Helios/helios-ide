@@ -159,9 +159,7 @@ export class FactoryRun {
 		const file = this.retryFile(nodeId);
 		mkdirSync(dirname(file), { recursive: true });
 		// Replace atomically: a host stop mid-write must never leave a partial file that reads as 0 used.
-		const temp = `${file}.${process.pid}.tmp`;
-		writeFileSync(temp, JSON.stringify({ sessionId, used }));
-		renameSync(temp, file);
+		writeAtomically(file, JSON.stringify({ sessionId, used }));
 		return used;
 	}
 
@@ -178,9 +176,7 @@ export class FactoryRun {
 	}
 
 	writeMeta(meta: WorktreeMeta): void {
-		const file = this.metaFile(meta.nodeId);
-		mkdirSync(dirname(file), { recursive: true });
-		writeFileSync(file, JSON.stringify(meta, null, 2));
+		writeAtomically(this.metaFile(meta.nodeId), JSON.stringify(meta, null, 2));
 	}
 
 	/**
@@ -254,9 +250,23 @@ export class FactoryRun {
 	}
 
 	writeGateRecord(nodeId: string, record: GateRecord): void {
-		const file = this.gateFile(nodeId);
-		mkdirSync(dirname(file), { recursive: true });
-		writeFileSync(file, JSON.stringify(record, null, 2));
+		writeAtomically(this.gateFile(nodeId), JSON.stringify(record, null, 2));
+	}
+}
+
+/**
+ * Host records are replaced, never rewritten in place: the new content goes to a private temp file that is
+ * renamed over the record, so a host stop mid-write leaves the previous record intact and readable.
+ */
+export function writeAtomically(file: string, content: string): void {
+	mkdirSync(dirname(file), { recursive: true });
+	const temp = `${file}.${process.pid}.${Date.now()}.tmp`;
+	try {
+		writeFileSync(temp, content);
+		renameSync(temp, file);
+	} catch (error) {
+		rmSync(temp, { force: true });
+		throw error;
 	}
 }
 

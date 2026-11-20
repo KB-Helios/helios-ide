@@ -133,10 +133,16 @@ export async function inSnapshotCheckout<T>(
 		const removed = await runCommand("git", ["worktree", "remove", "--force", path], {
 			cwd: repo,
 		}).catch(() => undefined);
-		rmSync(path, { recursive: true, force: true });
-		// A registration git could not remove is pruned once its directory is gone; neither step may mask
-		// the gate result or an earlier gate error, so a failure here is only logged for cleanup.
-		if (removed?.code !== 0) {
+		// Neither cleanup step may mask the gate result or an earlier gate error: failures are only logged.
+		let leftover = false;
+		try {
+			rmSync(path, { recursive: true, force: true });
+		} catch (error) {
+			leftover = true;
+			log.warn(`could not delete the gate checkout ${path}`, error);
+		}
+		// A registration git could not remove is pruned once its directory is gone.
+		if (removed?.code !== 0 || leftover) {
 			const pruned = await runCommand("git", ["worktree", "prune"], { cwd: repo }).catch(
 				() => undefined,
 			);

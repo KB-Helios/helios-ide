@@ -35,7 +35,7 @@ import {
 	parseFactoryNode,
 } from "./index";
 import { landOnTarget } from "./landTools";
-import { confinedPath } from "./run";
+import { confinedPath, writeAtomically } from "./run";
 
 const model = { provider: "factory-faux", id: "worker" };
 const faux = createFauxCore({
@@ -627,6 +627,25 @@ test("a landing that stopped while recording its gated commit resumes it", async
 		await landFactory(run, { sources: ["coder-a"], release: "release", target: "main" }),
 	).toMatchObject([{ node: "coder-a", status: "landed" }]);
 	expect(lf(readFileSync(join(repo, "src", "a", "x.txt"), "utf8"))).toBe("x\n");
+});
+
+test("an interrupted record write leaves the previous record readable and landing resumes", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo, { trusted: true, approved: true });
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "x\n");
+	expect((await runFactoryGates(run, meta)).ok).toBe(true);
+	const file = join(run.options.worktreeRoot, ".meta", run.dagId, "coder-a.json");
+	// A host stop mid-write leaves only a partial temp file behind; the record itself is untouched.
+	writeFileSync(`${file}.${process.pid}.1.tmp`, '{"nodeId": "coder-a", "pa');
+	expect(run.readMeta("coder-a")).toMatchObject({ nodeId: "coder-a", path: meta.path });
+	// A failing replacement never corrupts the record either.
+	expect(() => writeAtomically(join(file, "not-a-dir", "x.json"), "{}")).toThrow();
+	expect(run.readMeta("coder-a")).toMatchObject({ nodeId: "coder-a" });
+	expect(
+		await landFactory(run, { sources: ["coder-a"], release: "release", target: "main" }),
+	).toMatchObject([{ node: "coder-a", status: "landed" }]);
 });
 
 test("a cancelled gate run is never recorded, and drifted gate definitions refuse", async () => {
