@@ -42,18 +42,21 @@ export class FactorySlots {
 	/**
 	 * Resolves the release, or `undefined` when `signal` aborted while the turn was still waiting.
 	 * `runnable` is asked before a slot is taken and again once one is granted: a turn whose DAG is
-	 * paused takes no slot, it stays queued (re-checked every `PAUSE_POLL_MS`) until the DAG runs again.
+	 * paused takes no slot, it stays queued until the DAG runs again. `wait` is how a paused turn sleeps:
+	 * it resolves `true` when something may have changed (the host passes the DAG's change event) and
+	 * `false` when `signal` aborted. Without one the turn re-checks every `PAUSE_POLL_MS`.
 	 */
 	async acquire(
 		signal: AbortSignal | undefined,
 		runnable?: () => boolean | Promise<boolean>,
+		wait: (signal: AbortSignal | undefined) => Promise<boolean> = pause,
 	): Promise<(() => void) | undefined> {
 		if (signal?.aborted) return undefined;
 		const ticket = Symbol("factory-slot");
 		this.waiting.add(ticket);
 		try {
 			for (;;) {
-				while (runnable && !(await runnable())) if (!(await pause(signal))) return undefined;
+				while (runnable && !(await runnable())) if (!(await wait(signal))) return undefined;
 				const release = await this.take(signal);
 				if (!release) return undefined;
 				if (!runnable || (await runnable())) {
@@ -140,11 +143,17 @@ export function withFactorySlots(
 	slots: FactorySlots,
 	/** False while the DAG (the resource id) is paused: its waiting turns stay queued without a slot. */
 	dagRuns?: (dagId: string) => boolean | Promise<boolean>,
+	/** Resolves when the DAG changed (so `dagRuns` is worth asking again); `false` once `signal` aborted. */
+	dagChanged?: (dagId: string, signal: AbortSignal | undefined) => Promise<boolean>,
 ): DelegationService {
 	const gate = (dagId: string, handle: ResourceChildHandle): ResourceChildHandle => ({
 		...handle,
 		runQueued: async (task, opts = {}) => {
-			const release = await slots.acquire(opts.signal, dagRuns && (() => dagRuns(dagId)));
+			const release = await slots.acquire(
+				opts.signal,
+				dagRuns && (() => dagRuns(dagId)),
+				dagChanged && ((signal) => dagChanged(dagId, signal)),
+			);
 			try {
 				return await handle.runQueued(task, opts);
 			} finally {

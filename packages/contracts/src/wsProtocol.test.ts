@@ -34,6 +34,7 @@ import {
 	completionDelivery,
 	customMessageText,
 	DAG_PROTOCOL_VERSION,
+	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
 	DEFAULT_MODEL_PROTOCOL_VERSION,
@@ -800,4 +801,10 @@ test("the DAG queue method is pinned to v132", () => {
 	expect(DAG_QUEUE_PROTOCOL_VERSION).toBe(132);
 	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_QUEUE_PROTOCOL_VERSION);
 	expect(WS_METHODS.dagQueue).toBe("dag.queue");
+});
+
+test("dag.changed progress push is pinned to v133", () => {
+	expect(DAG_PUSH_PROTOCOL_VERSION).toBe(133);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_PUSH_PROTOCOL_VERSION);
+	expect(WS_CHANNELS.dagChanged).toBe("dag.changed");
 });

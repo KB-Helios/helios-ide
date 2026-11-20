@@ -24,13 +24,13 @@ export {
 	saveCustomEndpoint,
 } from "./customEndpoints";
 export { trashWorkspaceDag } from "./dag";
+export { setDagPublisher } from "./dagChanges";
 export {
 	executeWorkspaceDag,
 	listWorkspaceDags,
 	readWorkspaceDag,
 	readWorkspaceQueue,
 	readWorkspaceReview,
-	setDagPublisher,
 	stopDagWire,
 } from "./dagWire";
 export {

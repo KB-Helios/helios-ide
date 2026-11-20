@@ -1,5 +1,6 @@
 import {
 	DAG_PROTOCOL_VERSION,
+	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
 	type DagChanged,
@@ -15,8 +16,11 @@ import { randomId } from "@/lib";
 import { useAppStore } from "@/store";
 import { getTransport, wsErrorCode } from "@/transport";
 
-/** While the pane is open the host is re-read at this pace: chat and worker progress is not pushed. */
-const OPEN_REFRESH_MS = 5000;
+/**
+ * A host older than `DAG_PUSH_PROTOCOL_VERSION` pushes `dag.changed` only after wire commands, so while
+ * the pane is open such a host is re-read at this pace. A current host needs no polling.
+ */
+const LEGACY_REFRESH_MS = 5000;
 
 export type FactoryFailure = "stale" | "rejected";
 
@@ -35,8 +39,8 @@ export interface FactoryState {
 }
 
 /**
- * The workspace's DAGs: read once per connection, re-read on each `dag.changed` for this workspace and,
- * while the pane is open, on a slow interval. The host is the authority; nothing here is cached beyond
+ * The workspace's DAGs: read once per connection and re-read on each `dag.changed` for this workspace
+ * (the host debounces and pushes every committed change); only a pre-push host is polled while open. The host is the authority; nothing here is cached beyond
  * the component.
  */
 export function useFactory(workspaceId: string, open: boolean): FactoryState {
@@ -46,6 +50,7 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const supported = protocol !== null && protocol >= DAG_PROTOCOL_VERSION;
 	const reviewable = protocol !== null && protocol >= DAG_REVIEW_PROTOCOL_VERSION;
 	const queueable = protocol !== null && protocol >= DAG_QUEUE_PROTOCOL_VERSION;
+	const pushed = protocol !== null && protocol >= DAG_PUSH_PROTOCOL_VERSION;
 	const [items, setItems] = useState<DagListItem[] | null>(null);
 	const [queue, setQueue] = useState<DagQueueView | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -110,14 +115,14 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 			if ((payload as DagChanged).workspaceId === workspaceId) refresh();
 		});
 		refresh();
-		const timer = open ? setInterval(refresh, OPEN_REFRESH_MS) : undefined;
+		const timer = open && !pushed ? setInterval(refresh, LEGACY_REFRESH_MS) : undefined;
 		return () => {
 			disposed = true;
 			refreshRef.current = () => {};
 			unsubscribe();
 			if (timer !== undefined) clearInterval(timer);
 		};
-	}, [workspaceId, status, supported, reviewable, queueable, generation, open]);
+	}, [workspaceId, status, supported, reviewable, queueable, pushed, generation, open]);
 
 	const select = useCallback((dagId: string | null) => {
 		selectedRef.current = dagId;

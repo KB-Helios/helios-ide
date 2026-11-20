@@ -12,13 +12,13 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import type { DagChanged } from "@thinkrail/contracts";
 import type { DagClient, DagDefinition, DagResult, DagSnapshot } from "pi-dag";
 import { closeAllDags, dagServiceFor } from "./dag";
+import { setDagChangeDebounce, setDagPublisher } from "./dagChanges";
 import {
 	DAG_OPERATOR_ID,
 	executeWorkspaceDag,
 	listWorkspaceDags,
 	readWorkspaceDag,
 	readWorkspaceQueue,
-	setDagPublisher,
 	toDagCommand,
 } from "./dagWire";
 import { configurePiRuntime } from "./piRuntime";
@@ -86,6 +86,7 @@ beforeAll(async () => {
 
 afterEach(async () => {
 	setDagPublisher(null);
+	setDagChangeDebounce(undefined);
 	await closeAllDags();
 });
 
@@ -185,7 +186,7 @@ test("the UI lists a DAG and approves its human gate without a chat", async () =
 		command: { kind: "resume" },
 	});
 	expect(resumed.dag.mode).toBe("running");
-	expect(changes).toEqual([{ workspaceId, dagId }]);
+	expect(changes[0]).toEqual({ workspaceId, dagId });
 
 	const waiting = await until(dagId, (snapshot) =>
 		snapshot.gates.some((g) => g.disposition === "pending"),
@@ -226,6 +227,37 @@ test("the UI lists a DAG and approves its human gate without a chat", async () =
 	const gate = settled.gates[0];
 	expect(gate?.disposition).toBe("approved");
 	expect(gate?.decision?.actor).toEqual({ kind: "human", operatorId: DAG_OPERATOR_ID });
+});
+
+test("worker progress and settlement are pushed as dag.changed without any wire command", async () => {
+	setDagChangeDebounce(10);
+	const dagId = await createDag();
+	const changes: DagChanged[] = [];
+	setDagPublisher((payload) => changes.push(payload));
+	faux.setResponses([
+		fauxAssistantMessage(
+			fauxToolCall("dag_submit_result", { outputs: { result: { kind: "text", text: "DONE" } } }),
+		),
+	]);
+	// The owner binding is not the wire: nothing here goes through executeWorkspaceDag.
+	const paused = value(await owner().getDag({ dagId }));
+	value(
+		await owner().execute({
+			commandId: `push-resume-${serial++}`,
+			dagId,
+			expectedVersion: paused.version,
+			command: { kind: "resume" },
+		}),
+	);
+	await until(dagId, (snapshot) => snapshot.gates.some((g) => g.disposition === "pending"));
+	await Bun.sleep(100);
+	expect(changes.length).toBeGreaterThanOrEqual(1);
+	expect(changes.every((c) => c.dagId === dagId && c.workspaceId === workspaceId)).toBe(true);
+	// The last push is after the last commit: re-reading it shows the settled node.
+	const view = await readWorkspaceDag(workspaceId, dagId);
+	expect(view.nodes.map((node) => node.status)).toEqual(["waiting-approval"]);
+	// Debounced: a burst of commits (admission, run, proposal, gate) publishes far fewer pushes.
+	expect(changes.length).toBeLessThanOrEqual(view.version);
 });
 
 test("a stale version is reported as DAG_STALE, not applied", async () => {

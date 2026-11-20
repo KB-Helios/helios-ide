@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import type {
-	DagChanged,
 	DagExecuteRequest,
 	DagListItem,
 	DagQueueView,
@@ -19,6 +18,7 @@ import type {
 import { getWorkspace } from "../workspaces";
 import { sessionlessProjectTrust } from "./agentSessionManager";
 import { dagServiceFor } from "./dag";
+import { cancelPendingDagChanges, publishDagChangedNow } from "./dagChanges";
 import { factoryQueueOf } from "./factory";
 import { FINDINGS_PORT, isReviewerNode, parseFindings } from "./factoryReview/reviewer";
 import { getPiRuntime } from "./piRuntime";
@@ -33,14 +33,10 @@ export const DAG_OPERATOR_ID = "thinkrail-ui";
 const HUMAN: DagCaller = { kind: "human", operatorId: DAG_OPERATOR_ID };
 const DAG_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
-let publish: (payload: DagChanged) => void = () => {};
-export function setDagPublisher(next: ((payload: DagChanged) => void) | null): void {
-	publish = next ?? (() => {});
-}
-
 /** Bindings live as long as the host: shutdown revokes them, the next start re-arms. */
 let hostLifetime = new AbortController();
 export function stopDagWire(): void {
+	cancelPendingDagChanges();
 	hostLifetime.abort();
 	hostLifetime = new AbortController();
 }
@@ -297,7 +293,7 @@ export async function executeWorkspaceDag(params: unknown): Promise<{ dag: DagVi
 	const command = toDagCommand(p.command);
 	const client = await commandClient(workspaceId);
 	unwrap(await client.execute({ commandId, dagId, expectedVersion, command }));
-	publish({ workspaceId, dagId });
+	publishDagChangedNow({ workspaceId, dagId });
 	return { dag: toDagView(unwrap(await client.getDag({ dagId }))) };
 }
 

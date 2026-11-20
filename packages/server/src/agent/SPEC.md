@@ -1520,9 +1520,23 @@ when the DAG was created). A DAG belongs to no chat, so project trust is
 `sessionlessProjectTrust(workspaceId, cwd)`: pi's folder trust (`piTrustsProjectPath`) and the workspace's
 resource trust, the two conditions a live session checks, re-read on every call. Children run on the
 current runtime generation, not a parent's retained one. Stale versions surface as `DAG_STALE`, other refusals as `DAG_REJECTED`.
-`dag.changed` is published after each accepted wire command; changes made by the controller or workers are
-not pushed, so the pane re-reads on an interval while open. Reviewer findings, model roles and the per-node
+`dag.changed` is pushed for every durable change (see "Live progress push"), not only after wire commands. Reviewer findings, model roles and the per-node
 run log: see "Factory review and model roles".
+
+### Live progress push
+
+pi-dag's only prior hook was a persisted notice attachment (it writes into every DAG and only reaches idle chats),
+so the package got one narrow observer: `DagServiceOptions.onChange({ dagId, version })`, called after each
+durably committed state (creation and every `save`: admission, settlement, gates, controller and human
+commands) outside the state queue, never for streaming deltas, and with failures swallowed so an observer
+cannot affect scheduling. `dagServiceFor` passes `dagChanged(workspaceId, dagId)` (`dagChanges.ts`), which
+(1) wakes host code waiting on that DAG at once and (2) publishes `dag.changed` trailing-debounced per DAG
+(`DAG_CHANGE_DEBOUNCE_MS`, 120 ms: a burst becomes one push). A wire command still publishes immediately
+(`publishDagChangedNow`) and drops its queued push. `stopDagWire` cancels queued pushes. The factory slots'
+paused-DAG wait is the same event (`waitForDagChange`, safety re-check after `DAG_WAIT_SAFETY_MS`) instead
+of a 100 ms poll; `FactorySlots.acquire` keeps the poll only when no wait function is given (unit use).
+Tests: `dagChanges.test.ts`, `dagWire.test.ts` (push without a wire command), `factorySlots.test.ts`, and
+pi-dag `runtime/service.test.ts` (onChange).
 
 ## Factory worker nodes
 

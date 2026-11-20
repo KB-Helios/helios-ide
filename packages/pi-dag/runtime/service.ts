@@ -40,6 +40,13 @@ export interface DagServiceOptions {
 	storageRoot: string;
 	scope: string;
 	delegation: Core.DelegationService;
+	/**
+	 * Called after every durably committed state change of a DAG this service owns (creation, admission,
+	 * settlement, gates, commands) with the new storage version. It is an observer only: it runs outside
+	 * the state queue, its failure is swallowed and it can neither read nor change anything through it.
+	 * Streaming deltas do not advance versions, so they never call it.
+	 */
+	onChange?: (change: { dagId: string; version: number }) => void;
 }
 const uid = (prefix: string) => `${prefix}-${randomUUID()}`;
 const text = (bytes: Uint8Array) => new TextDecoder("utf8", { fatal: true }).decode(bytes);
@@ -277,6 +284,14 @@ class Engine implements D.DagService {
 		}
 		owned.state = state;
 		this.flushNotices();
+		this.changed(state);
+	}
+	private changed(state: D.DagState): void {
+		try {
+			this.options.onChange?.({ dagId: state.dagId, version: state.version });
+		} catch {
+			// An observer must never affect scheduling.
+		}
 	}
 	private halt(owned: Owned, error: unknown): void {
 		owned.fault = failure(error);
@@ -660,6 +675,7 @@ class Engine implements D.DagService {
 			this.guard(binding);
 			await lease.save(state, undefined, () => this.guard(binding));
 			this.owners.set(id, owned);
+			this.changed(state);
 			return structuredClone(receipt);
 		} catch (error) {
 			await owned?.resource?.release();

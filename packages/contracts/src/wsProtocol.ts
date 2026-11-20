@@ -157,13 +157,15 @@ export type TemplateReadLocation =
 	| { projectId: string; workspaceId?: never }
 	| { workspaceId?: never; projectId?: never };
 
-export const PROTOCOL_VERSION = 132;
+export const PROTOCOL_VERSION = 133;
 /** `dag.list` / `dag.get` / `dag.execute` and the `dag.changed` channel: the workspace factory view. */
 export const DAG_PROTOCOL_VERSION = 130;
 /** `dag.review` plus per-node model, thinking level, usage and outcome on `DagView` nodes. */
 export const DAG_REVIEW_PROTOCOL_VERSION = 131;
 /** `dag.queue`: running and queued DAG worker turns against the workspace cap. */
 export const DAG_QUEUE_PROTOCOL_VERSION = 132;
+/** `dag.changed` is pushed for worker progress, settlement and chat-controller changes too, not only wire commands. */
+export const DAG_PUSH_PROTOCOL_VERSION = 133;
 /** `commit.*` methods and the `commit.analyzed` channel. */
 export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 129;
 /** `swarm.get` / `swarm.diff` and the `swarm.changed` channel: a chat's swarm board. */

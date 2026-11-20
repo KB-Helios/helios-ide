@@ -44,10 +44,10 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   (`DAG_STALE`) is shown as "changed in the meantime", the pane re-reads and the user decides again;
   any other refusal (`DAG_REJECTED`) is shown without detail.
 - `useFactory` reads `dag.list` once per connection and re-reads on each `dag.changed` for this
-  workspace. The host publishes that push after commands it accepted through the wire only: progress made
-  by the chat controller or by workers is not pushed (pi-dag's only hook is a persisted notice
-  attachment, which would write into every DAG), so while the pane is open the hook also re-reads every
-  5 seconds. The trigger itself only reads on connect and on push.
+  workspace. From `DAG_PUSH_PROTOCOL_VERSION` (v133) the host pushes every committed change of a DAG
+  (worker admission and settlement, gates, controller and wire commands; debounced), so the pane never
+  polls. Only a host older than v133, which pushes after wire commands alone, is re-read every 5 seconds
+  while the pane is open. The trigger itself only reads on connect and on push.
 - A host older than `DAG_PROTOCOL_VERSION` hides the surface; one older than `DAG_REVIEW_PROTOCOL_VERSION`
   shows it without the run log and findings, and one older than `DAG_QUEUE_PROTOCOL_VERSION` without the
   worker-slots line.

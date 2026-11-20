@@ -5,6 +5,7 @@ import { createDagExtension, createDagService, type DagService } from "pi-dag";
 import { dataDir } from "../persistence";
 import { trashFile } from "../trash";
 import { liveParentContext } from "./agentSessionManager";
+import { dagChanged, waitForDagChange } from "./dagChanges";
 import { delegationServiceFor, subagentConcurrencyFor } from "./delegation";
 import {
 	dropFactorySlots,
@@ -38,6 +39,7 @@ export function dagServiceFor(workspaceId: string): DagService {
 		const created: DagService = createDagService({
 			storageRoot: dagRootDir(workspaceId),
 			scope: workspaceId,
+			onChange: ({ dagId }) => dagChanged(workspaceId, dagId),
 			delegation: withFactorySlots(
 				withFactoryWorkers(delegationServiceFor(workspaceId), {
 					workspaceId,
@@ -55,6 +57,7 @@ export function dagServiceFor(workspaceId: string): DagService {
 					// An unreadable DAG must not strand its turn in the queue: let the inner run decide.
 					return !result.ok || result.value.mode === "running";
 				},
+				(dagId, signal) => waitForDagChange(workspaceId, dagId, signal),
 			),
 		});
 		service = created;

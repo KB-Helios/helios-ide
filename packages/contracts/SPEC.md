@@ -1560,6 +1560,11 @@ From **`DAG_QUEUE_PROTOCOL_VERSION`** (v132, additive): `dag.queue` `{ workspace
 `queued` wait for one; the waiting nodes read `queued` in `DagView`). An unknown or invalid workspace fails
 like the other `dag.*` reads. A host older than v132 has no such method and the pane omits the line.
 
+From **`DAG_PUSH_PROTOCOL_VERSION`** (v133, behavioural): the workspace-scoped `dag.changed` push is no longer limited
+to accepted wire commands. The host publishes it (debounced per DAG) for every durable change pi-dag commits:
+worker admission and settlement, gate decisions and chat-controller commands. No new method or field; a pane
+only stops polling when the host is at least v133.
+
 ## Get right
 
 - **Mirrors are not version-pinned in comments.** A shape re-declared here because its real home is

@@ -1657,3 +1657,39 @@ test.skipIf(process.platform === "win32")(
 		if (failures.length) throw new AggregateError(failures, "FIFO capture regression");
 	},
 );
+
+test("onChange observes every committed version, including settlement, and cannot break the service", async () => {
+	const seen: Array<{ dagId: string; version: number }> = [];
+	const service = createDagService({
+		storageRoot: join(root, "dags"),
+		scope: `test-${serial++}`,
+		delegation: createDelegationService({
+			delegationRoot: join(root, "children"),
+			scope: "shared-core",
+		}),
+		onChange(change) {
+			seen.push(change);
+			throw new Error("observer failure is swallowed");
+		},
+	});
+	services.push(service);
+	const execution = { kind: "runtime" as const, modelRuntime: runtime, cwd: root, model };
+	const owner = service.bind({
+		caller: { kind: "owner", ownerId: "host" },
+		signal: new AbortController().signal,
+		execution,
+	});
+	faux.setResponses([result("OBSERVED")]);
+	const dagId = await start(owner);
+	expect(seen[0]).toEqual({ dagId, version: 1 });
+	const settled = await until(
+		owner,
+		dagId,
+		(snapshot) => snapshot.nodes[0]?.status === "completed",
+	);
+	const versions = seen.map((change) => change.version);
+	expect(versions).toEqual([...versions].sort((a, b) => a - b));
+	expect(new Set(versions).size).toBe(versions.length);
+	expect(versions.at(-1)).toBe(settled.version);
+	expect(seen.every((change) => change.dagId === dagId)).toBe(true);
+});
