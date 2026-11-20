@@ -88,6 +88,14 @@ export function FileChangeCard({
 					className="text-text-default tr-code-path"
 				/>
 				<span className="shrink-0 text-text-muted tr-text-metadata">{verb}</span>
+				{status === "error" ? (
+					<span
+						data-testid="file-change-failed"
+						className="shrink-0 text-feedback-error tr-text-metadata"
+					>
+						{t("tools.fileChange.failed")}
+					</span>
+				) : null}
 				<span
 					role="img"
 					data-testid="file-change-stats"

@@ -3362,6 +3362,7 @@
 	"tools.collapsible.showAll_other": "Show all {{count}} lines",
 	"tools.collapsible.showLess": "Show less",
 	"tools.edit.edited": "edited",
+	"tools.fileChange.failed": "Failed",
 	"tools.fileChange.openInspector": "Open in Inspector",
 	"tools.fileChange.stats": "{{added}} lines added, {{removed}} lines removed",
 	"tools.fileChange.toggle": "Show or hide changes to {{path}}",

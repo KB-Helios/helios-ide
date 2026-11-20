@@ -57,7 +57,8 @@ export function changedLine(
 	if (mutation.kind === "write") return 1;
 	const text = mutation.newText.trimStart();
 	const at = text ? content.indexOf(text) : -1;
-	if (at < 0) return 1;
+	// Several matches cannot say which one the edit changed; the top of the file beats an unrelated twin.
+	if (at < 0 || content.indexOf(text, at + 1) >= 0) return 1;
 	let line = 1;
 	for (let i = 0; i < at; i += 1) if (content.charCodeAt(i) === 10) line += 1;
 	return line;

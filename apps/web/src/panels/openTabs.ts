@@ -70,9 +70,15 @@ async function openReadTab<T>(
 	if (pending) {
 		if (intent === "preview" || claimPreview) pending.claimPreview = true;
 		if (intent === "keep") pending.intent = "keep";
-		pending.placement = placement;
-		pending.navigation = navigation;
-		pending.requestedAt = navTick(workspaceId);
+		// A passive request (Follow Agent) joins a pending foreground open without taking it over: the user's
+		// activation and navigation stamp stay. A foreground request still supersedes a passive one.
+		const passiveJoiningForeground =
+			placement.activate === false && pending.placement.activate !== false;
+		if (!passiveJoiningForeground) {
+			pending.placement = placement;
+			pending.navigation = navigation;
+			pending.requestedAt = navTick(workspaceId);
+		}
 		return pending.done;
 	}
 	const cached = (store.tabsByWorkspace[workspaceId] ?? []).find(

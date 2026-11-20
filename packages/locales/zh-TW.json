@@ -2497,6 +2497,7 @@
 	"tools.collapsible.showAll_other": "顯示全部 {{count}} 行",
 	"tools.collapsible.showLess": "顯示較少",
 	"tools.edit.edited": "已編輯",
+	"tools.fileChange.failed": "失敗",
 	"tools.fileChange.openInspector": "在檢視器中開啟",
 	"tools.fileChange.stats": "新增 {{added}} 行，刪除 {{removed}} 行",
 	"tools.fileChange.toggle": "顯示或隱藏 {{path}} 的變更",

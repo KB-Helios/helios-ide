@@ -2465,6 +2465,7 @@
 	"tools.collapsible.showAll_other": "全 {{count}} 行を表示",
 	"tools.collapsible.showLess": "表示を減らす",
 	"tools.edit.edited": "編集済み",
+	"tools.fileChange.failed": "失敗",
 	"tools.fileChange.openInspector": "インスペクターで開く",
 	"tools.fileChange.stats": "{{added}} 行追加、{{removed}} 行削除",
 	"tools.fileChange.toggle": "{{path}} の変更を表示または非表示",

@@ -2648,6 +2648,7 @@
 	"tools.collapsible.showAll_other": "Mostrar {{count}} líneas",
 	"tools.collapsible.showLess": "Mostrar menos",
 	"tools.edit.edited": "editado",
+	"tools.fileChange.failed": "Error",
 	"tools.fileChange.openInspector": "Abrir en el Inspector",
 	"tools.fileChange.stats": "{{added}} líneas añadidas, {{removed}} líneas eliminadas",
 	"tools.fileChange.toggle": "Mostrar u ocultar los cambios en {{path}}",

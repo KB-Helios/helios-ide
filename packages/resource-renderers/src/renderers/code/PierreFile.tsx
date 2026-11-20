@@ -75,6 +75,7 @@ function PierreFileSurface({
 	onViewState,
 	reveal,
 	onRevealHandled,
+	onUserNavigated,
 }: ResourceViewProps) {
 	const t = useT();
 	const plain = usePierrePlain();
@@ -158,16 +159,33 @@ function PierreFileSurface({
 	const revealTick = reveal?.tick;
 	const revealFlash = reveal?.flash === true;
 	const revealHandled = useEffectEvent((tick: number) => onRevealHandled?.(tick));
+	const userNavigated = useEffectEvent(() => onUserNavigated?.());
+	useEffect(() => {
+		const root = rootRef.current;
+		if (!root) return;
+		// Capture phase: the scroller may consume a wheel or key event before it bubbles.
+		const types = ["wheel", "pointerdown", "keydown"] as const;
+		const listener = () => userNavigated();
+		for (const type of types)
+			root.addEventListener(type, listener, { passive: true, capture: true });
+		return () => {
+			for (const type of types) root.removeEventListener(type, listener, { capture: true });
+		};
+	}, [rootRef]);
+	// The flash outlives the reveal's acknowledgment (which clears the tab's reveal and re-runs the effect
+	// below), so its timer is owned here: replaced by a newer flash, cleared on unmount.
+	const flashTimerRef = useRef(0);
+	useEffect(() => () => window.clearTimeout(flashTimerRef.current), []);
 	useEffect(() => {
 		if (revealLine === undefined || revealTick === undefined) return;
 		let frame = 0;
-		let flashTimer = 0;
 		let attempts = 0;
 		const attempt = () => {
 			if (virtualizer.revealLine(revealLine)) {
 				setSelectedLines({ start: revealLine, end: revealLine });
 				if (revealFlash) {
-					flashTimer = window.setTimeout(
+					window.clearTimeout(flashTimerRef.current);
+					flashTimerRef.current = window.setTimeout(
 						() => setSelectedLines((current) => (current?.start === revealLine ? null : current)),
 						1500,
 					);
@@ -181,7 +199,6 @@ function PierreFileSurface({
 		attempt();
 		return () => {
 			cancelAnimationFrame(frame);
-			window.clearTimeout(flashTimer);
 		};
 	}, [virtualizer, revealLine, revealFlash, revealTick]);
 

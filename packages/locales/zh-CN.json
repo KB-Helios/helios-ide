@@ -2695,6 +2695,7 @@
 	"tools.collapsible.showAll_other": "显示全部 {{count}} 行",
 	"tools.collapsible.showLess": "收起",
 	"tools.edit.edited": "已编辑",
+	"tools.fileChange.failed": "失败",
 	"tools.fileChange.openInspector": "在检查器中打开",
 	"tools.fileChange.stats": "新增 {{added}} 行，删除 {{removed}} 行",
 	"tools.fileChange.toggle": "显示或隐藏 {{path}} 的更改",

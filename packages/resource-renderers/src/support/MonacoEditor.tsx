@@ -161,10 +161,12 @@ export default function MonacoEditor({
 		commentingRef.current = commenting;
 		const userNavigated = () => latestRef.current.onUserNavigated?.();
 		const userEvents = ["wheel", "pointerdown", "keydown"] as const;
+		// Capture phase: Monaco's scrollbar stops wheel events before they bubble to the container.
 		for (const type of userEvents)
-			container.addEventListener(type, userNavigated, { passive: true });
+			container.addEventListener(type, userNavigated, { passive: true, capture: true });
 		return () => {
-			for (const type of userEvents) container.removeEventListener(type, userNavigated);
+			for (const type of userEvents)
+				container.removeEventListener(type, userNavigated, { capture: true });
 			clearFlash(flashRef);
 			const saved = codeEditor.saveViewState();
 			if (saved) latestRef.current.onViewState?.(saved);

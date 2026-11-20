@@ -81,7 +81,11 @@ export function useFollowAgent(): void {
 				if (previous && runtime.toolResults === previous.sessions[tab.sessionId]?.toolResults) {
 					continue;
 				}
-				const following = runtime.isStreaming && selectFollowActive(state, workspaceId);
+				// One event batch can carry a settled edit and the turn's own agent_settled: the run that
+				// just ended in this update still counts as streaming for the mutations it completed.
+				const wasStreaming = previous?.sessions[tab.sessionId]?.isStreaming === true;
+				const following =
+					(runtime.isStreaming || wasStreaming) && selectFollowActive(state, workspaceId);
 				for (const mutation of fresh) {
 					seen.add(mutation.toolCallId);
 					if (following) {

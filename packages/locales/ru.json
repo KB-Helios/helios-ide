@@ -3248,6 +3248,7 @@
 	"tools.collapsible.showAll_other": "Показать все {{count}} строк",
 	"tools.collapsible.showLess": "Свернуть",
 	"tools.edit.edited": "изменено",
+	"tools.fileChange.failed": "Ошибка",
 	"tools.fileChange.openInspector": "Открыть в инспекторе",
 	"tools.fileChange.stats": "Добавлено строк: {{added}}, удалено строк: {{removed}}",
 	"tools.fileChange.toggle": "Показать или скрыть изменения в {{path}}",
