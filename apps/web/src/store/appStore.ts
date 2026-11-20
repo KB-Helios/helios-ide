@@ -1247,6 +1247,12 @@ interface AppState {
 	/** The host's PR babysit session per workspace id, from `prBabysit.get` and `prBabysit.changed`. */
 	prBabysit: Readonly<Record<string, PrBabysitSessionState>>;
 	installPrBabysitState: (workspaceId: string, state: PrBabysitSessionState | null) => void;
+	/** The host's commit analysis index per workspace id, from `commit.analysisList` and `commit.analyzed`. */
+	commitAnalysesByWorkspace: Readonly<Record<string, { shas: string[]; pending: string[] }>>;
+	installCommitAnalysisIndex: (
+		workspaceId: string,
+		index: { shas: string[]; pending: string[] },
+	) => void;
 	otherAgentSkills: boolean;
 	disabledPackages: string[];
 	locale: string;
@@ -2682,6 +2688,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 			const { [workspaceId]: _previous, ...rest } = current.prBabysit;
 			return { prBabysit: state ? { ...rest, [workspaceId]: state } : rest };
 		}),
+	commitAnalysesByWorkspace: {},
+	installCommitAnalysisIndex: (workspaceId, index) =>
+		set((current) => ({
+			commitAnalysesByWorkspace: { ...current.commitAnalysesByWorkspace, [workspaceId]: index },
+		})),
 	otherAgentSkills: DEFAULT_CONFIG.otherAgentSkills,
 	disabledPackages: DEFAULT_CONFIG.disabledPackages,
 	locale: DEFAULT_CONFIG.locale,

@@ -1,3 +1,9 @@
+export type * from "./commitAnalysis";
+export {
+	isArchitectureImpact,
+	isCommitAnalysis,
+	isCommitAnalysisRecord,
+} from "./commitAnalysis";
 export type * from "./domain";
 export {
 	ACCEPTED_IMAGE_TYPES,

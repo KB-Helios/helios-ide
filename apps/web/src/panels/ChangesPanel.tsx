@@ -1,3 +1,4 @@
+import { RiShieldCheckLine as ShieldCheck } from "@remixicon/react";
 import type { GitFileChange, GitStatus } from "@thinkrail/contracts";
 import { useT } from "@thinkrail/locales/react";
 import { Button } from "@thinkrail/ui/button";
@@ -22,18 +23,20 @@ import {
 	toast,
 	useAppStore,
 } from "../store";
-import { errorText, getTransport } from "../transport";
+import { errorText, getTransport, supportsCommitAnalysis, wsErrorCode } from "../transport";
 import { BranchPicker } from "./BranchPicker";
 import { useBranchList } from "./branches";
 import { ChangeRowActions } from "./ChangeRowActions";
 import { ChangesScopeMenu } from "./ChangesScopeMenu";
 import { ChangesTree } from "./ChangesTree";
+import { CommitAnalysisDialog } from "./CommitAnalysisDialog";
 import { changesTabId, scopeKey, splitPath, statusNameClass } from "./changesModel";
 import { DiffStatBadge } from "./DiffStatBadge";
 import { openChangesTab, openDiffInTab } from "./openTabs";
 import { RememberedScrollArea } from "./RememberedScrollArea";
 import { Tree, useTreeItem } from "./treeNavigation";
 import { useAgentChanges } from "./useAgentChanges";
+import { useCommitAnalysisIndex } from "./useCommitAnalyses";
 import { ViewedMark } from "./ViewedMark";
 
 function selectReviewTab(
@@ -174,6 +177,9 @@ export function ChangesPanel({
 						scope={scope}
 						onSelectScope={(next) => setDiffScope(workspaceId, next)}
 					/>
+					{scope.kind === "commit" ? (
+						<CommitAnalysisAction workspaceId={workspaceId} sha={scope.sha} />
+					) : null}
 					{workspace ? (
 						<div className="flex min-w-0 max-w-[200px]">
 							<BranchPicker
@@ -260,6 +266,61 @@ export function ChangesPanel({
 				)}
 			</RememberedScrollArea>
 		</div>
+	);
+}
+
+function CommitAnalysisAction({ workspaceId, sha }: { workspaceId: string; sha: string }) {
+	const t = useT();
+	const supported = useAppStore((state) => supportsCommitAnalysis(state.protocolVersion));
+	const analyses = useCommitAnalysisIndex(workspaceId);
+	const [dialogOpen, setDialogOpen] = useState(false);
+	if (!supported) return null;
+	if (analyses.shas.has(sha)) {
+		return (
+			<>
+				<Button
+					variant="ghost"
+					size="m"
+					iconLeft={ShieldCheck}
+					data-testid="commit-analysis-open"
+					onClick={() => setDialogOpen(true)}
+				>
+					{t("changes.commitAnalysis.open")}
+				</Button>
+				<CommitAnalysisDialog
+					workspaceId={workspaceId}
+					sha={sha}
+					open={dialogOpen}
+					onOpenChange={setDialogOpen}
+				/>
+			</>
+		);
+	}
+	const pending = analyses.pending.has(sha);
+	return (
+		<Button
+			variant="ghost"
+			size="m"
+			iconLeft={ShieldCheck}
+			data-testid="commit-analysis-run"
+			disabled={pending}
+			onClick={() => {
+				const transport = getTransport();
+				void transport
+					.request("commit.analyze", { workspaceId, sha })
+					.then(() => transport.request("commit.analysisList", { workspaceId }))
+					.then((index) => useAppStore.getState().installCommitAnalysisIndex(workspaceId, index))
+					.catch((error: unknown) => {
+						toast.error(
+							wsErrorCode(error) === "COMMIT_ANALYSIS_NO_SESSION"
+								? t("changes.commitAnalysis.noSession")
+								: t("changes.commitAnalysis.analyzeFailed", { error: errorText(error) }),
+						);
+					});
+			}}
+		>
+			{pending ? t("changes.commitAnalysis.analyzing") : t("changes.commitAnalysis.analyze")}
+		</Button>
 	);
 }
 

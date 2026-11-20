@@ -94,19 +94,39 @@ test("a commit a subagent makes during an item's window attaches to the step, no
 	const store = new TodoStore(repo, SESSION);
 	const todo = store.add({ title: "implement feature" });
 	store.update(todo.id, { status: "in_progress" });
-	await maybeAttachChangeArtifacts("w1", SESSION); // opens the work window (baseline head)
+	expect(await maybeAttachChangeArtifacts("w1", SESSION)).toEqual([]); // opens the work window (baseline head)
 
 	// a subagent commits its own work directly into the shared worktree
 	const sha = commitFile("impl.ts", "export const x = 1;\n", "feat: implement x");
 
 	store.update(todo.id, { status: "done" });
-	await maybeAttachChangeArtifacts("w1", SESSION);
+	const shas = await maybeAttachChangeArtifacts("w1", SESSION);
 	await settleChangeArtifacts("w1");
+	expect(shas).toEqual([sha]);
 
 	const plan = await listTodos({ workspaceId: "w1", sessionId: SESSION });
 	const item = plan.todos.find((t) => t.id === todo.id);
 	expect(item?.artifacts?.some((a) => a.kind === "commit" && a.sha === sha)).toBe(true);
 	expect((plan.adoptedCommits ?? []).some((a) => a.artifacts?.[0]?.sha === sha)).toBe(false);
+	expect(await maybeAttachChangeArtifacts("w1", SESSION)).toEqual([]);
+});
+
+test("a step the host commits resolves with that sha", async () => {
+	const store = new TodoStore(repo, SESSION);
+	const todo = store.add({ title: "host step" });
+	store.update(todo.id, { status: "in_progress" });
+	expect(await maybeAttachChangeArtifacts("w1", SESSION)).toEqual([]);
+
+	writeFileSync(join(repo, "host.ts"), "export const h = 1;\n");
+	store.update(todo.id, { status: "done" });
+	const shas = await maybeAttachChangeArtifacts("w1", SESSION);
+	await settleChangeArtifacts("w1");
+
+	expect(shas).toHaveLength(1);
+	const [sha] = shas;
+	if (!sha) throw new Error("host commit not reported");
+	expect(sha).toMatch(/^[0-9a-f]{40}$/);
+	expect(store.get(todo.id)?.artifacts).toEqual([{ kind: "commit", sha, label: "host step" }]);
 });
 
 test("a commit owned by a todo item is NOT adopted (no double-counting)", async () => {
