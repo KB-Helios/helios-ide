@@ -314,8 +314,14 @@ interface Pending {
 export function landFactory(
 	run: FactoryRun,
 	land: { sources: string[]; release: string; target: string },
-	/** Test seam: runs after a source's final gate check, before its snapshot is recorded. */
-	hooks?: { afterGateCheck?: (nodeId: string) => Promise<void> },
+	/**
+	 * Test seams: after a source's final gate check (before its snapshot is recorded), and right after the
+	 * source branch moved onto that snapshot (before the move is recorded as done).
+	 */
+	hooks?: {
+		afterGateCheck?: (nodeId: string) => Promise<void>;
+		afterBranchMove?: (nodeId: string) => Promise<void>;
+	},
 ): Promise<LandedSource[]> {
 	return run.serial("land", async () => {
 		if (!(await run.options.releaseApproved(run.dagId, land.release)))
@@ -385,6 +391,7 @@ export function landFactory(
 					run.writeMeta({ ...meta, recording: { from: head, to: sha } });
 					if ((await git(meta.path, ["reset", "-q", sha])).code !== 0)
 						throw new Error(`Could not record the gated snapshot of ${meta.nodeId}`);
+					await hooks?.afterBranchMove?.(meta.nodeId);
 					meta = { ...meta, committed: sha };
 					run.writeMeta(meta);
 				}

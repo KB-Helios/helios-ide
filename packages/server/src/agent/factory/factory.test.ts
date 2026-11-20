@@ -648,6 +648,31 @@ test("an interrupted record write leaves the previous record readable and landin
 	).toMatchObject([{ node: "coder-a", status: "landed" }]);
 });
 
+test("a host stop after the branch moved but before the move was recorded resumes from the saved intent", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo, { trusted: true, approved: true });
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "x\n");
+	expect((await runFactoryGates(run, meta)).ok).toBe(true);
+	const plan = { sources: ["coder-a"], release: "release", target: "main" };
+	// The host stops right after `git reset` moved the branch, before the next metadata write.
+	await expect(
+		landFactory(run, plan, {
+			afterBranchMove: async () => {
+				throw new Error("host stopped");
+			},
+		}),
+	).rejects.toThrow("host stopped");
+	const saved = run.readMeta("coder-a");
+	expect(saved?.recording).toBeTruthy();
+	expect(saved?.committed).toBeUndefined();
+	expect(git(meta.path, "rev-parse", "HEAD").trim()).toBe(saved?.recording?.to ?? "");
+	// The next landing finishes the recorded move and lands.
+	expect(await landFactory(run, plan)).toMatchObject([{ node: "coder-a", status: "landed" }]);
+	expect(lf(readFileSync(join(repo, "src", "a", "x.txt"), "utf8"))).toBe("x\n");
+});
+
 test("a cancelled gate run is never recorded, and drifted gate definitions refuse", async () => {
 	const repo = makeRepo();
 	const run = unitRun(repo);
