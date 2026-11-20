@@ -167,6 +167,7 @@
 	"chat.composer.context.files": "Archivos",
 	"chat.composer.context.skills": "Habilidades",
 	"chat.composer.context.specs": "Especificaciones",
+	"chat.composer.contextCount_many": "{{count}} elementos de contexto adjuntos",
 	"chat.composer.contextCount_one": "{{count}} elemento de contexto adjunto",
 	"chat.composer.contextCount_other": "{{count}} elementos de contexto adjuntos",
 	"chat.composer.execution.label": "Dónde se ejecuta este prompt",

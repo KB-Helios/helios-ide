@@ -81,7 +81,7 @@ function AgentChangesPill({ workspaceId, count }: { workspaceId: string; count: 
 			size="m"
 			iconLeft={RiFileEditLine}
 			tooltip={t("shell.topbar.agentFilesReview")}
-			className="rounded-full max-sm:hidden"
+			className="max-sm:hidden"
 			data-testid="agent-changes-pill"
 			data-count={count}
 			onClick={() => useAppStore.getState().revealAgentChanges(workspaceId)}

@@ -177,6 +177,8 @@
 	"chat.composer.context.files": "Файлы",
 	"chat.composer.context.skills": "Навыки",
 	"chat.composer.context.specs": "Спецификации",
+	"chat.composer.contextCount_few": "Прикреплено {{count}} элемента контекста",
+	"chat.composer.contextCount_many": "Прикреплено {{count}} элементов контекста",
 	"chat.composer.contextCount_one": "Прикреплён {{count}} элемент контекста",
 	"chat.composer.contextCount_other": "Прикреплено элементов контекста: {{count}}",
 	"chat.composer.execution.label": "Где выполнить этот промпт",
