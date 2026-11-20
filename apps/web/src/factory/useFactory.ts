@@ -1,8 +1,10 @@
 import {
 	DAG_PROTOCOL_VERSION,
+	DAG_QUEUE_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
 	type DagChanged,
 	type DagListItem,
+	type DagQueueView,
 	type DagReviewView,
 	type DagView,
 	type DagWireCommand,
@@ -21,6 +23,8 @@ export type FactoryFailure = "stale" | "rejected";
 export interface FactoryState {
 	/** `null` until the first read; an older host never reports one. */
 	items: DagListItem[] | null;
+	/** Worker turns of all the workspace's DAGs against its cap; `null` until read or on an older host. */
+	queue: DagQueueView | null;
 	selectedId: string | null;
 	dag: DagView | null;
 	/** Reviewer findings by node id; a node that has submitted none yet is absent. */
@@ -41,7 +45,9 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const protocol = useAppStore((state) => state.protocolVersion);
 	const supported = protocol !== null && protocol >= DAG_PROTOCOL_VERSION;
 	const reviewable = protocol !== null && protocol >= DAG_REVIEW_PROTOCOL_VERSION;
+	const queueable = protocol !== null && protocol >= DAG_QUEUE_PROTOCOL_VERSION;
 	const [items, setItems] = useState<DagListItem[] | null>(null);
+	const [queue, setQueue] = useState<DagQueueView | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
 	const [dag, setDag] = useState<DagView | null>(null);
 	const [reviews, setReviews] = useState<Record<string, DagReviewView>>({});
@@ -51,6 +57,7 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 
 	useEffect(() => {
 		setItems(null);
+		setQueue(null);
 		setDag(null);
 		setReviews({});
 		setSelectedId(null);
@@ -79,6 +86,13 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 					if (!disposed && ticket === serial) setItems(list);
 				})
 				.catch(() => {});
+			if (queueable)
+				void transport
+					.request("dag.queue", { workspaceId })
+					.then((next) => {
+						if (!disposed && ticket === serial) setQueue(next);
+					})
+					.catch(() => {});
 			const dagId = selectedRef.current;
 			if (dagId)
 				void transport
@@ -103,7 +117,7 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 			unsubscribe();
 			if (timer !== undefined) clearInterval(timer);
 		};
-	}, [workspaceId, status, supported, reviewable, generation, open]);
+	}, [workspaceId, status, supported, reviewable, queueable, generation, open]);
 
 	const select = useCallback((dagId: string | null) => {
 		selectedRef.current = dagId;
@@ -135,5 +149,5 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 		[workspaceId, dag],
 	);
 
-	return { items, selectedId, dag, reviews, select, run };
+	return { items, queue, selectedId, dag, reviews, select, run };
 }

@@ -10,6 +10,16 @@ import { registerWorktreeTools } from "./worktreeTools";
 export { landFactory } from "./landTools";
 export { FactoryRun } from "./run";
 export {
+	DEFAULT_FACTORY_SLOTS,
+	dropFactorySlots,
+	type FactoryQueue,
+	FactorySlots,
+	factoryQueueOf,
+	factorySlotsFor,
+	setFactorySlotLimit,
+	withFactorySlots,
+} from "./slots";
+export {
 	encodeFactoryNode,
 	FACTORY_TOOL,
 	type FactoryNode,

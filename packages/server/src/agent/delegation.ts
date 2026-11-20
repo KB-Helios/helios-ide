@@ -34,6 +34,7 @@ import {
 } from "./agentSessionManager";
 import { archiveSubagentRun, publishSessionResourcesChanged } from "./chatResources";
 import { childBaseExtensionFactories, childExtensionFactories } from "./extensions";
+import { DEFAULT_FACTORY_SLOTS, setFactorySlotLimit } from "./factory/slots";
 import { getPiRuntime } from "./piRuntime";
 import { isHostResourceId, isPiSessionId } from "./resourceIdentity";
 import { createSubagentRoster, type SubagentRosterRegistry } from "./subagentRoster";
@@ -71,11 +72,18 @@ export function setSubagentConcurrencyResolver(
 	concurrencyResolver = resolver;
 }
 
+/** The workspace's effective subagent limit; the factory slot cap follows it (see `factory/slots`). */
+export function subagentConcurrencyFor(workspaceId: string): number {
+	return concurrencyResolver?.(workspaceId) ?? DEFAULT_FACTORY_SLOTS;
+}
+
 export function refreshSubagentConcurrency(workspaceId?: string): void {
 	if (!concurrencyResolver) return;
 	for (const [id, service] of services) {
 		if (workspaceId === undefined || id === workspaceId) {
-			service.setMaxConcurrentPerParent(concurrencyResolver(id));
+			const limit = concurrencyResolver(id);
+			service.setMaxConcurrentPerParent(limit);
+			setFactorySlotLimit(id, limit);
 		}
 	}
 }

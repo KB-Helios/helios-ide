@@ -17,6 +17,7 @@ import {
 	executeWorkspaceDag,
 	listWorkspaceDags,
 	readWorkspaceDag,
+	readWorkspaceQueue,
 	setDagPublisher,
 	toDagCommand,
 } from "./dagWire";
@@ -282,4 +283,10 @@ test("ids are validated and unknown workspaces are unavailable", async () => {
 			extra: 1,
 		}),
 	).rejects.toThrow("Invalid DAG request");
+});
+
+test("the queue read reports the workspace cap and is validated like the other reads", async () => {
+	expect(readWorkspaceQueue(workspaceId)).toEqual({ limit: 4, running: 0, queued: 0 });
+	expect(() => readWorkspaceQueue("../escape")).toThrow("Invalid workspaceId");
+	expect(() => readWorkspaceQueue("nosuchworkspace")).toThrow("Workspace unavailable");
 });

@@ -1555,6 +1555,11 @@ latest run used, read from pi-dag's durable outcome (`model`, `thinkingLevel`, `
 most 50 `findings` of `severity`/`file`/`summary`, `disposition`, `model`) or `null` before it submitted;
 a node that is not a reviewer fails with `DAG_REJECTED`. A host older than v131 simply omits these fields.
 
+From **`DAG_QUEUE_PROTOCOL_VERSION`** (v132, additive): `dag.queue` `{ workspaceId }` returns `DagQueueView`
+`{ limit, running, queued }`, the workspace's DAG worker turns against its cap (`running` hold a slot,
+`queued` wait for one; the waiting nodes read `queued` in `DagView`). An unknown or invalid workspace fails
+like the other `dag.*` reads. A host older than v132 has no such method and the pane omits the line.
+
 ## Get right
 
 - **Mirrors are not version-pinned in comments.** A shape re-declared here because its real home is

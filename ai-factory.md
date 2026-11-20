@@ -114,7 +114,7 @@ Ett fabriksflöde blir en `pi-dag`-definition, inte kod:
 4. **Granskning och modellroller (klar):** granskarnod på annan modellfamilj samt per-nod-modellval i
    definitionen. Logga modell, tokens och utfall per nod. *Klart när:* granskarens fynd blockerar
    release tills de är besvarade.
-5. **Resurser:** samtidighetsgräns via delegationens semafor, köstatus för flera DAG:er per
+5. **Resurser (klar):** samtidighetsgräns via delegationens semafor, köstatus för flera DAG:er per
    workspace. *Klart när:* fler än en DAG körs utan att överskrida gränsen.
 
 Varje steg uppdaterar [[module-pi-dag]], [[submodule-server-agent]] och beslut 17 i

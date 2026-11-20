@@ -26,6 +26,7 @@ import {
 	needsAttention,
 	orderNodes,
 	pendingTotal,
+	queueLine,
 	totalUsage,
 } from "./factoryModel";
 import { type FactoryFailure, useFactory } from "./useFactory";
@@ -361,9 +362,10 @@ function DagDetail({
 export function FactoryTrigger({ workspaceId }: { workspaceId: string }) {
 	const t = useT();
 	const [open, setOpen] = useState(false);
-	const { items, selectedId, dag, reviews, select, run } = useFactory(workspaceId, open);
+	const { items, queue, selectedId, dag, reviews, select, run } = useFactory(workspaceId, open);
 	if (!items?.length) return null;
 	const pending = pendingTotal(items);
+	const line = queueLine(queue);
 	return (
 		<Dialog open={open} onOpenChange={setOpen}>
 			<DialogTrigger asChild>
@@ -385,6 +387,22 @@ export function FactoryTrigger({ workspaceId }: { workspaceId: string }) {
 			<DialogContent className="max-w-[48rem]" data-testid="factory-pane">
 				<DialogTitle>{t("factory.trigger.label")}</DialogTitle>
 				<DialogDescription>{t("factory.description")}</DialogDescription>
+				{line ? (
+					<p
+						className={cn(
+							"px-12 tr-text-metadata tabular-nums",
+							line.saturated ? "text-feedback-warning" : "text-text-muted",
+						)}
+						data-testid="factory-queue"
+						data-saturated={line.saturated}
+					>
+						{t("factory.queue.summary", {
+							running: line.running,
+							limit: line.limit,
+							queued: line.queued,
+						})}
+					</p>
+				) : null}
 				<ul className="max-h-[24vh] divide-y divide-border-default overflow-y-auto">
 					{items.map((item) => (
 						<li key={item.dagId}>

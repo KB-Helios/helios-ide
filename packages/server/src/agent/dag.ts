@@ -5,8 +5,14 @@ import { createDagExtension, createDagService, type DagService } from "pi-dag";
 import { dataDir } from "../persistence";
 import { trashFile } from "../trash";
 import { liveParentContext } from "./agentSessionManager";
-import { delegationServiceFor } from "./delegation";
-import { isReleaseApprovedByHuman, withFactoryWorkers } from "./factory";
+import { delegationServiceFor, subagentConcurrencyFor } from "./delegation";
+import {
+	dropFactorySlots,
+	factorySlotsFor,
+	isReleaseApprovedByHuman,
+	withFactorySlots,
+	withFactoryWorkers,
+} from "./factory";
 import { isHostResourceId } from "./resourceIdentity";
 
 /**
@@ -32,11 +38,24 @@ export function dagServiceFor(workspaceId: string): DagService {
 		const created: DagService = createDagService({
 			storageRoot: dagRootDir(workspaceId),
 			scope: workspaceId,
-			delegation: withFactoryWorkers(delegationServiceFor(workspaceId), {
-				workspaceId,
-				worktreeRoot: factoryWorktreeRoot(workspaceId),
-				releaseApproved: (dagId, nodeId) => isReleaseApprovedByHuman(created, dagId, nodeId),
-			}),
+			delegation: withFactorySlots(
+				withFactoryWorkers(delegationServiceFor(workspaceId), {
+					workspaceId,
+					worktreeRoot: factoryWorktreeRoot(workspaceId),
+					releaseApproved: (dagId, nodeId) => isReleaseApprovedByHuman(created, dagId, nodeId),
+				}),
+				factorySlotsFor(workspaceId, () => subagentConcurrencyFor(workspaceId)),
+				async (dagId) => {
+					const result = await created
+						.bind({
+							caller: { kind: "owner", ownerId: "factory-slots" },
+							signal: new AbortController().signal,
+						})
+						.getDag({ dagId });
+					// An unreadable DAG must not strand its turn in the queue: let the inner run decide.
+					return !result.ok || result.value.mode === "running";
+				},
+			),
 		});
 		service = created;
 		services.set(workspaceId, service);
@@ -73,12 +92,18 @@ export function dagExtensionFor(workspaceId: string): ExtensionFactory {
 export async function closeWorkspaceDag(workspaceId: string): Promise<void> {
 	const service = services.get(workspaceId);
 	services.delete(workspaceId);
-	await service?.close();
+	try {
+		await service?.close();
+	} finally {
+		dropFactorySlots(workspaceId);
+	}
 }
 
 export async function closeAllDags(): Promise<void> {
+	const ids = [...services.keys()];
 	const closing = [...services.values()].map((service) => service.close());
 	services.clear();
+	for (const workspaceId of ids) dropFactorySlots(workspaceId);
 	const failures = (await Promise.allSettled(closing)).filter(
 		(result): result is PromiseRejectedResult => result.status === "rejected",
 	);

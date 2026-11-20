@@ -67,6 +67,7 @@ import {
 	readSessionSwarm,
 	readSwarmMemberDiff,
 	readWorkspaceDag,
+	readWorkspaceQueue,
 	readWorkspaceReview,
 	refreshAvailableModels,
 	refreshSubagentConcurrency,
@@ -1541,6 +1542,10 @@ const handlers: WsHandlers = {
 		return readWorkspaceDag(p.workspaceId, dagId as string);
 	},
 	"dag.execute": (params) => executeWorkspaceDag(params),
+	"dag.queue": (params) => {
+		const p = resourceParams(params, ["workspaceId"]);
+		return readWorkspaceQueue(p.workspaceId);
+	},
 	"dag.review": (params) => {
 		const { dagId, nodeId, ...ids } = (params ?? {}) as { dagId?: unknown; nodeId?: unknown };
 		const p = resourceParams(ids, ["workspaceId"]);

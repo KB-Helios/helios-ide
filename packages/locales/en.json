@@ -657,6 +657,7 @@
 	"factory.node.thinking": "thinking {{level}}",
 	"factory.nodes.heading": "Steps",
 	"factory.owner.other": "Another process controls this workflow.",
+	"factory.queue.summary": "Workers: {{running}} of {{limit}} running · {{queued}} queued for a free slot",
 	"factory.review.by": "reviewed by {{model}}",
 	"factory.review.count_one": "{{count}} reviewer finding",
 	"factory.review.count_other": "{{count}} reviewer findings",

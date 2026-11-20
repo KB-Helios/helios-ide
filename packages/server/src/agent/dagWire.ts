@@ -3,6 +3,7 @@ import type {
 	DagChanged,
 	DagExecuteRequest,
 	DagListItem,
+	DagQueueView,
 	DagReviewView,
 	DagView,
 } from "@thinkrail/contracts";
@@ -18,6 +19,7 @@ import type {
 import { getWorkspace } from "../workspaces";
 import { sessionlessProjectTrust } from "./agentSessionManager";
 import { dagServiceFor } from "./dag";
+import { factoryQueueOf } from "./factory";
 import { FINDINGS_PORT, isReviewerNode, parseFindings } from "./factoryReview/reviewer";
 import { getPiRuntime } from "./piRuntime";
 import { isHostResourceId } from "./resourceIdentity";
@@ -186,6 +188,15 @@ export async function listWorkspaceDags(workspaceId: string): Promise<DagListIte
 		cursor = page.nextCursor;
 	} while (cursor);
 	return items;
+}
+
+/** Running and queued worker turns across the workspace's DAGs against its cap. */
+export function readWorkspaceQueue(workspaceId: string): DagQueueView {
+	workspaceCwd(workspaceId);
+	dagServiceFor(workspaceId);
+	const queue = factoryQueueOf(workspaceId);
+	if (!queue) throw new CodedError("RESOURCE_UNAVAILABLE", "Workspace unavailable");
+	return queue;
 }
 
 export async function readWorkspaceDag(workspaceId: string, dagId: string): Promise<DagView> {

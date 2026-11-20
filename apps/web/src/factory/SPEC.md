@@ -22,6 +22,10 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
 - **Steps** — every node with glyph + word + colour status, its task preview and what it runs after;
   nodes that need a person (waiting, needs attention, uncertain, stale) are listed first.
 - **Resume / Pause** for the DAG as a whole.
+- **Worker slots** — one line under the description, `Workers: running of limit · queued`, shown only while
+  a turn runs or waits and in the warning colour when every slot is taken and work waits. It is the
+  host's `dag.queue` (the workspace-wide cap across all DAGs); a node waiting for a slot reads `Queued` in
+  Steps. `queueLine` in `factoryModel.ts` is the projection.
 - **Run log** — each node that ran shows its model (and thinking level), tokens in/out, cost and, when it
   did not complete, how it ended; the DAG header shows the totals. All of it is pi-dag's persisted outcome
   projected by the host, never computed here.
@@ -45,7 +49,8 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   attachment, which would write into every DAG), so while the pane is open the hook also re-reads every
   5 seconds. The trigger itself only reads on connect and on push.
 - A host older than `DAG_PROTOCOL_VERSION` hides the surface; one older than `DAG_REVIEW_PROTOCOL_VERSION`
-  shows it without the run log and findings.
+  shows it without the run log and findings, and one older than `DAG_QUEUE_PROTOCOL_VERSION` without the
+  worker-slots line.
 - Not here yet: creating or editing a DAG, skip/steer/reconcile, manual result acceptance, retry and
   continue (accepted by the wire, no control in the pane), outputs and history.
 - Pure derivations (dependency lookup, node ordering, pending total) live in `factoryModel.ts` and are

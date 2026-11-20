@@ -781,6 +781,16 @@ export interface DagListItem {
 	pendingGates: number;
 }
 
+/**
+ * Worker turns of the workspace's DAGs against the workspace-wide cap: `running` hold a slot, `queued`
+ * were admitted by their DAG and wait for one (those nodes read `queued` in `DagView`).
+ */
+export interface DagQueueView {
+	limit: number;
+	running: number;
+	queued: number;
+}
+
 export interface DagNodeView {
 	id: string;
 	status: DagNodeStatus;

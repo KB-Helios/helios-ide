@@ -1624,6 +1624,33 @@ takes every gate report as input so it starts after all gates, carries a human a
 and landing still needs the release approval. `buildReviewerPiece` remains for graphs that have a diff output
 port to feed it. Integration test: `factoryHook.test.ts`.
 
+## Factory resources
+
+pi-dag bounds one DAG by its own `maxConcurrent`; the host bounds a **workspace** across all its DAGs
+(roadmap step 5). `factory/slots.ts` `withFactorySlots` wraps the DAG service's delegation (outside
+`withFactoryWorkers`) so every DAG child's `runQueued` first takes a slot of one pi-delegation `Semaphore`
+per workspace (`FactorySlots`). pi-dag and pi-delegation are unchanged: a turn over the cap simply has not
+started, so its node reads `queued` (its `activation` is still queued, no `running` event yet) and starts,
+FIFO, when a slot frees. Rules:
+
+- **The cap is the workspace's effective subagent limit** (`Workspace.subagentMaxConcurrentOverride`, else
+  `AppConfig.subagentMaxConcurrent`, default 4), read through the same resolver as chat subagents
+  (`subagentConcurrencyFor`), so there is no new setting. `refreshSubagentConcurrency` resizes the slots too:
+  raising admits queued turns at once, lowering never aborts a running turn. A DAG's own `maxConcurrent`
+  still applies inside it; the effective bound is the smaller of the two.
+- **Per workspace only.** There is no cross-workspace ceiling (pi-delegation has none for chats either);
+  that stays a follow-up.
+- **Pause and cancel.** Interrupt/cancel abort the job's signal, so a waiting turn leaves the queue and a
+  running one frees its slot. Plain `pause` stops admission and lets running turns finish, and a turn that
+  is waiting for a slot while its DAG is paused takes no slot (the check is before and after the grant,
+  re-polled every 100 ms) so the other DAGs use the slots; it continues after `resume`. Resume re-reads
+  the DAG's `mode` through an owner binding.
+- **Queue read.** `dag.queue` (`readWorkspaceQueue`) returns `{ limit, running, queued }` for the
+  workspace: `running` turns hold a slot, `queued` are admitted by their DAG and wait (a paused DAG's
+  waiting turns count as queued). Only DAG turns are counted; chat subagents keep their per-parent limit.
+- The slots live with the DAG service: `closeWorkspaceDag`/`closeAllDags` drop them. Tests:
+  `factorySlots.test.ts` (cap never exceeded across two DAGs, live lower/raise, pause, interrupt).
+
 ## Session titles
 
 `agentSessionManager` is the only durable chat-title writer. Its `renameSession(sessionId,

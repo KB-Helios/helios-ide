@@ -1,4 +1,10 @@
-import type { DagNodeStatus, DagReviewSeverity, DagUsageView, DagView } from "@thinkrail/contracts";
+import type {
+	DagNodeStatus,
+	DagQueueView,
+	DagReviewSeverity,
+	DagUsageView,
+	DagView,
+} from "@thinkrail/contracts";
 
 /** Statuses that need a person before the DAG can move on; shown first and never hidden. */
 const ATTENTION: ReadonlySet<DagNodeStatus> = new Set([
@@ -56,5 +62,24 @@ export function totalUsage(
 		input: ran.reduce((sum, usage) => sum + usage.input, 0),
 		output: ran.reduce((sum, usage) => sum + usage.output, 0),
 		cost: ran.reduce((sum, usage) => sum + usage.cost, 0),
+	};
+}
+
+export interface QueueLine {
+	running: number;
+	queued: number;
+	limit: number;
+	/** Every slot is taken and work waits for one. */
+	saturated: boolean;
+}
+
+/** What the pane shows of the workspace's worker slots; `null` while nothing runs or waits. */
+export function queueLine(queue: DagQueueView | null): QueueLine | null {
+	if (!queue || queue.running + queue.queued === 0) return null;
+	return {
+		running: queue.running,
+		queued: queue.queued,
+		limit: queue.limit,
+		saturated: queue.queued > 0 && queue.running >= queue.limit,
 	};
 }

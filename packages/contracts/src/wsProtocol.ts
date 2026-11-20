@@ -11,6 +11,7 @@ import type {
 	CompletionDelivery,
 	DagExecuteRequest,
 	DagListItem,
+	DagQueueView,
 	DagReviewView,
 	DagView,
 	DelegationRunStatus,
@@ -156,11 +157,13 @@ export type TemplateReadLocation =
 	| { projectId: string; workspaceId?: never }
 	| { workspaceId?: never; projectId?: never };
 
-export const PROTOCOL_VERSION = 131;
+export const PROTOCOL_VERSION = 132;
 /** `dag.list` / `dag.get` / `dag.execute` and the `dag.changed` channel: the workspace factory view. */
 export const DAG_PROTOCOL_VERSION = 130;
 /** `dag.review` plus per-node model, thinking level, usage and outcome on `DagView` nodes. */
 export const DAG_REVIEW_PROTOCOL_VERSION = 131;
+/** `dag.queue`: running and queued DAG worker turns against the workspace cap. */
+export const DAG_QUEUE_PROTOCOL_VERSION = 132;
 /** `commit.*` methods and the `commit.analyzed` channel. */
 export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 129;
 /** `swarm.get` / `swarm.diff` and the `swarm.changed` channel: a chat's swarm board. */
@@ -587,6 +590,7 @@ export const WS_METHODS = {
 	dagGet: "dag.get",
 	dagExecute: "dag.execute",
 	dagReview: "dag.review",
+	dagQueue: "dag.queue",
 	subagentStop: "subagent.stop",
 	subagentStopAll: "subagent.stopAll",
 	modelList: "model.list",
@@ -1466,6 +1470,10 @@ export interface WsMethodMap {
 		params: { workspaceId: string; dagId: string; nodeId: string };
 		/** The reviewer node's current findings, or `null` while it has submitted none. */
 		result: DagReviewView | null;
+	};
+	"dag.queue": {
+		params: { workspaceId: string };
+		result: DagQueueView;
 	};
 	"subagent.stop": {
 		params: { workspaceId: string; parentSessionId: string; childSessionId: string };

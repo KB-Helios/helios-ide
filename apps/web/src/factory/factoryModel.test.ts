@@ -5,6 +5,7 @@ import {
 	needsAttention,
 	orderNodes,
 	pendingTotal,
+	queueLine,
 	totalUsage,
 } from "./factoryModel";
 
@@ -59,4 +60,23 @@ test("findings are listed most serious first and the input is untouched", () => 
 		"info",
 	]);
 	expect(findings[0]?.severity).toBe("low");
+});
+
+test("the queue line is absent while idle and flags a saturated cap", () => {
+	expect(queueLine(null)).toBeNull();
+	expect(queueLine({ limit: 4, running: 0, queued: 0 })).toBeNull();
+	expect(queueLine({ limit: 4, running: 2, queued: 0 })).toEqual({
+		running: 2,
+		queued: 0,
+		limit: 4,
+		saturated: false,
+	});
+	expect(queueLine({ limit: 2, running: 2, queued: 3 })).toEqual({
+		running: 2,
+		queued: 3,
+		limit: 2,
+		saturated: true,
+	});
+	// A lowered cap with more turns still running than the new limit is not "waiting for a slot" unless work waits.
+	expect(queueLine({ limit: 1, running: 3, queued: 0 })?.saturated).toBe(false);
 });
