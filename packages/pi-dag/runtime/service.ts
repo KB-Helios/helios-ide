@@ -1658,9 +1658,10 @@ class Engine implements D.DagService {
 		});
 	}
 	/**
-	 * Settles live work and releases every owner. A failed close is retryable: owners whose shutdown save or
-	 * release failed stay registered and the cached attempt is dropped, so the next `close()` retries exactly
-	 * those instead of returning the same rejection forever. A recorded storage fault is reported once.
+	 * Settles live work and releases every owner. A failed close is retryable: owners whose release failed stay
+	 * registered and the cached attempt is dropped, so the next `close()` retries exactly those instead of
+	 * returning the same rejection forever. A failed shutdown save halts its owner, which can never save again,
+	 * so it is reported once and the owner is still released; recovery restores its last snapshot paused.
 	 */
 	close(): Promise<void> {
 		if (this.closing) return this.closing;
@@ -1673,7 +1674,7 @@ class Engine implements D.DagService {
 			const errors: unknown[] = [];
 			const unfinished = new Set<string>();
 			await Promise.all(
-				owners.map(async ([id, owned]) => {
+				owners.map(async ([, owned]) => {
 					try {
 						await this.serial(owned.state.dagId, async () => {
 							const state = this.next(owned);
@@ -1689,8 +1690,10 @@ class Engine implements D.DagService {
 							await this.save(owned, state);
 						});
 					} catch (error) {
-						errors.push(error);
-						unfinished.add(id);
+						// A failed save halts the owner (its `fault`, reported below), and a halted owner can
+						// never save again, so the shutdown save is not retried: the last committed snapshot
+						// stays, recovery restores it paused, and the owner is still released.
+						if (!owned.fault) errors.push(error);
 					}
 				}),
 			);

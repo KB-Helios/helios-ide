@@ -77,8 +77,9 @@ resent. Reconciliation confirms quiescence and resolves uncertain interventions 
 submitted proposals and input/approval gates. It may establish a missing release gate, but never
 invents a successful outcome; manual acceptance still needs an explicit reason and satisfied gates.
 A storage failure stops local admission and exposes an explicit error; it never publishes the
-uncommitted candidate state. Close rejects successful completion if live work or durable cleanup fails. A failed close is retryable: owners whose shutdown save or release failed stay registered and the
-rejected attempt is not cached, so the next `close()` retries exactly those; a recorded fault is reported once.
+uncommitted candidate state. Close rejects successful completion if live work or durable cleanup fails. A failed close is retryable: owners whose release failed stay registered and the rejected attempt is
+not cached, so the next `close()` retries exactly those. A failed shutdown save halts its owner, which is
+reported once and still released; recovery restores its last snapshot paused.
 
 ## Authority
 
