@@ -150,8 +150,9 @@ export class FactorySlots {
 						release();
 						return undefined;
 					}
-					// The DAG may have been paused while the turn waited for the machine-wide slot.
-					if (!runnable || (await runnable())) {
+					// The DAG may have been paused, or the workspace cap lowered, while the turn waited for the
+					// machine-wide slot: a reservation is not running work, so admit only under the current cap.
+					if (this.running < this.limit && (!runnable || (await runnable()))) {
 						this.running++;
 						let released = false;
 						return () => {

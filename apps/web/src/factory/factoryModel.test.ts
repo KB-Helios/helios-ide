@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import type { DagReviewView } from "@thinkrail/contracts";
 import {
 	bySeverity,
 	dagActions,
@@ -13,6 +14,7 @@ import {
 	planReady,
 	queueLine,
 	reviewerSharesFamily,
+	reviewForGate,
 	type StartForm,
 	startBlocker,
 	startRequest,
@@ -227,4 +229,27 @@ test("the machine-wide cap shows only when it is full and holds work back", () =
 	});
 	// A host without the machine-wide cap reports none.
 	expect(queueLine({ limit: 4, running: 2, queued: 1 })).not.toHaveProperty("global");
+});
+
+test("a release gate shows the findings of the reviewer that feeds it", () => {
+	const review: DagReviewView = {
+		nodeId: "review",
+		proposalId: "p1",
+		disposition: "pending",
+		valid: true,
+		total: 1,
+		findings: [{ severity: "high", file: "src/a.ts", summary: "Unchecked null" }],
+		truncated: false,
+	};
+	const dag = {
+		edges: [
+			{ from: "gate-a", to: "review" },
+			{ from: "review", to: "release" },
+		],
+	};
+	const target = (nodeId: string) => ({ target: { nodeId, attempt: 1, activation: 1 } });
+	expect(reviewForGate(target("review"), dag, { review })).toBe(review);
+	expect(reviewForGate(target("release"), dag, { review })).toBe(review);
+	expect(reviewForGate(target("land"), dag, { review })).toBeUndefined();
+	expect(reviewForGate(target("release"), { edges: [] }, { review })).toBeUndefined();
 });

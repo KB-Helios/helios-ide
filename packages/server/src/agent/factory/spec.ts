@@ -123,3 +123,10 @@ export const PROTECTED_BASENAMES: readonly string[] = [
 	"pyproject.toml",
 	"Makefile",
 ];
+
+const PROTECTED = new Set(PROTECTED_BASENAMES.map((name) => name.toLowerCase()));
+
+/** A build/gate input, compared case-insensitively: `PACKAGE.JSON` is `package.json` on Windows and macOS. */
+export function isProtectedBasename(name: string): boolean {
+	return PROTECTED.has(name.toLowerCase().replace(/[. ]+$/, ""));
+}

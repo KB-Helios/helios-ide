@@ -1,11 +1,14 @@
+import { basename } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { detectGates, runGates } from "pi-swarm";
 import { Type } from "typebox";
 import { boundFor, sourcesOf, sourceWorktree, toolResult } from "./access";
 import { clip, type FactoryRun, type GateRecord, type WorktreeMeta } from "./run";
-import { FACTORY_TOOL } from "./spec";
+import { FACTORY_TOOL, isProtectedBasename } from "./spec";
 
 const GATE_TIMEOUT_MS = 15 * 60_000;
+/** The refusal for a worktree that changed a build/gate definition; the coder can fix it by reverting. */
+export const CHANGED_DEFINITIONS = "Gates do not run over changed build or gate definitions";
 
 /**
  * Runs the project's declared gates in one worktree and records the verdict on the host. The commands
@@ -20,7 +23,11 @@ export function runFactoryGates(
 ): Promise<GateRecord> {
 	return run.serial(`gates:${meta.nodeId}`, async () => {
 		const { patch: _patch, hash } = await run.diff(meta);
-		const { violations } = await run.changed(meta);
+		const { files, violations } = await run.changed(meta);
+		// The commands are detected in the trusted checkout, but they execute in the worktree, so a changed
+		// manifest there could swap what a gate runs. Gates never run over changed gate/build definitions,
+		// even ones the coder owns.
+		const definitions = files.filter((file) => isProtectedBasename(basename(file)));
 		const base = { violations, diffHash: hash, ranAt: new Date().toISOString() };
 		const refuse = (reason: string): GateRecord => ({
 			ok: false,
@@ -34,6 +41,8 @@ export function runFactoryGates(
 			record = refuse("The project is not trusted, so its gates are not run.");
 		} else if (violations.length) {
 			record = refuse(`Ownership violations: ${violations.join(", ")}`);
+		} else if (definitions.length) {
+			record = refuse(`${CHANGED_DEFINITIONS}: ${definitions.join(", ")}`);
 		} else {
 			// Detected in the repository checkout, not the worktree: the model decides neither which
 			// scripts exist nor what they are called.
@@ -45,12 +54,19 @@ export function runFactoryGates(
 					timeoutMs: GATE_TIMEOUT_MS,
 					...(signal ? { signal } : {}),
 				});
-				record = {
-					ok: results.length === commands.length && results.every((result) => result.ok),
-					commands,
-					results,
-					...base,
-				};
+				// A change while the gates ran means they tested something other than `hash`: never record a pass.
+				const after = (await run.diff(meta)).hash;
+				const passed = results.length === commands.length && results.every((result) => result.ok);
+				record =
+					after === hash
+						? { ok: passed, commands, results, ...base }
+						: {
+								ok: false,
+								reason: "The worktree changed while the gates ran; run them again.",
+								commands,
+								results,
+								...base,
+							};
 			}
 		}
 		run.writeGateRecord(meta.nodeId, record);

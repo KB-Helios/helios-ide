@@ -1504,7 +1504,10 @@ serves projects no context. Host shutdown closes every DAG service inside the se
 (`settleSessionsForShutdown`) and emergency disposal fires the same close; process loss restores
 paused on the next boot (pi-dag ownership/recovery). Archive deletes the store
 (`removeWorkspaceDag`, before `removeWorkspaceDelegation`); deleting a chat without a project trashes it
-(`trashWorkspaceDag`, before `trashWorkspaceDelegation`).
+(`trashWorkspaceDag`, before `trashWorkspaceDelegation`). Both delete or trash the store only after the
+service closed cleanly: a failed close stops the teardown and keeps the recovery evidence. While a
+workspace's service is closing, `dagServiceFor` refuses (`RESOURCE_UNAVAILABLE`) instead of creating a
+replacement whose slot pool the finishing close would drop.
 
 The wire (`dagWire.ts`: `dag.list`, `dag.get`, `dag.execute`, push `dag.changed`) serves the web Factory
 pane ([[submodule-web-factory]]). It is the one human path: every call binds a `human` caller with the
@@ -1606,9 +1609,10 @@ beyond small host files next to the worktrees.
   worktree when its session is created (`ensureWorktree`, idempotent; a retried attempt fixes forward in the same
   tree) under `<dataDir>/factory-worktrees/<workspaceId>/factory-<dag>/<node>` on branch
   `swarm/factory-<dag>/<node>`, and a fresh coder session also starts with that as its cwd via the
-  `WorkspaceProvider`. Metadata (`.meta/<dag>/<node>.json`: path, branch, base, owns/avoid, landed) and gate records
-  live beside it, outside any worktree. File tools resolve paths inside the worktree only: no `..`, no symlink out
-  (realpath), no `.git` or `node_modules`.
+  `WorkspaceProvider`. Metadata (`.meta/<dag>/<node>.json`: path, branch, base, owns/avoid, the landing commit,
+  landed) and gate records live beside it, outside any worktree. File tools resolve paths inside the worktree only:
+  no `..`, no symbolic link anywhere below the root (`lstat`, so neither a dangling link nor an in-tree alias),
+  no `.git` or `node_modules` in any case or with trailing dots, no `:` (streams).
 - **Ownership.** Writes outside `owns`, inside `avoid`, or to a build/gate manifest (`package.json`, lockfiles,
   `Cargo.toml`, `go.mod`, ...) that `owns` does not name are refused at the tool; the same rule runs over the
   worktree's changed files before gates and landing, so edits made any other way still fail. The manifests are
@@ -1618,19 +1622,26 @@ beyond small host files next to the worktrees.
   `typecheck`/`lint`/`test` scripts (`detectGates`, read from the checkout) in the worktree, and only when the
   DAG resource context's `isProjectTrusted()` returns true (`context.isProjectTrusted?.() === true`: unset means
   untrusted, whatever pi's own trust default is). Untrusted, no declared gate, or an ownership violation each
-  record `ok: false` with a reason and run nothing. The verdict is a host-written record carrying the SHA-256 of
-  the worktree diff it ran against; a later edit makes it stale. A model's own report text is never trusted.
+  record `ok: false` with a reason and run nothing; so does a changed build/gate definition (a protected basename,
+  compared case-insensitively), even one the coder owns, because the commands run in the worktree and a changed
+  manifest could swap what they execute. The verdict is a host-written record carrying the SHA-256 of the worktree
+  diff it ran against, hashed before and after the run: a change during the run records a failure, and a later
+  edit makes the record stale. A model's own report text is never trusted.
 - **Landing enforcement.** pi-dag's `approval` gates the release of the node's output, not its start, so the flow
   is `gate-* -> release (approval: human) -> land`, with the land node consuming the release output.
   pi-dag therefore never starts `land` before a person approved `release` (only a `human` caller can; a chat
   controller or `owner` binding cannot). Because a model-driven node could still be wired wrongly, `factory_land`
   re-checks on the host that `release` is `completed` and its latest approval gate was `approved` by a `human`
-  actor (`isReleaseApprovedByHuman`, a read of the DAG state), that the checkout is on the `target` branch, and
-  that every source has no ownership violation and a fresh passing gate record. Only then does each source get
-  committed on its branch (`commitWorktree`), merged `--no-ff` into the checkout (a conflict is aborted so the
-  tree is never left mid-merge), and removed with its branch (`removeWorktree`). Landing is all-or-nothing up to
-  the merges; a failure after earlier merges is reported and already-landed sources stay marked so a rerun skips
-  them. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
+  actor (`isReleaseApprovedByHuman`, a read of the DAG state), that the checkout is on the `target` branch with no
+  merge of its own in progress, and that every uncommitted change has no ownership violation and a fresh passing
+  gate record (a branch with commits the factory did not make is refused). Each change is gated again right before
+  its commit (`commitWorktree`); the commit is recorded in the metadata before the merge, the target is checked
+  again, and the merge (`--no-ff`) names that exact commit, never the branch. A conflict aborts only the merge this
+  landing started. A retry after a failed merge lands the recorded commit (plus a newly gated correction) if the
+  branch still points at it, and refuses if it moved. Sources are then removed with their branch
+  (`removeWorktree`). Landing is all-or-nothing up to the merges; a failure after earlier merges is reported and
+  already-landed sources stay marked so a rerun skips them. The checkout is the person's own: the target checks
+  narrow, but do not close, the window in which a branch switch could redirect a merge. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
   uncommitted changes in the checkout stay untouched unless they overlap.
 - **Template and the step-4 hook.** `buildFactoryDefinition({ title, target, coders, maxConcurrent?, gateRetries?, beforeRelease? })`
   builds `coder-*` -> `gate-<coder>` -> `release` (human approval) -> `land`. `beforeRelease(ctx)` is the single

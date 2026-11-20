@@ -37,6 +37,7 @@ import {
 	pendingTotal,
 	planReady,
 	queueLine,
+	reviewForGate,
 	totalUsage,
 } from "./factoryModel";
 import { type FactoryFailure, useFactory } from "./useFactory";
@@ -152,7 +153,13 @@ function NodeRow({
 					</span>
 				) : null}
 				{output && node.outputs?.length ? (
-					<NodeOutput nodeId={node.id} names={node.outputs} load={output} />
+					// A retried attempt discards the old result, so the viewer is keyed by the attempt.
+					<NodeOutput
+						key={`${node.attempt ?? 0}.${node.activation ?? 0}`}
+						nodeId={node.id}
+						names={node.outputs}
+						load={output}
+					/>
 				) : null}
 			</span>
 		</li>
@@ -417,7 +424,12 @@ function DagDetail({
 				{dag.gates.length ? (
 					<ul className="divide-y divide-border-default">
 						{dag.gates.map((gate) => (
-							<GateCard key={gate.id} gate={gate} review={reviews[gate.target.nodeId]} run={run} />
+							<GateCard
+								key={gate.id}
+								gate={gate}
+								review={reviewForGate(gate, dag, reviews)}
+								run={run}
+							/>
 						))}
 					</ul>
 				) : (

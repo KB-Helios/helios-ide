@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type {
 	DagStartFromPlanRequest,
@@ -10,11 +11,9 @@ import type {
 import { CodedError } from "@thinkrail/shared/codedError";
 import type { DagClient, DagDefinition } from "pi-dag";
 import { getWorkspace } from "../workspaces";
-import { dagServiceFor } from "./dag";
 import {
 	buildFactoryDefinition,
 	buildPlanningDefinition,
-	isReleaseApprovedByHuman,
 	PLAN_PORT,
 	PLANNER_NODE_ID,
 	PlanError,
@@ -146,7 +145,8 @@ export async function startFactory(client: DagClient, params: unknown): Promise<
 		throw new Error("Invalid task");
 	if (p.allowSameFamilyReviewer !== undefined && typeof p.allowSameFamilyReviewer !== "boolean")
 		throw new Error("Invalid allowSameFamilyReviewer");
-	const gateRetries = p.gateRetries ?? DEFAULT_GATE_RETRIES;
+	// Only an absent field defaults; `null` or any other non-number is an invalid request (0 stays valid).
+	const gateRetries = p.gateRetries === undefined ? DEFAULT_GATE_RETRIES : p.gateRetries;
 	if (
 		typeof gateRetries !== "number" ||
 		!Number.isInteger(gateRetries) ||
@@ -257,7 +257,19 @@ export async function startFactoryFromPlan(
 	const planner = snapshot.nodes.find((node) => node.id === PLANNER_NODE_ID);
 	if (planner?.status !== "completed" || !planner.proposalId)
 		throw new CodedError("DAG_REJECTED", "The plan has not been completed yet");
-	if (!(await isReleaseApprovedByHuman(dagServiceFor(workspaceId), planDagId, PLANNER_NODE_ID)))
+	// The approval must come from the same snapshot and name the very proposal that is read below, so a
+	// retry that replaces the planner's proposal can never promote a plan no person approved.
+	const approval = snapshot.gates
+		.filter((gate) => gate.kind === "approval" && gate.target.nodeId === PLANNER_NODE_ID)
+		.sort(
+			(a, b) => a.target.attempt - b.target.attempt || a.target.activation - b.target.activation,
+		)
+		.at(-1);
+	if (
+		approval?.disposition !== "approved" ||
+		approval.decision?.actor.kind !== "human" ||
+		approval.proposalId !== planner.proposalId
+	)
 		throw new CodedError("DAG_REJECTED", "The plan has not been approved by a person");
 
 	const output = unwrapDag(
@@ -294,7 +306,9 @@ export async function startFactoryFromPlan(
 	}
 	const receipt = unwrapDag(
 		await client.execute({
-			commandId: `factory-from-${planDagId}`.slice(0, 128),
+			// Idempotent per approved proposal: a double-click replays the same create, while a corrected
+			// plan approved after a planner retry builds a new factory DAG instead of returning the old one.
+			commandId: `factory-from-${createHash("sha256").update(`${planDagId} ${planner.proposalId}`).digest("hex").slice(0, 40)}`,
 			command: { kind: "create", definition },
 		}),
 	);

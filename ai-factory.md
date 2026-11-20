@@ -37,9 +37,9 @@ DAG-nodernas verktyg.
 | Mänskligt godkännande via `interrupt()` | `pi-dag` har human-only release-gates. Controller-verktyg kan aldrig ge sig själva mänsklig behörighet, och `owner`-bindningar kan inte godkänna. |
 | SQLite för checkpoints | `pi-dag` använder filer med atomisk publicering, SHA-256-adresserade payloads och exklusivt processägarskap utan databas. Det passar "en process styr varje DAG". |
 
-Det som saknades: `pi-dag` var inte inkopplat i `packages/server` (beslut 17). Steg 1 nedan gör
-det; wire-kontrakt och UI saknas fortfarande. Det finns heller ingen nodtyp som kör
-`pi-swarm`:s grindar och worktree-landning, och ingen fabriksvy i webbappen.
+Det som saknades när ADR:en skrevs: `pi-dag` var inte inkopplat i `packages/server` (beslut 17),
+det fanns inget wire-kontrakt eller UI för DAG:er, ingen nodtyp som körde `pi-swarm`:s grindar och
+worktree-landning, och ingen fabriksvy i webbappen. Roadmapen nedan har byggt allt detta.
 
 ## Varför inte LangGraph
 
@@ -112,8 +112,10 @@ Ett fabriksflöde blir en `pi-dag`-definition, inte kod:
    och kodarnoder har ägarglobbar. *Klart när:* två oberoende deluppgifter körs parallellt i egna
    worktrees, passerar grindar och landar efter godkännande.
 4. **Granskning och modellroller (klar):** granskarnod på annan modellfamilj samt per-nod-modellval i
-   definitionen. Logga modell, tokens och utfall per nod. *Klart när:* granskarens fynd blockerar
-   release tills de är besvarade.
+   definitionen. Logga modell, tokens och utfall per nod. *Klart när:* release väntar på att en
+   människa har tagit ställning till granskarens fynd. Granskningsnodens godkännande är mänskligt;
+   värden räknar inte själv öppna fynd, utan personen avgör (och ser fynden på både gransknings- och
+   release-kortet).
 5. **Resurser (klar):** samtidighetsgräns via delegationens semafor, köstatus för flera DAG:er per
    workspace. *Klart när:* fler än en DAG körs utan att överskrida gränsen.
 

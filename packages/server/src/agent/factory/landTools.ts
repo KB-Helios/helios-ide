@@ -22,12 +22,54 @@ async function mergeIdentity(cwd: string): Promise<string[]> {
 	return (await git(cwd, ["config", "user.email"])).code === 0 ? [] : IDENTITY;
 }
 
+async function mergeInProgress(repo: string): Promise<boolean> {
+	return (await git(repo, ["rev-parse", "-q", "--verify", "MERGE_HEAD"])).code === 0;
+}
+
+async function currentBranch(repo: string): Promise<string> {
+	return (await git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
+}
+
+async function assertTarget(repo: string, target: string): Promise<void> {
+	const branch = await currentBranch(repo);
+	if (branch !== target)
+		throw new Error(`The checkout is on ${branch || "a detached HEAD"}, not the target ${target}.`);
+	if (await mergeInProgress(repo))
+		throw new Error(
+			"The target checkout has a merge in progress; finish or abort it before landing factory work.",
+		);
+}
+
+/** The source's uncommitted change must have clean ownership and a fresh passing host gate record. */
+async function assertGated(run: FactoryRun, meta: WorktreeMeta): Promise<void> {
+	const status = await sourceStatus(run, meta);
+	if (status.ownershipViolations.length)
+		throw new Error(
+			`${meta.nodeId} violates its ownership: ${status.ownershipViolations.join(", ")}`,
+		);
+	if (!status.gates?.ok || !status.gates.fresh)
+		throw new Error(
+			`${meta.nodeId} has no fresh passing gate record; run the gates again after the last change.`,
+		);
+}
+
+interface Pending {
+	meta: WorktreeMeta;
+	/** No change at all: nothing to commit or merge. */
+	empty: boolean;
+	/** An uncommitted change to commit (gated again right before the commit). */
+	dirty: boolean;
+}
+
 /**
  * Lands every source worktree on the target branch of the main checkout. The caller is the `land`
  * node's tool, but enforcement does not live in the model: the human release is read from the DAG's own
- * state (`releaseApproved`), every source needs a fresh passing host gate record and clean ownership,
- * and the checkout must be on the target branch. Only then is each worktree committed on its branch,
- * merged (`--no-ff`; a conflict is aborted so the checkout is never left half-merged) and removed.
+ * state (`releaseApproved`), every uncommitted change needs a fresh passing host gate record and clean
+ * ownership (checked in the preflight and again right before its commit), the checkout must be on the
+ * target branch with no merge of its own in progress (checked again right before each merge), and the
+ * merge names the exact commit the host made, never the branch. A conflict aborts only the merge this
+ * landing started. The commit is recorded before its merge, so a retry after a failed merge lands that
+ * commit (plus a newly gated correction, if any) instead of mistaking the clean worktree for no change.
  */
 export function landFactory(
 	run: FactoryRun,
@@ -39,69 +81,68 @@ export function landFactory(
 				`Release ${land.release} has no human approval; landing is refused until a person approves it.`,
 			);
 		const repo = await run.repo();
-		const branch = (await git(repo, ["rev-parse", "--abbrev-ref", "HEAD"])).stdout.trim();
-		if (branch !== land.target)
-			throw new Error(
-				`The checkout is on ${branch || "a detached HEAD"}, not the target ${land.target}.`,
-			);
+		await assertTarget(repo, land.target);
 
 		// Preflight everything before touching the target: all-or-nothing up to the merges themselves.
-		const pending: { meta: WorktreeMeta; empty: boolean }[] = [];
+		const pending: Pending[] = [];
 		for (const nodeId of land.sources) {
 			const meta = run.readMeta(nodeId);
 			if (!meta) throw new Error(`Node ${nodeId} has no worktree to land`);
 			if (meta.landed) continue;
 			run.activeWorktree(nodeId);
-			if (meta.committed) {
-				// A previous landing committed this source and its merge failed. The gates passed on exactly
-				// this content, so land that commit only if nothing moved since: the branch still points at
-				// it and the worktree has no further edits.
-				const head = (await git(meta.path, ["rev-parse", "HEAD"])).stdout.trim();
-				const dirty = (await git(meta.path, ["status", "--porcelain"])).stdout.trim();
-				if (head !== meta.committed || dirty)
-					throw new Error(
-						`${nodeId} changed after its landing commit; retry the coder and run the gates again.`,
-					);
-				pending.push({ meta, empty: false });
-				continue;
-			}
-			const status = await sourceStatus(run, meta);
-			if (status.ownershipViolations.length)
+			const head = (await git(meta.path, ["rev-parse", "HEAD"])).stdout.trim();
+			const dirty = (await git(meta.path, ["status", "--porcelain"])).stdout.trim() !== "";
+			if (meta.committed && head !== meta.committed)
 				throw new Error(
-					`${nodeId} violates its ownership: ${status.ownershipViolations.join(", ")}`,
+					`${nodeId} moved after its landing commit; retry the coder and run the gates again.`,
 				);
-			if (status.changedFiles.length === 0) {
-				pending.push({ meta, empty: true });
-				continue;
+			if (!meta.committed) {
+				// Workers cannot commit; a branch ahead of its fork point without a host commit is not ours.
+				const ahead = (
+					await git(meta.path, ["rev-list", "--count", `${meta.base}..HEAD`])
+				).stdout.trim();
+				if (ahead !== "" && ahead !== "0")
+					throw new Error(`${nodeId} has commits the factory did not make; refusing to land it.`);
 			}
-			if (!status.gates?.ok || !status.gates.fresh)
-				throw new Error(
-					`${nodeId} has no fresh passing gate record; run the gates again after the last change.`,
-				);
-			pending.push({ meta, empty: false });
+			if (dirty) await assertGated(run, meta);
+			pending.push({ meta, empty: !dirty && !meta.committed, dirty });
 		}
 
 		const landed: LandedSource[] = land.sources
 			.filter((nodeId) => run.readMeta(nodeId)?.landed)
 			.map((node) => ({ node, status: "already-landed" as const }));
-		for (const { meta, empty } of pending) {
+		for (const { meta: planned, empty, dirty } of pending) {
+			let meta = planned;
 			let commit: string | undefined;
 			if (!empty) {
-				const sha = meta.committed ?? (await commitWorktree(meta.path, `factory: ${meta.nodeId}`));
-				if (!sha) throw new Error(`Nothing to commit in ${meta.nodeId}`);
-				if (!meta.committed) run.writeMeta({ ...meta, committed: sha });
+				if (dirty) {
+					// Re-check right before the commit: an edit since the preflight must not ride along ungated.
+					await assertGated(run, meta);
+					const sha = await commitWorktree(meta.path, `factory: ${meta.nodeId}`);
+					if (!sha) throw new Error(`Nothing to commit in ${meta.nodeId}`);
+					meta = { ...meta, committed: sha };
+					run.writeMeta(meta);
+				}
+				const sha = meta.committed;
+				if (!sha) throw new Error(`Nothing to land in ${meta.nodeId}`);
+				await assertTarget(repo, land.target);
 				const merged = await git(repo, [
 					...(await mergeIdentity(repo)),
 					"merge",
 					"--no-ff",
 					"-m",
 					`factory: land ${meta.nodeId}`,
-					meta.branch,
+					sha,
 				]);
 				if (merged.code !== 0) {
-					await git(repo, ["merge", "--abort"]);
+					// Only this landing's merge: the preflight proved none was in progress before it.
+					const aborted = !(await mergeInProgress(repo))
+						? "nothing to abort"
+						: (await git(repo, ["merge", "--abort"])).code === 0
+							? "aborted"
+							: "the abort failed; resolve the checkout by hand";
 					throw new Error(
-						`Merging ${meta.nodeId} into ${land.target} failed and was aborted: ${(merged.stderr || merged.stdout).trim()}`,
+						`Merging ${meta.nodeId} into ${land.target} failed (${aborted}): ${(merged.stderr || merged.stdout).trim()}`,
 					);
 				}
 				commit = (await git(repo, ["rev-parse", "HEAD"])).stdout.trim();

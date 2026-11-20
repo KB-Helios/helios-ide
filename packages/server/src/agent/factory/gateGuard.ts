@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { runFactoryGates } from "./gateTools";
+import { CHANGED_DEFINITIONS, runFactoryGates } from "./gateTools";
 import type { FactoryRun, GateRecord } from "./run";
 
 const SUBMIT_TOOL = "dag_submit_result";
@@ -29,7 +29,11 @@ export function formatGateFailure(record: GateRecord): string {
  * correcting would only burn the budget; the gate node reports it to the person instead.
  */
 export function isFixable(record: GateRecord): boolean {
-	return record.violations.length > 0 || record.results.some((result) => !result.ok);
+	return (
+		record.violations.length > 0 ||
+		record.results.some((result) => !result.ok) ||
+		Boolean(record.reason?.startsWith(CHANGED_DEFINITIONS))
+	);
 }
 
 /**
@@ -66,7 +70,9 @@ export function registerGateGuard(pi: ExtensionAPI, run: FactoryRun): void {
 			return undefined;
 		}
 		if (record.ok || !isFixable(record)) return undefined;
-
+		// Parallel submits in one message all passed the first check before the awaits; recheck right
+		// before spending, synchronously with the increment, so the budget can never be exceeded.
+		if (run.gateRetriesUsed(bound.nodeId, sessionId) >= budget) return undefined;
 		const number = run.useGateRetry(bound.nodeId, sessionId);
 		return {
 			block: true,

@@ -1,5 +1,14 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	readFileSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { WorkspaceProvider } from "pi-delegation";
 import {
@@ -12,7 +21,7 @@ import {
 	type Worktree,
 	worktreeDiff,
 } from "pi-swarm";
-import { type FactoryNode, PROTECTED_BASENAMES } from "./spec";
+import { type FactoryNode, isProtectedBasename } from "./spec";
 
 export interface FactoryRunOptions {
 	workspaceId: string;
@@ -142,7 +151,10 @@ export class FactoryRun {
 		const used = this.gateRetriesUsed(nodeId, sessionId) + 1;
 		const file = this.retryFile(nodeId);
 		mkdirSync(dirname(file), { recursive: true });
-		writeFileSync(file, JSON.stringify({ sessionId, used }));
+		// Replace atomically: a host stop mid-write must never leave a partial file that reads as 0 used.
+		const temp = `${file}.${process.pid}.tmp`;
+		writeFileSync(temp, JSON.stringify({ sessionId, used }));
+		renameSync(temp, file);
 		return used;
 	}
 
@@ -212,8 +224,7 @@ export class FactoryRun {
 	violations(meta: WorktreeMeta, files: readonly string[]): string[] {
 		const bad = new Set(ownershipViolations(files, { owns: meta.owns, avoid: meta.avoid }));
 		for (const file of files)
-			if (PROTECTED_BASENAMES.includes(basename(file)) && !matchesAny(file, meta.owns))
-				bad.add(file);
+			if (isProtectedBasename(basename(file)) && !matchesAny(file, meta.owns)) bad.add(file);
 		return [...bad];
 	}
 
@@ -257,8 +268,22 @@ export function confinedPath(
 	if (sub === ".." || sub.startsWith(`..${sep}`) || isAbsolute(sub))
 		throw new Error("Path escapes the worktree");
 	const segments = sub.split(sep);
-	if (segments.includes(".git") || segments.includes("node_modules"))
+	// Case-insensitive file systems (Windows, macOS) treat `.GIT` and `.git.` as `.git`; compare that way.
+	const reserved = segments.map((segment) => segment.toLowerCase().replace(/[. ]+$/, ""));
+	if (reserved.includes(".git") || reserved.includes("node_modules"))
 		throw new Error("Paths inside .git or node_modules are not available to factory workers");
+	if (segments.some((segment) => segment.includes(":")))
+		throw new Error("Paths with a colon are not available to factory workers");
+	// No symbolic link anywhere below the root: a dangling link would let a write land outside the
+	// worktree, and a link inside it would alias a path the ownership and reserved-name checks refuse.
+	let walk = root;
+	for (const segment of segments) {
+		walk = join(walk, segment);
+		const entry = lstatSync(walk, { throwIfNoEntry: false });
+		if (!entry) break;
+		if (entry.isSymbolicLink())
+			throw new Error("Symbolic links are not available to factory workers");
+	}
 	let probe = full;
 	while (!existsSync(probe)) {
 		const parent = dirname(probe);

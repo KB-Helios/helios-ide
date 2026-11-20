@@ -1,6 +1,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ExtensionFactory } from "@earendil-works/pi-coding-agent";
+import { CodedError } from "@thinkrail/shared/codedError";
 import { createDagExtension, createDagService, type DagService } from "pi-dag";
 import { dataDir } from "../persistence";
 import { trashFile } from "../trash";
@@ -31,10 +32,17 @@ export function factoryWorktreeRoot(workspaceId: string): string {
 }
 
 const services = new Map<string, DagService>();
+/** Workspaces whose DAG service is closing: no replacement service (or slot pool) until it settled. */
+const closing = new Set<string>();
 
 export function dagServiceFor(workspaceId: string): DagService {
 	let service = services.get(workspaceId);
 	if (!service) {
+		if (closing.has(workspaceId))
+			throw new CodedError(
+				"RESOURCE_UNAVAILABLE",
+				"This workspace's workflows are closing; try again in a moment",
+			);
 		// The factory worker extension reaches DAG children only through this wrapper (see agent/factory).
 		const created: DagService = createDagService({
 			storageRoot: dagRootDir(workspaceId),
@@ -94,11 +102,14 @@ export function dagExtensionFor(workspaceId: string): ExtensionFactory {
 /** Settles live DAG work and releases process ownership; durable state stays resumable. */
 export async function closeWorkspaceDag(workspaceId: string): Promise<void> {
 	const service = services.get(workspaceId);
+	if (!service) return;
 	services.delete(workspaceId);
+	closing.add(workspaceId);
 	try {
-		await service?.close();
+		await service.close();
 	} finally {
 		dropFactorySlots(workspaceId);
+		closing.delete(workspaceId);
 	}
 }
 
@@ -117,16 +128,20 @@ export async function closeAllDags(): Promise<void> {
 		);
 }
 
+/**
+ * A close that failed (live work or durable cleanup did not settle) stops the removal: the store is the
+ * recovery evidence, so it is deleted or trashed only after the service closed cleanly.
+ */
 export async function removeWorkspaceDag(workspaceId: string): Promise<void> {
 	assertWorkspaceStorageId(workspaceId);
-	await closeWorkspaceDag(workspaceId).catch(() => {});
+	await closeWorkspaceDag(workspaceId);
 	rmSync(dagRootDir(workspaceId), { recursive: true, force: true });
 }
 
 /** Recoverable twin of `removeWorkspaceDag`: the store goes to the Trash. */
 export async function trashWorkspaceDag(workspaceId: string): Promise<void> {
 	assertWorkspaceStorageId(workspaceId);
-	await closeWorkspaceDag(workspaceId).catch(() => {});
+	await closeWorkspaceDag(workspaceId);
 	const store = dagRootDir(workspaceId);
 	if (existsSync(store)) await trashFile(store);
 }

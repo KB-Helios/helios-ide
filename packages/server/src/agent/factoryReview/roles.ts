@@ -75,10 +75,13 @@ const FAMILY_BY_MODEL_ID: ReadonlyArray<readonly [RegExp, string]> = [
 	[/mistral|devstral|codestral/i, "mistral"],
 	[/llama|muse/i, "meta"],
 	[/minimax/i, "minimax"],
+	// Bedrock hosts several vendors; Amazon's own models are a family of their own.
+	[/(^|[./])(nova|titan)/i, "amazon"],
 ];
 
 const FAMILY_BY_PROVIDER: ReadonlyArray<readonly [RegExp, string]> = [
-	[/^anthropic|bedrock/i, "anthropic"],
+	// Not `bedrock`: it is multi-vendor, so a Bedrock model's family comes from its model id only.
+	[/^anthropic/i, "anthropic"],
 	[/^openai|^azure|codex/i, "openai"],
 	[/^google/i, "google"],
 	[/^xai$/i, "xai"],

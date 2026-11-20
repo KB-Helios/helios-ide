@@ -81,6 +81,7 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const refreshRef = useRef<() => void>(() => {});
 	const selectedRef = useRef<string | null>(null);
 
+	// A new workspace or connection starts empty; opening or closing the pane keeps the selection.
 	useEffect(() => {
 		setItems(null);
 		setQueue(null);
@@ -88,6 +89,9 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 		setReviews({});
 		selectedRef.current = null;
 		setSelectedId(null);
+	}, [workspaceId, status, supported, generation]);
+
+	useEffect(() => {
 		if (status !== "connected" || !supported) return;
 		const transport = getTransport();
 		let disposed = false;

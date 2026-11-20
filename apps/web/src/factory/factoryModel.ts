@@ -1,8 +1,10 @@
 import type {
+	DagGateView,
 	DagHistoryItem,
 	DagNodeStatus,
 	DagQueueView,
 	DagReviewSeverity,
+	DagReviewView,
 	DagStartRequest,
 	DagUsageView,
 	DagView,
@@ -230,4 +232,24 @@ export function startRequest(
 /** A planning DAG whose planner finished (its approval is checked again on the host). */
 export function planReady(dag: Pick<DagView, "nodes">): boolean {
 	return dag.nodes.some((node) => node.planner === true && node.status === "completed");
+}
+
+/**
+ * The reviewer findings a gate's decision rests on: the gate's own node when it is the reviewer, else a
+ * reviewer node with an edge straight into it (the factory's release node takes the review's findings as
+ * an input). A release card then shows the findings its question asks the person to have answered.
+ */
+export function reviewForGate(
+	gate: Pick<DagGateView, "target">,
+	dag: Pick<DagView, "edges">,
+	reviews: Readonly<Record<string, DagReviewView>>,
+): DagReviewView | undefined {
+	const own = reviews[gate.target.nodeId];
+	if (own) return own;
+	for (const edge of dag.edges) {
+		if (edge.to !== gate.target.nodeId) continue;
+		const upstream = reviews[edge.from];
+		if (upstream) return upstream;
+	}
+	return undefined;
 }

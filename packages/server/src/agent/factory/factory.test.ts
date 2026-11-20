@@ -9,6 +9,7 @@ import {
 	readdirSync,
 	readFileSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,6 +34,7 @@ import {
 	landFactory,
 	parseFactoryNode,
 } from "./index";
+import { confinedPath } from "./run";
 
 const model = { provider: "factory-faux", id: "worker" };
 const faux = createFauxCore({
@@ -388,21 +390,81 @@ test("a landing retried after a failed merge lands the committed source instead 
 	writeFileSync(join(repo, "src", "a", "x.txt"), "from main\n");
 	git(repo, "add", "-A");
 	git(repo, "commit", "-m", "conflict");
-	await expect(landFactory(run, plan)).rejects.toThrow("failed and was aborted");
+	await expect(landFactory(run, plan)).rejects.toThrow("(aborted)");
 	expect(git(repo, "status", "--porcelain").trim()).toBe("");
 	expect(run.readMeta("coder-a")?.committed).toBeTruthy();
 
-	// An edit after the landing commit is never landed unchecked.
-	writeFileSync(join(meta.path, "src", "a", "y.txt"), "late\n");
-	await expect(landFactory(run, plan)).rejects.toThrow("changed after its landing commit");
-	rmSync(join(meta.path, "src", "a", "y.txt"));
+	// A correction after the landing commit lands only once it passed fresh gates.
+	writeFileSync(join(meta.path, "src", "a", "y.txt"), "correction\n");
+	await expect(landFactory(run, plan)).rejects.toThrow("no fresh passing gate record");
+	expect((await runFactoryGates(run, meta)).ok).toBe(true);
 
-	// Once the conflict is gone, the retry merges the recorded commit; nothing is reported as unchanged.
+	// Once the conflict is gone, the retry merges the recorded commit and the gated correction.
 	git(repo, "reset", "--hard", "HEAD~1");
 	expect(await landFactory(run, plan)).toMatchObject([{ node: "coder-a", status: "landed" }]);
 	expect(lf(readFileSync(join(repo, "src", "a", "x.txt"), "utf8"))).toBe("from the coder\n");
+	expect(lf(readFileSync(join(repo, "src", "a", "y.txt"), "utf8"))).toBe("correction\n");
 	expect(git(repo, "log", "--format=%s")).toContain("factory: land coder-a");
 	expect(existsSync(meta.path)).toBe(false);
+});
+
+test("landing never touches a merge the person has in progress", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo, { trusted: true, approved: true });
+	const meta = await run.ensureWorktree("coder-a", { owns: ["src/a/**"], avoid: [] });
+	mkdirSync(join(meta.path, "src", "a"), { recursive: true });
+	writeFileSync(join(meta.path, "src", "a", "x.txt"), "x\n");
+	expect((await runFactoryGates(run, meta)).ok).toBe(true);
+	// A manual merge that stopped on a conflict.
+	git(repo, "checkout", "-q", "-b", "side");
+	writeFileSync(join(repo, "README.md"), "side\n");
+	git(repo, "commit", "-qam", "side");
+	git(repo, "checkout", "-q", "main");
+	writeFileSync(join(repo, "README.md"), "main\n");
+	git(repo, "commit", "-qam", "main");
+	expect(Bun.spawnSync(["git", "merge", "side"], { cwd: repo }).exitCode).not.toBe(0);
+	await expect(
+		landFactory(run, { sources: ["coder-a"], release: "release", target: "main" }),
+	).rejects.toThrow("merge in progress");
+	const mergeHead = Bun.spawnSync(["git", "rev-parse", "-q", "--verify", "MERGE_HEAD"], {
+		cwd: repo,
+	});
+	expect(mergeHead.exitCode).toBe(0);
+	expect(run.readMeta("coder-a")?.committed).toBeUndefined();
+});
+
+test("worker paths refuse symlinks and reserved names in any case", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo);
+	const meta = await run.ensureWorktree("coder-a", { owns: [], avoid: [] });
+	for (const path of [".GIT/config", ".git./config", "Node_Modules/x.js", "a:b.txt"])
+		expect(() => confinedPath(meta.path, path)).toThrow();
+	mkdirSync(join(meta.path, "src"), { recursive: true });
+	let linked = true;
+	try {
+		symlinkSync(join(root, "factory-escape-target.txt"), join(meta.path, "src", "out.txt"));
+	} catch {
+		linked = false; // Windows without symlink privilege: nothing to exercise here.
+	}
+	if (linked) {
+		expect(() => confinedPath(meta.path, "src/out.txt")).toThrow("Symbolic links");
+		expect(existsSync(join(root, "factory-escape-target.txt"))).toBe(false);
+	}
+	expect(confinedPath(meta.path, "src/ok.txt")).toBe(join(meta.path, "src", "ok.txt"));
+});
+
+test("a changed gate definition is never gated, even when the coder owns it", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo);
+	const meta = await run.ensureWorktree("coder-a", { owns: ["package.json", "src/**"], avoid: [] });
+	writeFileSync(
+		join(meta.path, "package.json"),
+		JSON.stringify({ name: "demo", scripts: { test: 'bun -e "process.exit(0)"' } }, null, 1),
+	);
+	const record = await runFactoryGates(run, meta);
+	expect(record.ok).toBe(false);
+	expect(record.results).toHaveLength(0);
+	expect(record.reason).toContain("changed build or gate definitions");
 });
 
 test("an untrusted project never runs its gates", async () => {

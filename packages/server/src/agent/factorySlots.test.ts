@@ -15,6 +15,7 @@ import { closeAllDags, dagServiceFor } from "./dag";
 import { refreshSubagentConcurrency, setSubagentConcurrencyResolver } from "./delegation";
 import {
 	DEFAULT_GLOBAL_FACTORY_SLOTS,
+	FactorySlots,
 	factoryQueueOf,
 	globalFactoryQueue,
 	setGlobalFactorySlotLimit,
@@ -385,3 +386,37 @@ test("a workspace's own cap still binds when the machine-wide cap is generous", 
 	await finish(clientTwo, [b], 3);
 	expect(peak).toBe(2);
 }, 60_000);
+
+test("lowering the workspace cap while its turns wait for global slots admits only the new cap", async () => {
+	setGlobalFactorySlotLimit(2);
+	try {
+		// Another workspace fills the machine-wide pool.
+		const other = new FactorySlots(2);
+		const held = [await other.acquire(undefined), await other.acquire(undefined)];
+		const slots = new FactorySlots(3);
+		const releases: (() => void)[] = [];
+		const waiting = [0, 1, 2].map(() =>
+			slots.acquire(undefined).then((release) => {
+				if (release) releases.push(release);
+			}),
+		);
+		await Bun.sleep(20);
+		expect(slots.snapshot()).toMatchObject({ running: 0, queued: 3 });
+		slots.setLimit(1);
+		for (const release of held) release?.();
+		await Bun.sleep(50);
+		// Two global slots freed at once, but only one turn may run under the lowered workspace cap.
+		expect(slots.snapshot().running).toBe(1);
+		expect(releases).toHaveLength(1);
+		releases[0]?.();
+		await Bun.sleep(50);
+		expect(slots.snapshot().running).toBe(1);
+		releases[1]?.();
+		await Bun.sleep(50);
+		releases[2]?.();
+		await Promise.all(waiting);
+		expect(slots.snapshot()).toMatchObject({ running: 0, queued: 0 });
+	} finally {
+		setGlobalFactorySlotLimit(DEFAULT_GLOBAL_FACTORY_SLOTS);
+	}
+});
