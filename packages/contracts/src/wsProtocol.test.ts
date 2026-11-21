@@ -43,6 +43,7 @@ import {
 	DAG_PROTOCOL_VERSION,
 	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
+	DAG_REPLAN_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
 	DAG_START_PROTOCOL_VERSION,
 	DEFAULT_MODEL_PROTOCOL_VERSION,
@@ -833,6 +834,12 @@ test("starting a factory run is pinned to v135", () => {
 	expect(WS_METHODS.dagRoles).toBe("dag.roles");
 	expect(WS_METHODS.dagStart).toBe("dag.start");
 	expect(WS_METHODS.dagStartFromPlan).toBe("dag.startFromPlan");
+});
+
+test("replanning a rejected factory run is pinned to v138", () => {
+	expect(DAG_REPLAN_PROTOCOL_VERSION).toBe(138);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_REPLAN_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagReplan).toBe("dag.replan");
 });
 
 test("the machine-wide factory cap is pinned to v136 with bounded whole-number values", () => {

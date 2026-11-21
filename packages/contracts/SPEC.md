@@ -1589,6 +1589,17 @@ under a **human** approval (checked on the host, not on the wire) and returns th
 it returns the same DAG. `DagNodeView.planner` marks the planning DAG's node. Validation failures are
 `DAG_REJECTED` with the host's plain reason; no field names a caller. Older hosts have none of these methods.
 
+From **`DAG_REPLAN_PROTOCOL_VERSION`** (v138, additive): sending a rejected factory run back to the planner.
+`dag.replan` `DagReplanRequest { workspaceId, dagId }` (`dagId` is the rejected **factory** DAG) returns the same
+`DagStartResult` as `dag.start`, always `kind: "plan"`: a new, **paused** planning DAG whose planner task holds the
+original task, the reason the person gave when rejecting, the reviewer's findings and the per-coder gate verdicts
+(bounded, cut with a note), on the roles, target branch and gate budget the rejected run was started with. It never
+starts model work, and no field names a caller. The host refuses (`DAG_REJECTED`, plain reason) a DAG that is not a
+factory DAG, has no rejection by a person on its `release` or `review` gate, or whose original run cannot be
+recovered (a factory DAG created before v138 carries none). `DagNodeView.rejected` marks a node whose latest
+approval gate a person rejected and nothing has been decided since; the pane offers the action from it. Replaying
+the same rejection returns the same planning DAG. Older hosts have neither the method nor the field.
+
 From **`FACTORY_CAP_PROTOCOL_VERSION`** (v136, additive): `AppConfig.factoryMaxConcurrent` (**`FACTORY_MAX_CONCURRENT`**
 = 1-64, default 8, validated by `isFactoryMaxConcurrent`; a bad stored value falls back to the default and a bad
 update rejects the whole mutation) is the machine-wide cap on factory DAG worker turns across every workspace, on top of

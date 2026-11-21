@@ -81,6 +81,7 @@ import {
 	removeSession,
 	removeWorkspaceSessions,
 	renameSession,
+	replanWorkspaceFactory,
 	replyMcpProbe,
 	resolveExtUi,
 	respondToTool,
@@ -1557,6 +1558,7 @@ const handlers: WsHandlers = {
 	},
 	"dag.start": (params) => startWorkspaceFactory(params),
 	"dag.startFromPlan": (params) => startWorkspaceFactoryFromPlan(params),
+	"dag.replan": (params) => replanWorkspaceFactory(params),
 	"dag.history": (params) => {
 		const { dagId, cursor, limit, ...ids } = (params ?? {}) as {
 			dagId?: unknown;

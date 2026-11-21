@@ -27,7 +27,7 @@ import { sessionlessProjectTrust } from "./agentSessionManager";
 import { dagServiceFor } from "./dag";
 import { previewArtifact } from "./dagArtifact";
 import { cancelPendingDagChanges, publishDagChangedNow } from "./dagChanges";
-import { startFactory, startFactoryFromPlan } from "./dagStart";
+import { replanFactory, startFactory, startFactoryFromPlan } from "./dagStart";
 import { factoryQueueOf, globalFactoryQueue, isPlannerNode } from "./factory";
 import { FINDINGS_PORT, isReviewerNode, parseFindings } from "./factoryReview/reviewer";
 import { getPiRuntime } from "./piRuntime";
@@ -128,6 +128,17 @@ function nodeRun(
 	};
 }
 
+/** A person rejected the node's latest approval gate and no newer gate has been decided or opened. */
+function isRejected(snapshot: DagSnapshot, nodeId: string): boolean {
+	const latest = snapshot.gates
+		.filter((gate) => gate.kind === "approval" && gate.target.nodeId === nodeId)
+		.sort(
+			(a, b) => a.target.attempt - b.target.attempt || a.target.activation - b.target.activation,
+		)
+		.at(-1);
+	return latest?.disposition === "rejected" && latest.decision?.actor.kind === "human";
+}
+
 export function toDagView(snapshot: DagSnapshot): DagView {
 	const known = new Set(snapshot.nodes.map((node) => node.id));
 	const edges: DagView["edges"] = [];
@@ -154,6 +165,7 @@ export function toDagView(snapshot: DagSnapshot): DagView {
 			...(node.activation === undefined ? {} : { activation: node.activation }),
 			...(isReviewerNode(node.outputs) ? { reviewer: true as const } : {}),
 			...(isPlannerNode(node.outputs) ? { planner: true as const } : {}),
+			...(isRejected(snapshot, node.id) ? { rejected: true as const } : {}),
 			...(node.proposalId && node.outputs && Object.keys(node.outputs).length
 				? { outputs: Object.keys(node.outputs) }
 				: {}),
@@ -503,6 +515,17 @@ export async function startWorkspaceFactory(params: unknown): Promise<DagStartRe
 export async function startWorkspaceFactoryFromPlan(params: unknown): Promise<DagStartResult> {
 	const workspaceId = startWorkspaceId(params);
 	const result = await startFactoryFromPlan(await commandClient(workspaceId), params);
+	publishDagChangedNow({ workspaceId, dagId: result.dagId });
+	return result;
+}
+
+/**
+ * `dag.replan`: a person sends a rejected factory release back to the planner. Creates a new, paused
+ * planning DAG (see `replanFactory`); the caller is the human binding, never a wire field.
+ */
+export async function replanWorkspaceFactory(params: unknown): Promise<DagStartResult> {
+	const workspaceId = startWorkspaceId(params);
+	const result = await replanFactory(await commandClient(workspaceId), params);
 	publishDagChangedNow({ workspaceId, dagId: result.dagId });
 	return result;
 }

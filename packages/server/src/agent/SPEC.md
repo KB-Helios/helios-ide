@@ -1571,9 +1571,26 @@ execution context as `dag.execute`, and always create the DAG **paused**.
   a person approved the plan and, separately, the release. Rejecting the plan keeps the planner blocked; the
   person retries that step (pane control) and approves again. The planning DAG has no `<factory-node>` marker, so
   the factory worker extension never serves it.
+- **Replan.** `dag.replan` (`replanFactory` in `dagStart.ts`, wired as `replanWorkspaceFactory`) sends a rejected
+  factory release back to the planner. Both starts write the run's `PlanRun` (title, the person's `task`, target,
+  gate budget, notes, role models) into the **reviewer node's** system prompt as a `<factory-plan>` block, so a
+  factory DAG carries what its planner carried; the planner's block also names `replanOf`. The host checks: the
+  `release` node carries the factory marker, the latest approval of `release` (else `review`) is a **rejection a
+  human decided**, and that `PlanRun` can be read back; otherwise `DAG_REJECTED` ("not a factory DAG", "No release
+  or review was rejected by a person", "The original plan run cannot be recovered"). The roles are re-resolved with
+  the stored models as explicit picks (one that is gone is refused plainly), then a new **paused** planning DAG,
+  titled `Replan: <title>`, is created with `buildReplanTask` (`factory/replan.ts`): the original task, the
+  person's reason, the reviewer's findings (most serious first, at most 20 listed, the rest counted) and the
+  per-coder gate reports, each part cut with a note and the whole at `MAX_TASK_CHARS`. It never starts the
+  planner: that and the plan approval are the person's own clicks, and the human release of the factory built
+  from it is separate again. The command id derives from the DAG and the rejecting gate, so a double click replays
+  the same planning DAG while a later rejection (after a retry) makes a new one. `toDagView` sets
+  `DagNodeView.rejected` from the latest approval gate. A replan keeps only the latest rejection's feedback: the
+  next plan run's `task` stays the person's original one.
 - Tests: `dagWire.test.ts` (roles read, chosen coders and models, same-family refusal and note, validation and
-  replay, planner approved by a person vs refused for a chat controller, invalid plans rejected after approval),
-  `factory/plan.test.ts`.
+  replay, planner approved by a person vs refused for a chat controller, invalid plans rejected after approval,
+  replan of a rejected release or review with bounds, roles and lineage, and its refusals),
+  `factory/plan.test.ts`, `factory/replan.test.ts`.
 
 ### History and output reads
 

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type {
+	DagReplanRequest,
 	DagStartFromPlanRequest,
 	DagStartRequest,
 	DagStartResult,
@@ -14,16 +15,20 @@ import { getWorkspace } from "../workspaces";
 import {
 	buildFactoryDefinition,
 	buildPlanningDefinition,
+	buildReplanTask,
 	PLAN_PORT,
 	PLANNER_NODE_ID,
 	PlanError,
 	type PlanRun,
 	parseCoderPlans,
+	parseFactoryNode,
 	parsePlanRun,
 	planRunRoles,
+	RELEASE_NODE,
 } from "./factory";
 import { DEFAULT_GATE_RETRIES, MAX_GATE_RETRIES } from "./factory/spec";
 import { factoryModels, factoryReviewHook } from "./factoryReview/factoryHook";
+import { FINDINGS_PORT, parseFindings, REVIEW_NODE_ID } from "./factoryReview/reviewer";
 import {
 	availableFactoryModels,
 	FACTORY_ROLES,
@@ -170,6 +175,7 @@ export async function startFactory(client: DagClient, params: unknown): Promise<
 	const title = titleOf(task);
 	const run: PlanRun = {
 		title,
+		task,
 		target,
 		gateRetries,
 		notes,
@@ -187,7 +193,7 @@ export async function startFactory(client: DagClient, params: unknown): Promise<
 				gateRetries,
 				notes,
 				models: factoryModels(resolved.roles),
-				beforeRelease: factoryReviewHook({ roles: resolved.roles }),
+				beforeRelease: factoryReviewHook({ roles: resolved.roles, run }),
 			});
 			kind = "factory";
 		} else {
@@ -214,17 +220,19 @@ function unwrapDag<T>(
 	throw new CodedError("DAG_REJECTED", result.error.message);
 }
 
-/** The roles, target and budget frozen into a planning DAG's planner node, from its stored definition. */
-/** The planning settings frozen into the planner, read from the given snapshot's own definition. */
-async function planRunOf(snapshot: DagSnapshot): Promise<PlanRun | undefined> {
+async function definitionOf(snapshot: DagSnapshot): Promise<DagDefinition | undefined> {
 	try {
-		const raw = await readFile(snapshot.definition.localPath, "utf8");
-		const definition = JSON.parse(raw) as DagDefinition;
-		const planner = definition.nodes.find((node) => node.id === PLANNER_NODE_ID);
-		return parsePlanRun(planner?.session?.systemPrompt);
+		return JSON.parse(await readFile(snapshot.definition.localPath, "utf8")) as DagDefinition;
 	} catch {
 		return undefined;
 	}
+}
+
+/** The planning settings frozen into the planner, read from the given snapshot's own definition. */
+async function planRunOf(snapshot: DagSnapshot): Promise<PlanRun | undefined> {
+	const definition = await definitionOf(snapshot);
+	const planner = definition?.nodes.find((node) => node.id === PLANNER_NODE_ID);
+	return parsePlanRun(planner?.session?.systemPrompt);
 }
 
 /**
@@ -300,7 +308,7 @@ export async function startFactoryFromPlan(
 			gateRetries: run.gateRetries,
 			notes: run.notes,
 			models: factoryModels(roles),
-			beforeRelease: factoryReviewHook({ roles }),
+			beforeRelease: factoryReviewHook({ roles, run }),
 		});
 	} catch (error) {
 		return reject(error instanceof PlanError ? error : new PlanError(errorMessage(error)));
@@ -314,4 +322,151 @@ export async function startFactoryFromPlan(
 		}),
 	);
 	return { dagId: receipt.dagId, kind: "factory", notes: run.notes };
+}
+
+type GateRead = DagSnapshot["gates"][number];
+
+/** The latest approval gate of a node (highest attempt, then activation); later in the list wins a tie. */
+function latestApproval(snapshot: DagSnapshot, nodeId: string): GateRead | undefined {
+	return snapshot.gates
+		.filter((gate) => gate.kind === "approval" && gate.target.nodeId === nodeId)
+		.sort(
+			(a, b) => a.target.attempt - b.target.attempt || a.target.activation - b.target.activation,
+		)
+		.at(-1);
+}
+
+const REPORT_MAX_BYTES = 64 * 1024;
+const REASON_MAX = 2000;
+
+async function textOutput(
+	client: DagClient,
+	dagId: string,
+	proposalId: string,
+	name: string,
+	kind: "text" | "json",
+): Promise<string | undefined> {
+	try {
+		const output = unwrapDag(await client.getOutput({ dagId, proposalId, name }));
+		if (output.value.kind !== kind || output.value.file.sizeBytes > REPORT_MAX_BYTES)
+			return undefined;
+		return await readFile(output.value.file.localPath, "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+const SEVERITY_RANK = ["critical", "high", "medium", "low", "info"];
+function severityRank(severity: string): number {
+	const index = SEVERITY_RANK.indexOf(severity);
+	return index < 0 ? SEVERITY_RANK.length : index;
+}
+
+/**
+ * `dag.replan`: the decision a person made on a factory DAG's release (or review) gate, sent back to the
+ * planner. Preconditions the host checks itself: the DAG is a factory DAG (its `release` node carries the
+ * factory marker), the latest approval of the `release` node, else of the `review` node, is a **rejection**
+ * a person decided, and the run's settings (roles, target, budget, original task) can be read back from the
+ * DAG's own definition. Then a **new planning DAG** is created, paused, whose planner task holds the
+ * original task, the person's reason, the reviewer's findings and the per-coder gate verdicts, bounded.
+ * Nothing is started: running the planner, like approving its plan, is the person's own next click. Replay
+ * with the same rejection returns the same planning DAG; a new rejection after a retry makes a new one.
+ */
+export async function replanFactory(client: DagClient, params: unknown): Promise<DagStartResult> {
+	if (!params || typeof params !== "object" || Array.isArray(params))
+		throw new Error("Invalid DAG replan request");
+	const p = params as Partial<Record<keyof DagReplanRequest, unknown>>;
+	if (Object.keys(p).some((key) => key !== "workspaceId" && key !== "dagId"))
+		throw new Error("Invalid DAG replan request");
+	if (!isHostResourceId(p.workspaceId)) throw new Error("Invalid workspaceId");
+	workspaceBranch(p.workspaceId);
+	const dagId = p.dagId;
+	if (typeof dagId !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(dagId))
+		throw new Error("Invalid dagId");
+
+	const snapshot = unwrapDag(await client.getDag({ dagId }));
+	const definition = await definitionOf(snapshot);
+	const release = definition?.nodes.find((node) => node.id === RELEASE_NODE);
+	if (parseFactoryNode(release?.session?.systemPrompt)?.role !== "release")
+		throw new CodedError("DAG_REJECTED", "This DAG is not a factory DAG");
+
+	const rejected = [RELEASE_NODE, REVIEW_NODE_ID]
+		.map((nodeId) => ({ nodeId, gate: latestApproval(snapshot, nodeId) }))
+		.find(
+			(entry) =>
+				entry.gate?.disposition === "rejected" && entry.gate.decision?.actor.kind === "human",
+		);
+	const gate = rejected?.gate;
+	if (!rejected || !gate?.decision)
+		throw new CodedError("DAG_REJECTED", "No release or review was rejected by a person");
+
+	const review = definition?.nodes.find((node) => node.id === REVIEW_NODE_ID);
+	const run = parsePlanRun(review?.session?.systemPrompt);
+	if (!run) throw new CodedError("DAG_REJECTED", "The original plan run cannot be recovered");
+
+	let findings: ReturnType<typeof parseFindings> = parseFindings(undefined);
+	const reviewNode = snapshot.nodes.find((node) => node.id === REVIEW_NODE_ID);
+	if (reviewNode?.proposalId) {
+		const text = await textOutput(client, dagId, reviewNode.proposalId, FINDINGS_PORT, "json");
+		if (text !== undefined)
+			try {
+				findings = parseFindings(JSON.parse(text));
+			} catch {
+				// Unreadable findings are left out rather than guessed.
+			}
+	}
+	const gates: Array<{ id: string; report: string }> = [];
+	for (const node of snapshot.nodes) {
+		if (!node.id.startsWith("gate-") || !node.proposalId) continue;
+		const report = await textOutput(client, dagId, node.proposalId, "report", "text");
+		if (report?.trim()) gates.push({ id: node.id, report });
+	}
+
+	let resolved: ResolvedRoles;
+	try {
+		// The stored picks are explicit overrides: the replan runs on what the person chose, and a model that
+		// is no longer available is refused plainly. A same-family reviewer was allowed when it was recorded.
+		resolved = await resolveFactoryRoles({
+			overrides: {
+				coder: run.roles.coder.model,
+				reviewer: run.roles.reviewer.model,
+				scout: run.roles.scout.model,
+			},
+			allowSameFamilyReviewer: true,
+		});
+	} catch (error) {
+		return reject(error);
+	}
+
+	const original = run.task?.trim() || run.title;
+	const next: PlanRun = { ...run, task: original, replanOf: dagId };
+	let planning: DagDefinition;
+	try {
+		planning = buildPlanningDefinition({
+			task: buildReplanTask(original, {
+				reason: gate.decision.reason.slice(0, REASON_MAX),
+				gate: rejected.nodeId === RELEASE_NODE ? "release" : "review",
+				findings: [...findings.findings].sort(
+					(a, b) => severityRank(a.severity) - severityRank(b.severity),
+				),
+				findingsTotal: findings.total,
+				gates,
+				factoryDagId: dagId,
+			}),
+			planner: resolved.roles.planner,
+			run: next,
+		});
+		planning.title = `Replan: ${run.title}`;
+	} catch (error) {
+		return reject(error instanceof PlanError ? error : new PlanError(errorMessage(error)));
+	}
+	const receipt = unwrapDag(
+		await client.execute({
+			// Idempotent per rejection: a double-click replays the same create, while a later rejection (after
+			// a retry of the rejected step) is a new decision and gets its own planning DAG.
+			commandId: `replan-${createHash("sha256").update(`${dagId}\0${gate.id}`).digest("hex").slice(0, 40)}`,
+			command: { kind: "create", definition: planning },
+		}),
+	);
+	return { dagId: receipt.dagId, kind: "plan", notes: run.notes };
 }

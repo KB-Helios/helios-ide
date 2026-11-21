@@ -3,6 +3,7 @@ import {
 	DAG_PROTOCOL_VERSION,
 	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
+	DAG_REPLAN_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
 	DAG_START_PROTOCOL_VERSION,
 	type DagChanged,
@@ -51,6 +52,10 @@ export interface FactoryState {
 	roles: () => Promise<FactoryRolesView>;
 	/** Starts a run and selects the DAG it created; rejects with the host's refusal. */
 	start: (request: Omit<DagStartRequest, "workspaceId" | "commandId">) => Promise<DagStartResult>;
+	/** The host can send a rejected release back to the planner (v137): `replan` works. */
+	replannable: boolean;
+	/** Starts a new planning DAG from a rejected factory DAG's feedback and selects it; nothing runs yet. */
+	replan: (dagId: string) => Promise<DagStartResult>;
 	/** Creates the factory DAG from the selected planning DAG's approved plan and selects it. */
 	startFromPlan: (planDagId: string) => Promise<DagStartResult>;
 	select: (dagId: string | null) => void;
@@ -78,6 +83,7 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 	const pushed = protocol !== null && protocol >= DAG_PUSH_PROTOCOL_VERSION;
 	const details = protocol !== null && protocol >= DAG_DETAILS_PROTOCOL_VERSION;
 	const startable = protocol !== null && protocol >= DAG_START_PROTOCOL_VERSION;
+	const replannable = protocol !== null && protocol >= DAG_REPLAN_PROTOCOL_VERSION;
 	const [items, setItems] = useState<DagListItem[] | null>(null);
 	const [queue, setQueue] = useState<DagQueueView | null>(null);
 	const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -253,6 +259,15 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 		[workspaceId, select],
 	);
 
+	const replan = useCallback(
+		async (dagId: string) => {
+			const result = await getTransport().request("dag.replan", { workspaceId, dagId });
+			select(result.dagId);
+			return result;
+		},
+		[workspaceId, select],
+	);
+
 	const currentReviews: Record<string, DagReviewView> = {};
 	if (dag)
 		for (const node of dag.nodes) {
@@ -272,6 +287,8 @@ export function useFactory(workspaceId: string, open: boolean): FactoryState {
 		startable,
 		roles,
 		start,
+		replannable,
+		replan,
 		startFromPlan,
 		select,
 		run,

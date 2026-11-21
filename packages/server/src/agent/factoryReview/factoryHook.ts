@@ -2,8 +2,10 @@ import type { DagConnection, DagNodeSpec } from "pi-dag";
 import {
 	type BeforeRelease,
 	type BeforeReleaseContext,
+	encodePlanRun,
 	type FactoryPlan,
 	factoryInspector,
+	type PlanRun,
 } from "../factory";
 import { FINDINGS_PORT, REVIEW_NODE_ID, REVIEWER_SYSTEM_PROMPT } from "./reviewer";
 import type { ResolvedRoles, RoleSelection } from "./roles";
@@ -18,6 +20,12 @@ export interface FactoryReviewOptions {
 	roles: Pick<FactoryRoles, "reviewer">;
 	nodeId?: string;
 	focus?: string;
+	/**
+	 * What the person chose when the run started. Written into the reviewer's system prompt (the one node
+	 * every factory DAG has besides the template's own) so `dag.replan` can start a new planning DAG with the
+	 * same roles, target and budget from this DAG alone.
+	 */
+	run?: PlanRun;
 }
 
 /**
@@ -50,7 +58,9 @@ export function factoryReviewHook(
 				model: options.roles.reviewer.model,
 				thinkingLevel: options.roles.reviewer.thinkingLevel,
 				tools: inspector.tools,
-				systemPrompt: `${REVIEWER_SYSTEM_PROMPT}\n\n${inspector.systemPromptSuffix}`,
+				systemPrompt: `${REVIEWER_SYSTEM_PROMPT}\n\n${inspector.systemPromptSuffix}${
+					options.run ? `\n\n${encodePlanRun(options.run)}` : ""
+				}`,
 			},
 			inputs: Object.fromEntries(context.gates.map((gate) => [gate, { kind: "text" as const }])),
 			outputs: { [FINDINGS_PORT]: { kind: "json" } },

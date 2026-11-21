@@ -263,6 +263,17 @@ export function planReady(dag: Pick<DagView, "nodes">): boolean {
 	return dag.nodes.some((node) => node.planner === true && node.status === "completed");
 }
 
+/** The factory steps whose rejection `dag.replan` can send back to the planner. */
+const REPLAN_NODES: ReadonlySet<string> = new Set(["release", "review"]);
+
+/**
+ * A factory DAG whose release (or review) a person rejected and nobody has decided since. The host checks
+ * again, and refuses a run whose settings it cannot recover, so this only decides whether to offer it.
+ */
+export function replanReady(dag: Pick<DagView, "nodes">): boolean {
+	return dag.nodes.some((node) => node.rejected === true && REPLAN_NODES.has(node.id));
+}
+
 /**
  * The reviewer findings a gate's decision rests on: the gate's own node when it is the reviewer, else a
  * reviewer node with an edge straight into it (the factory's release node takes the review's findings as
