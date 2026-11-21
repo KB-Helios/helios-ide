@@ -324,6 +324,17 @@ export async function openChangesTab(
  * selected there and flashes the line; without one it only joins the strip, so a single-group layout never
  * swaps the conversation out from under the user.
  */
+const userNavigationEpochs = new Map<string, number>();
+
+/** Counts the user's manual navigation in a workspace's editors; a follow that began earlier must not reveal. */
+export function noteUserNavigation(workspaceId: string): void {
+	userNavigationEpochs.set(workspaceId, (userNavigationEpochs.get(workspaceId) ?? 0) + 1);
+}
+
+export function userNavigationEpoch(workspaceId: string): number {
+	return userNavigationEpochs.get(workspaceId) ?? 0;
+}
+
 export async function followFileAtLine(
 	workspaceId: string,
 	path: string,

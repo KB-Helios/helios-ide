@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { followFileAtLine } from "../panels/openTabs";
+import { followFileAtLine, userNavigationEpoch } from "../panels/openTabs";
 import { selectFollowActive, useAppStore } from "../store";
 import { getTransport } from "../transport";
 import {
@@ -26,12 +26,14 @@ async function follow(
 	mutation: FileMutation,
 ): Promise<void> {
 	try {
+		const navigated = userNavigationEpoch(workspaceId);
 		const { content } = await getTransport().request("fs.readFile", {
 			workspaceId,
 			path: mutation.path,
 		});
 		const state = useAppStore.getState();
 		if (state.activeWorkspaceId !== workspaceId || !selectFollowActive(state, workspaceId)) return;
+		if (userNavigationEpoch(workspaceId) !== navigated) return;
 		const document = state.layoutDocumentsByWorkspace[workspaceId];
 		const groups = document ? collectCenterGroups(document.center) : [];
 		await followFileAtLine(
@@ -43,7 +45,9 @@ async function follow(
 			() => {
 				const current = useAppStore.getState();
 				return (
-					current.activeWorkspaceId === workspaceId && selectFollowActive(current, workspaceId)
+					current.activeWorkspaceId === workspaceId &&
+					selectFollowActive(current, workspaceId) &&
+					userNavigationEpoch(workspaceId) === navigated
 				);
 			},
 		);
