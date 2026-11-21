@@ -631,8 +631,6 @@
 	"factory.start.mode": "由谁拆分",
 	"factory.start.mode.plan": "规划员",
 	"factory.start.mode.planHint": "规划员会阅读仓库并提议编码员。你需在创建工厂运行之前批准计划，运行创建后处于暂停状态。",
-	"factory.start.mode.single": "一名编码员",
-	"factory.start.mode.singleHint": "一名编码员在其独立的工作树中完成整个任务。运行创建后处于暂停状态。",
 	"factory.start.role.coder": "编码员",
 	"factory.start.role.planner": "规划员",
 	"factory.start.role.reviewer": "评审员",

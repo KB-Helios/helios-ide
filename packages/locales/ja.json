@@ -577,8 +577,6 @@
 	"factory.start.mode": "タスクの分割担当",
 	"factory.start.mode.plan": "プランナー",
 	"factory.start.mode.planHint": "プランナーがリポジトリを読み、コーダーを提案します。ファクトリーの実行が作成される前にプランを承認すると、実行は一時停止状態で作成されます。",
-	"factory.start.mode.single": "コーダー1名",
-	"factory.start.mode.singleHint": "コーダー1名が、専用のワークツリーで作業全体を行います。実行は一時停止状態で作成されます。",
 	"factory.start.role.coder": "コーダー",
 	"factory.start.role.planner": "プランナー",
 	"factory.start.role.reviewer": "レビュアー",

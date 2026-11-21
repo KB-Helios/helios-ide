@@ -638,8 +638,6 @@
 	"factory.start.mode": "Quién divide la tarea",
 	"factory.start.mode.plan": "Planificador",
 	"factory.start.mode.planHint": "Un planificador lee el repositorio y propone a los programadores. Apruebas el plan antes de que se cree la ejecución de fábrica, y la ejecución se crea en pausa.",
-	"factory.start.mode.single": "Un programador",
-	"factory.start.mode.singleHint": "Un programador hace toda la tarea en su propio worktree. La ejecución se crea en pausa.",
 	"factory.start.role.coder": "Programador",
 	"factory.start.role.planner": "Planificador",
 	"factory.start.role.reviewer": "Revisor",

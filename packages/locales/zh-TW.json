@@ -601,8 +601,6 @@
 	"factory.start.mode": "由誰拆分",
 	"factory.start.mode.plan": "規劃員",
 	"factory.start.mode.planHint": "規劃員會閱讀儲存庫並提議編碼員。你需在建立工廠執行之前核准計畫，執行建立後會處於暫停狀態。",
-	"factory.start.mode.single": "一名編碼員",
-	"factory.start.mode.singleHint": "一名編碼員在其獨立的工作樹中完成整個任務。執行建立後會處於暫停狀態。",
 	"factory.start.role.coder": "編碼員",
 	"factory.start.role.planner": "規劃員",
 	"factory.start.role.reviewer": "審查員",

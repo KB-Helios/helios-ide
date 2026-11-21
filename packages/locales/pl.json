@@ -659,8 +659,6 @@
 	"factory.start.mode": "Kto dzieli zadanie",
 	"factory.start.mode.plan": "Planista",
 	"factory.start.mode.planHint": "Planista czyta repozytorium i proponuje koderów. Zatwierdzasz plan, zanim zostanie utworzone uruchomienie fabryki, które powstaje wstrzymane.",
-	"factory.start.mode.single": "Jeden koder",
-	"factory.start.mode.singleHint": "Jeden koder wykonuje całe zadanie we własnym worktree. Uruchomienie powstaje wstrzymane.",
 	"factory.start.role.coder": "Koder",
 	"factory.start.role.planner": "Planista",
 	"factory.start.role.reviewer": "Recenzent",
