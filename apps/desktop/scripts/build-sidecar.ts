@@ -12,9 +12,14 @@
 // TAURI_ENV_TARGET_TRIPLE, and the sidecar is built for that same triple:
 // `tauri build --target aarch64-apple-darwin` needs the arm64 host, not the
 // build machine's.
+//
+// On Windows targets it also builds the gate sandbox helper (`thinkrail-gate-sandbox`, the AppContainer
+// launcher the factory runs gates through) into the same `binaries/` folder; `tauri.windows.conf.json`
+// lists it as a second `externalBin`, so it ships next to the sidecar.
 
 import { createHash } from "node:crypto";
 import {
+	copyFileSync,
 	existsSync,
 	mkdirSync,
 	readdirSync,
@@ -40,7 +45,8 @@ const webGeneratedPath = join(sidecarDir, "web-assets.generated.ts");
 const extGeneratedPath = join(sidecarDir, "bundled-extensions.generated.ts");
 const runtimeGeneratedPath = join(sidecarDir, "runtime-assets.generated.ts");
 const entryPath = join(sidecarDir, "desktop-sidecar-entry.ts");
-const binariesDir = join(desktopDir, "src-tauri", "binaries");
+const tauriDir = join(desktopDir, "src-tauri");
+const binariesDir = join(tauriDir, "binaries");
 const runtimeSources = resolveBuildRuntimeSources();
 
 interface SidecarTarget {
@@ -155,6 +161,41 @@ function generateRuntimeManifest(): void {
 	);
 }
 
+/**
+ * Builds `crates/gate-sandbox` (a member of the src-tauri Cargo workspace) and copies it to
+ * `binaries/thinkrail-gate-sandbox-<triple>.exe`, the name Tauri's `externalBin` expects. Always a release
+ * build: the helper is tiny, and a debug one would only make every gate slower.
+ */
+function buildGateSandbox(target: SidecarTarget): void {
+	const cross = target.rustTriple !== currentTarget().rustTriple;
+	const proc = Bun.spawnSync(
+		[
+			"cargo",
+			"build",
+			"--release",
+			"-p",
+			"thinkrail-gate-sandbox",
+			"--manifest-path",
+			join(tauriDir, "Cargo.toml"),
+			...(cross ? ["--target", target.rustTriple] : []),
+		],
+		{ stdout: "inherit", stderr: "inherit", cwd: tauriDir },
+	);
+	if (!proc.success) process.exit(proc.exitCode ?? 1);
+	const targetDir = process.env.CARGO_TARGET_DIR ?? join(tauriDir, "target");
+	const built = join(
+		targetDir,
+		...(cross ? [target.rustTriple] : []),
+		"release",
+		"thinkrail-gate-sandbox.exe",
+	);
+	if (!existsSync(built)) throw new Error(`gate sandbox helper not found at ${built}`);
+	const out = join(binariesDir, `thinkrail-gate-sandbox-${target.rustTriple}.exe`);
+	rmSync(out, { force: true });
+	copyFileSync(built, out);
+	console.log(`Built gate sandbox helper: ${out}`);
+}
+
 function windowsMetadataFlags(target: SidecarTarget): string[] {
 	if (!target.windows) return [];
 	if (process.platform !== "win32") {
@@ -208,6 +249,7 @@ try {
 		if (!proc.success) process.exit(proc.exitCode ?? 1);
 		rmSync(`${outFile}.map`, { force: true });
 		console.log(`\nBuilt desktop sidecar: ${outFile}`);
+		if (target.windows) buildGateSandbox(target);
 	}
 } finally {
 	rmSync(webGeneratedPath, { force: true });

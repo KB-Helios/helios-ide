@@ -5,6 +5,7 @@ import {
 	lstatSync,
 	mkdirSync,
 	readdirSync,
+	realpathSync,
 	rmdirSync,
 	rmSync,
 	symlinkSync,
@@ -255,6 +256,38 @@ export function linkDependencies(repo: string, worktree: string): void {
 		}
 	};
 	visit(repo, 0);
+}
+
+/**
+ * Where the dependency links `linkDependencies` made in `worktree` point: the real `node_modules` folders of
+ * the repository. A sandbox must be able to read exactly these to run a gate there.
+ */
+export function dependencyTargets(worktree: string): string[] {
+	const targets: string[] = [];
+	const visit = (dir: string, depth: number) => {
+		let entries: import("node:fs").Dirent[];
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const full = join(dir, entry.name);
+			if (entry.name === "node_modules") {
+				try {
+					if (lstatSync(full).isSymbolicLink()) targets.push(realpathSync(full));
+				} catch {}
+			} else if (
+				entry.isDirectory() &&
+				depth < 3 &&
+				!SKIP.has(entry.name) &&
+				!entry.name.startsWith(".")
+			)
+				visit(full, depth + 1);
+		}
+	};
+	visit(worktree, 0);
+	return targets;
 }
 
 /** Removes the dependency links `linkDependencies` made, never what they point to. */

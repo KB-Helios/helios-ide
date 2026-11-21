@@ -20,12 +20,20 @@ export {
 	type SwarmOptions,
 	type SwarmOwner,
 } from "./src/extension.ts";
-export { describeGates, detectGates, runGates, runProjectGates } from "./src/gates.ts";
+export {
+	describeGates,
+	detectGates,
+	type GateRunner,
+	runGates,
+	runProjectGates,
+} from "./src/gates.ts";
 export {
 	applyPatch,
 	changedFiles,
 	commitWorktree,
 	createWorktree,
+	dependencyTargets,
+	type ExecResult,
 	linkDependencies,
 	matchesAny,
 	ownershipViolations,

@@ -41,3 +41,9 @@ fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 [target."cfg(windows)".dependencies.windows]
 version = "0.58"
 features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_UI_WindowsAndMessaging"]
+
+# The gate sandbox helper is a separate binary shipped next to the sidecar (see
+# crates/gate-sandbox): it launches one factory gate command inside a Windows
+# AppContainer. It shares this workspace lockfile and target directory.
+[workspace]
+members = [".", "crates/gate-sandbox"]

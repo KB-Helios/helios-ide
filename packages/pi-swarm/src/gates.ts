@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { GateResult } from "./board.ts";
-import { run } from "./git.ts";
+import { type ExecResult, run } from "./git.ts";
 
 const SCRIPT_ORDER = ["typecheck", "lint", "test"] as const;
 
@@ -66,20 +66,37 @@ export async function runProjectGates(
 	return runGates(commands, cwd, options);
 }
 
+/**
+ * How a host executes one gate command, in place of the default `shell: true` child of this process. A
+ * host that must confine gate code (the factory's OS sandbox) supplies one; pi-swarm itself never
+ * imports a sandbox. A runner that throws makes that gate fail with the error text as its output.
+ */
+export type GateRunner = (
+	command: string,
+	options: { cwd: string; timeoutMs: number; signal?: AbortSignal },
+) => Promise<ExecResult>;
+
 export async function runGates(
 	commands: readonly string[],
 	cwd: string,
-	options: { signal?: AbortSignal; timeoutMs?: number } = {},
+	options: { signal?: AbortSignal; timeoutMs?: number; runner?: GateRunner } = {},
 ): Promise<GateResult[]> {
 	const results: GateResult[] = [];
+	const timeoutMs = options.timeoutMs ?? 15 * 60_000;
 	for (const command of commands) {
 		try {
-			const result = await run(command, [], {
-				cwd,
-				shell: true,
-				timeoutMs: options.timeoutMs ?? 15 * 60_000,
-				...(options.signal ? { signal: options.signal } : {}),
-			});
+			const result = options.runner
+				? await options.runner(command, {
+						cwd,
+						timeoutMs,
+						...(options.signal ? { signal: options.signal } : {}),
+					})
+				: await run(command, [], {
+						cwd,
+						shell: true,
+						timeoutMs,
+						...(options.signal ? { signal: options.signal } : {}),
+					});
 			const output = `${result.stdout}\n${result.stderr}`.trim();
 			results.push({
 				command,

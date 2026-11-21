@@ -707,6 +707,30 @@ The sidecar's Windows file properties are stamped as `Helios Agent IDE …` with
 (`HELIOS_WINDOWS_BRAND`); the CLI and Electrobun builds keep the shared ThinkRail identity until their
 cutover.
 
+**Gate sandbox helper (Windows).** `src-tauri/crates/gate-sandbox` (a member of the src-tauri Cargo workspace) is
+`thinkrail-gate-sandbox.exe`, the binary the factory runs project gates through (agent/SPEC, "Gate sandbox"). The
+shell never starts it: `tauri.windows.conf.json` lists it as a second `externalBin`, `build-sidecar.ts` builds it
+(`cargo build --release -p thinkrail-gate-sandbox`, for the target triple) next to the sidecar, and the sidecar finds
+it beside its own executable. `run` creates an AppContainer profile for that run only (no capabilities, so no
+network) and grants its SID read+execute on `--read` paths (the checkout, its dependency folders), the same best
+effort on `--read-optional` (toolchain), read+write on the one `--write` scratch directory and list-only,
+non-inherited access on each `--traverse` parent folder (written through `SetKernelObjectSecurity`, which, unlike
+`SetNamedSecurityInfo`, does not rewrite the folder's subtree). It launches `--cmdline` verbatim with exactly the
+`--env` entries as the environment and `NUL` as stdin, in a kill-on-close job object, forwards stdout/stderr (the
+child inherits the helper's pipes) and the exit code, enforces `--timeout-ms` (exit 124), then revokes every entry
+and deletes the profile. The helper's own stdin is the control channel: the host closing it (cancel, host exit)
+stops the command and cleans up (exit 130). It refuses to grant a drive root, the user profile or a parent of it,
+or a relative path, and silently skips a `--traverse` of the profile or one of its parents. Setup failures print `HELIOS_GATE_SANDBOX_ERROR: <why>` and exit 125 (a gate that exits 125
+without the marker is an ordinary failure); `check` runs a trivial command in a fresh container to prove the
+sandbox works; `cleanup` (also run at the start of every `run`) deletes the profiles of helper processes that were
+killed outright. Read grants include `FILE_WRITE_ATTRIBUTES` because Bun asks for it on every file it opens, so a
+gate can touch timestamps of snapshot files but never their content. On other platforms the binary only reports that
+it has no sandbox (Linux uses bubblewrap and macOS `sandbox-exec`, driven from the host). `cargo test -p
+thinkrail-gate-sandbox` runs the CLI unit tests and, on Windows, integration tests against the real helper:
+read-only snapshot (overwrite, create, delete, X→Y→X), writable scratch and temp, no network even to a loopback
+listener, closed files elsewhere, exact environment, timeout, cancel, output and exit-code forwarding, and no
+profile or access entry left behind.
+
 **Startup** (`startup.rs`, the port of `start()` in `index.ts`). The native menu and the splash go up
 first. The sidecar is spawned on a background thread with `--port 0`; it prints
 `THINKRAIL_SIDECAR_READY {"port": N}` on stdout once `bootHost()` is listening, and the shell
