@@ -122,7 +122,11 @@ export function FilePane({ tab }: { tab: FileTab }) {
 						onPlacedThreadIds={onPlacedThreadIds}
 						viewState={tab.viewState}
 						onViewState={saveViewState}
-						onUserNavigated={() => useAppStore.getState().pauseFollow(tab.workspaceId)}
+						onUserNavigated={() => {
+							const state = useAppStore.getState();
+							if (selectWorkspaceIsRunning(state, tab.workspaceId))
+								state.pauseFollow(tab.workspaceId);
+						}}
 						{...(tab.reveal
 							? {
 									reveal: tab.reveal,
