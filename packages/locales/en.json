@@ -681,6 +681,8 @@
 	"factory.plan.ready": "The plan is approved. Create the factory run from it; you decide again before anything lands.",
 	"factory.queue.global": "All workspaces: {{running}} of {{limit}} running · {{queued}} waiting for a free slot",
 	"factory.queue.summary": "Workers: {{running}} of {{limit}} running · {{queued}} queued for a free slot",
+	"factory.replan.action": "Replan with this feedback",
+	"factory.replan.ready": "A person rejected this run. Send the decision back to the planner: it plans again from your reason, the reviewer's findings and the gate results. Nothing runs until you start it.",
 	"factory.review.by": "reviewed by {{model}}",
 	"factory.review.count_one": "{{count}} reviewer finding",
 	"factory.review.count_other": "{{count}} reviewer findings",

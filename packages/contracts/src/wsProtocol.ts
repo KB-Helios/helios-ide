@@ -14,6 +14,7 @@ import type {
 	DagListItem,
 	DagOutputView,
 	DagQueueView,
+	DagReplanRequest,
 	DagReviewView,
 	DagStartFromPlanRequest,
 	DagStartRequest,
@@ -163,7 +164,7 @@ export type TemplateReadLocation =
 	| { projectId: string; workspaceId?: never }
 	| { workspaceId?: never; projectId?: never };
 
-export const PROTOCOL_VERSION = 136;
+export const PROTOCOL_VERSION = 137;
 /** `dag.list` / `dag.get` / `dag.execute` and the `dag.changed` channel: the workspace factory view. */
 export const DAG_PROTOCOL_VERSION = 130;
 /** `dag.review` plus per-node model, thinking level, usage and outcome on `DagView` nodes. */
@@ -178,6 +179,8 @@ export const DAG_DETAILS_PROTOCOL_VERSION = 134;
 export const DAG_START_PROTOCOL_VERSION = 135;
 /** `AppConfig.factoryMaxConcurrent` (the machine-wide worker cap) and `DagQueueView.global`. */
 export const FACTORY_CAP_PROTOCOL_VERSION = 136;
+/** `dag.replan` and `DagNodeView.rejected`: a rejected factory release is sent back to the planner. */
+export const DAG_REPLAN_PROTOCOL_VERSION = 137;
 /** `commit.*` methods and the `commit.analyzed` channel. */
 export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 129;
 /** `swarm.get` / `swarm.diff` and the `swarm.changed` channel: a chat's swarm board. */
@@ -610,6 +613,7 @@ export const WS_METHODS = {
 	dagRoles: "dag.roles",
 	dagStart: "dag.start",
 	dagStartFromPlan: "dag.startFromPlan",
+	dagReplan: "dag.replan",
 	subagentStop: "subagent.stop",
 	subagentStopAll: "subagent.stopAll",
 	modelList: "model.list",
@@ -1508,6 +1512,10 @@ export interface WsMethodMap {
 	};
 	"dag.startFromPlan": {
 		params: DagStartFromPlanRequest;
+		result: DagStartResult;
+	};
+	"dag.replan": {
+		params: DagReplanRequest;
 		result: DagStartResult;
 	};
 	"dag.output": {

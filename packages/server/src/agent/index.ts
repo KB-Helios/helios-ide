@@ -34,6 +34,7 @@ export {
 	readWorkspaceOutput,
 	readWorkspaceQueue,
 	readWorkspaceReview,
+	replanWorkspaceFactory,
 	startWorkspaceFactory,
 	startWorkspaceFactoryFromPlan,
 	stopDagWire,

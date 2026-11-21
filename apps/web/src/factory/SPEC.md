@@ -57,6 +57,12 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
 - **Run log** — each node that ran shows its model (and thinking level), tokens in/out, cost and, when it
   did not complete, how it ended; the DAG header shows the totals. All of it is pi-dag's persisted outcome
   projected by the host, never computed here.
+- **Replan** — a factory DAG whose `release` (or `review`) a person rejected shows `Replan with this feedback`
+  (`replanReady` in `factoryModel.ts`, from the node's `rejected` flag). It calls `dag.replan` and selects the
+  new planning DAG, titled `Replan: …`, which is paused: the person resumes the planner, approves its plan and
+  builds the factory run as for any plan. It is not destructive, so it has no second press; the host's refusal
+  (not a factory DAG, a run it cannot recover) is shown as written. Only the factory's own steps offer it: a
+  rejected plan is retried in place.
 - **Reviewer findings** — a gate on a reviewer node shows the findings count, model and list (most
   serious first) from `dag.review`, so the decision to release is made with the findings in view. A
   review the host could not read is shown as unfinished, never as zero findings.
@@ -79,7 +85,8 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
 - A host older than `DAG_PROTOCOL_VERSION` hides the surface; one older than `DAG_REVIEW_PROTOCOL_VERSION`
   shows it without the run log and findings, one older than `DAG_QUEUE_PROTOCOL_VERSION` without the
   worker-slots line, and one older than `DAG_DETAILS_PROTOCOL_VERSION` (v134) without output and history, and one older than
-  `DAG_START_PROTOCOL_VERSION` (v135) without the start form (the trigger then still needs a DAG to appear).
+  `DAG_START_PROTOCOL_VERSION` (v135) without the start form (the trigger then still needs a DAG to appear), and one
+  older than `DAG_REPLAN_PROTOCOL_VERSION` (v137) without the replan action.
 - Not here yet: creating or editing a DAG, skip/steer/reconcile and manual result acceptance.
 - Pure derivations (dependency lookup, node ordering, pending total) live in `factoryModel.ts` and are
   unit tested.

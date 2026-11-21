@@ -13,6 +13,7 @@ import {
 	pendingTotal,
 	planReady,
 	queueLine,
+	replanReady,
 	reviewerSharesFamily,
 	reviewForGate,
 	type StartForm,
@@ -217,6 +218,22 @@ test("a plan is ready for the factory once its planner completed", () => {
 	expect(planReady({ nodes: [node("running", true)] })).toBe(false);
 	expect(planReady({ nodes: [node("completed", true)] })).toBe(true);
 	expect(planReady({ nodes: [node("completed")] })).toBe(false);
+});
+
+test("a rejected release or review offers a replan, a rejected plan or an undecided gate does not", () => {
+	const node = (id: string, rejected?: true) => ({
+		id,
+		status: "needs-attention" as const,
+		held: false,
+		task: "",
+		...(rejected ? { rejected } : {}),
+	});
+	expect(replanReady({ nodes: [node("release", true)] })).toBe(true);
+	expect(replanReady({ nodes: [node("review", true), node("release")] })).toBe(true);
+	expect(replanReady({ nodes: [node("release"), node("review")] })).toBe(false);
+	// A rejected plan is retried in place; only the factory's own steps are sent back to the planner.
+	expect(replanReady({ nodes: [node("planner", true)] })).toBe(false);
+	expect(replanReady({ nodes: [node("api", true)] })).toBe(false);
 });
 
 test("the machine-wide cap shows only when it is full and holds work back", () => {

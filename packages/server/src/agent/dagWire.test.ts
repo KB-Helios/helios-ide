@@ -22,10 +22,12 @@ import {
 	readWorkspaceHistory,
 	readWorkspaceOutput,
 	readWorkspaceQueue,
+	replanWorkspaceFactory,
 	startWorkspaceFactory,
 	startWorkspaceFactoryFromPlan,
 	toDagCommand,
 } from "./dagWire";
+import { encodeFactoryNode, encodePlanRun, type PlanRun, parsePlanRun } from "./factory";
 import { configurePiRuntime } from "./piRuntime";
 
 const model = { provider: "dag-wire-faux", id: "worker" };
@@ -181,7 +183,9 @@ async function until(
 	predicate: (snapshot: DagSnapshot) => boolean,
 ): Promise<DagSnapshot> {
 	let last: DagSnapshot | undefined;
-	for (let n = 0; n < 400; n++) {
+	// Time-bound rather than count-bound: a loaded machine reads a DAG slowly.
+	const deadline = Date.now() + 25_000;
+	while (Date.now() < deadline) {
 		last = value(await owner().getDag({ dagId }));
 		if (predicate(last)) return last;
 		await Bun.sleep(5);
@@ -663,3 +667,253 @@ test("a plan that breaks the rules is rejected by the host even after a person a
 		"Invalid dagId",
 	);
 });
+
+// A factory-shaped DAG whose nodes only submit text, so a rejection can be made without worktrees: the
+// gate report feeds the reviewer, the reviewer's findings feed the release, and the host's replan reads
+// the factory marker on `release` and the plan run on `review`.
+const planRun = (): PlanRun => ({
+	title: "Add the thing",
+	task: "Add the thing, carefully",
+	target: "main",
+	gateRetries: 1,
+	notes: ["Departure noted"],
+	roles: {
+		coder: { model: fauxRef, thinkingLevel: "off" },
+		reviewer: { model: otherRef, thinkingLevel: "off" },
+		scout: { model: fauxRef, thinkingLevel: "off" },
+	},
+});
+
+function rejectableFactory(
+	options: { run?: PlanRun | null; marker?: boolean } = {},
+): DagDefinition {
+	const run = options.run === undefined ? planRun() : options.run;
+	return {
+		title: `Factory: Add the thing ${serial++}`,
+		defaults: { tools: [] },
+		maxConcurrent: 1,
+		nodes: [
+			{
+				id: "gate-api",
+				task: "report",
+				outputs: { report: { kind: "text" } },
+			},
+			{
+				id: "review",
+				task: "review",
+				session: { systemPrompt: run ? `Reviewer\n\n${encodePlanRun(run)}` : "Reviewer" },
+				inputs: { "gate-api": { kind: "text" } },
+				outputs: { findings: { kind: "json" } },
+				approval: { authority: "human", question: "Answer the findings?" },
+			},
+			{
+				id: "release",
+				task: "release",
+				session: {
+					systemPrompt:
+						options.marker === false
+							? "Release"
+							: `Release\n\n${encodeFactoryNode({ role: "release", sources: ["api"] })}`,
+				},
+				inputs: { review: { kind: "json" } },
+				outputs: { summary: { kind: "text" } },
+				approval: { authority: "human", question: "Land it?" },
+			},
+		],
+		connections: [
+			{
+				id: "gate-to-review",
+				kind: "data",
+				from: { nodeId: "gate-api", output: "report" },
+				to: { nodeId: "review", input: "gate-api" },
+			},
+			{
+				id: "review-to-release",
+				kind: "data",
+				from: { nodeId: "review", output: "findings" },
+				to: { nodeId: "release", input: "review" },
+			},
+		],
+	};
+}
+
+const submit = (outputs: Record<string, unknown>) =>
+	fauxAssistantMessage(fauxToolCall("dag_submit_result", { outputs: outputs as never }));
+
+/** Runs the factory-shaped DAG until `at` waits for a person, then rejects that gate with `reason`. */
+async function rejectedFactory(
+	at: "review" | "release",
+	reason: string,
+	definition = rejectableFactory(),
+	findings: unknown[] = [
+		{ severity: "low", file: "src/a.ts", summary: "Missing test" },
+		{ severity: "critical", file: "src/b.ts", summary: "Leaks the token" },
+	],
+): Promise<string> {
+	const created = value(
+		await owner().execute({
+			commandId: `rf-${serial++}`,
+			command: { kind: "create", definition },
+		}),
+	);
+	const dagId = created.dagId;
+	faux.setResponses([
+		submit({ report: { kind: "text", text: "FAIL: lint reported 3 errors in api" } }),
+		submit({ findings: { kind: "json", value: { findings } } }),
+		submit({ summary: { kind: "text", text: "Release summary" } }),
+	]);
+	const decide = async (kind: "approve" | "reject", text: string, nodeId: string) => {
+		const snapshot = await until(dagId, (s) =>
+			s.gates.some((g) => g.target.nodeId === nodeId && g.disposition === "pending"),
+		);
+		const gate = snapshot.gates.find(
+			(g) => g.target.nodeId === nodeId && g.disposition === "pending",
+		);
+		await executeWorkspaceDag({
+			workspaceId,
+			dagId,
+			commandId: `rf-${kind}-${serial++}`,
+			expectedVersion: snapshot.version,
+			command: { kind, gateId: gate?.id ?? "", reason: text },
+		});
+	};
+	const paused = await readWorkspaceDag(workspaceId, dagId);
+	await executeWorkspaceDag({
+		workspaceId,
+		dagId,
+		commandId: `rf-resume-${serial++}`,
+		expectedVersion: paused.version,
+		command: { kind: "resume" },
+	});
+	if (at === "review") await decide("reject", reason, "review");
+	else {
+		await decide("approve", "Findings answered", "review");
+		await decide("reject", reason, "release");
+	}
+	await until(dagId, (s) =>
+		s.gates.some((g) => g.target.nodeId === at && g.disposition === "rejected"),
+	);
+	return dagId;
+}
+
+test("a rejected release is sent back to a new planning DAG with the reason, findings and gate verdicts", async () => {
+	const dagId = await rejectedFactory("release", "The token leak must be fixed first");
+	// The pane learns of the rejection from the projection, not by guessing.
+	const view = await readWorkspaceDag(workspaceId, dagId);
+	expect(view.nodes.find((n) => n.id === "release")?.rejected).toBe(true);
+	expect(view.nodes.find((n) => n.id === "review")?.rejected).toBeUndefined();
+
+	const result = await replanWorkspaceFactory({ workspaceId, dagId });
+	expect(result).toMatchObject({ kind: "plan", notes: ["Departure noted"] });
+	expect(result.dagId).not.toBe(dagId);
+	// Nothing runs: the planning DAG is created paused and the planner has not started.
+	const planning = await readWorkspaceDag(workspaceId, result.dagId);
+	expect(planning.mode).toBe("paused");
+	expect(planning.title).toBe("Replan: Add the thing");
+	expect(planning.nodes).toHaveLength(1);
+	expect(planning.nodes[0]).toMatchObject({ id: "planner", planner: true });
+	expect(planning.nodes[0]?.outcome).toBeUndefined();
+
+	const definition = await definitionOf(result.dagId);
+	const task = definition.nodes[0]?.task ?? "";
+	expect(task).toContain("Add the thing, carefully");
+	expect(task).toContain("The token leak must be fixed first");
+	expect(task).toContain("Leaks the token");
+	expect(task).toContain("Missing test");
+	expect(task.indexOf("Leaks the token")).toBeLessThan(task.indexOf("Missing test"));
+	expect(task).toContain("gate-api: FAIL: lint reported 3 errors in api");
+	expect(task).toContain(dagId);
+	// The planner is read-only and its plan still needs a person's approval.
+	expect(definition.nodes[0]?.session?.tools).toEqual(["read", "grep", "find", "ls"]);
+	expect(definition.nodes[0]?.approval?.authority).toBe("human");
+
+	// Roles, target, budget and the lineage are carried over from the rejected run.
+	const run = parsePlanRun(definition.nodes[0]?.session?.systemPrompt);
+	expect(run).toMatchObject({
+		title: "Add the thing",
+		task: "Add the thing, carefully",
+		target: "main",
+		gateRetries: 1,
+		replanOf: dagId,
+	});
+	expect(run?.roles.coder.model).toEqual(fauxRef);
+	expect(run?.roles.reviewer.model).toEqual(otherRef);
+
+	// Replaying the same rejection returns the same planning DAG.
+	expect((await replanWorkspaceFactory({ workspaceId, dagId })).dagId).toBe(result.dagId);
+}, 90_000);
+
+test("a rejected review gate can be replanned too, and a long reason and many findings stay bounded", async () => {
+	const many = Array.from({ length: 40 }, (_, index) => ({
+		severity: "medium",
+		file: `src/file${index}.ts`,
+		summary: `Finding number ${index} ${"y".repeat(150)}`,
+	}));
+	const reason = `${"Because. ".repeat(450)}END-OF-REASON`;
+	expect(reason.length).toBeLessThan(4096);
+	const dagId = await rejectedFactory("review", reason, rejectableFactory(), many);
+	const result = await replanWorkspaceFactory({ workspaceId, dagId });
+	const task = (await definitionOf(result.dagId)).nodes[0]?.task ?? "";
+	expect(task.length).toBeLessThanOrEqual(8000);
+	expect(task).toContain("Add the thing, carefully");
+	expect(task).toContain("[truncated]");
+	expect(task).not.toContain("END-OF-REASON");
+	expect(task).not.toContain("Finding number 39");
+	expect(task).toContain("review step");
+}, 90_000);
+
+test("a replan is refused for a DAG that is not a rejected, recoverable factory run", async () => {
+	// Not a factory DAG at all.
+	await expect(replanWorkspaceFactory({ workspaceId, dagId: await createDag() })).rejects.toThrow(
+		"not a factory DAG",
+	);
+	// A factory DAG nobody rejected: its release has not even been decided.
+	const open = value(
+		await owner().execute({
+			commandId: `rf-open-${serial++}`,
+			command: { kind: "create", definition: rejectableFactory() },
+		}),
+	);
+	await expect(replanWorkspaceFactory({ workspaceId, dagId: open.dagId })).rejects.toThrow(
+		"No release or review was rejected",
+	);
+	// A rejection exists but the original run's settings are not in the DAG.
+	const bare = await rejectedFactory("release", "No", rejectableFactory({ run: null }));
+	await expect(replanWorkspaceFactory({ workspaceId, dagId: bare })).rejects.toThrow(
+		"cannot be recovered",
+	);
+	// The release node carries no factory marker.
+	const unmarked = await rejectedFactory("release", "No", rejectableFactory({ marker: false }));
+	await expect(replanWorkspaceFactory({ workspaceId, dagId: unmarked })).rejects.toThrow(
+		"not a factory DAG",
+	);
+	// The wire names no caller and no other field; ids are validated.
+	const rejected = await rejectedFactory("release", "No");
+	await expect(
+		replanWorkspaceFactory({ workspaceId, dagId: rejected, caller: { kind: "owner" } }),
+	).rejects.toThrow("Invalid DAG replan request");
+	await expect(replanWorkspaceFactory({ workspaceId, dagId: "../x" })).rejects.toThrow(
+		"Invalid dagId",
+	);
+	await expect(replanWorkspaceFactory({ workspaceId: "../x", dagId: rejected })).rejects.toThrow(
+		"Invalid workspaceId",
+	);
+}, 90_000);
+
+test("a replan whose stored models are gone is refused plainly", async () => {
+	const run = planRun();
+	run.roles.coder = { model: { provider: "gone", id: "model" }, thinkingLevel: "off" };
+	const dagId = await rejectedFactory("release", "No", rejectableFactory({ run }));
+	await expect(replanWorkspaceFactory({ workspaceId, dagId })).rejects.toMatchObject({
+		code: "DAG_REJECTED",
+		message: expect.stringContaining("is not available"),
+	});
+}, 90_000);
+
+test("a factory started by a person records its run so a rejection can be replanned", async () => {
+	const result = await startWorkspaceFactory({ ...startBase(), coders: twoCoders });
+	const definition = await definitionOf(result.dagId);
+	const run = parsePlanRun(definition.nodes.find((n) => n.id === "review")?.session?.systemPrompt);
+	expect(run).toMatchObject({ title: "Add the thing", task: "Add the thing", target: "main" });
+	expect(run?.roles.reviewer.model).toEqual(otherRef);
+}, 90_000);

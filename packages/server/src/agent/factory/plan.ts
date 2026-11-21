@@ -131,6 +131,8 @@ const Selection = Type.Object(
 const PlanRunSchema = Type.Object(
 	{
 		title: Type.String({ maxLength: 120 }),
+		task: Type.Optional(Type.String({ maxLength: MAX_TASK_CHARS })),
+		replanOf: Type.Optional(Type.String({ maxLength: 128 })),
 		target: Type.String({ minLength: 1, maxLength: 256 }),
 		gateRetries: Type.Integer({ minimum: 0, maximum: 5 }),
 		notes: Type.Array(Type.String({ maxLength: 1000 }), { maxItems: 8 }),
@@ -149,6 +151,10 @@ const PlanRunSchema = Type.Object(
  */
 export interface PlanRun {
 	title: string;
+	/** The person's own task, kept so a rejected release can be replanned from it (`dag.replan`). */
+	task?: string;
+	/** The factory DAG whose rejection this planning DAG answers (the lineage of a replan). */
+	replanOf?: string;
 	target: string;
 	gateRetries: number;
 	notes: string[];

@@ -37,6 +37,7 @@ import {
 	pendingTotal,
 	planReady,
 	queueLine,
+	replanReady,
 	reviewForGate,
 	totalUsage,
 } from "./factoryModel";
@@ -305,6 +306,7 @@ function DagDetail({
 	history,
 	output,
 	buildFromPlan,
+	replan,
 }: {
 	dag: DagView;
 	reviews: Readonly<Record<string, DagReviewView>>;
@@ -314,8 +316,23 @@ function DagDetail({
 	output?: Parameters<typeof NodeOutput>[0]["load"] | undefined;
 	/** Present only when the host can start runs: creates the factory DAG from this DAG's approved plan. */
 	buildFromPlan?: (() => Promise<void>) | undefined;
+	/** Present only when the host can replan (v137): sends a rejected release back to the planner. */
+	replan?: (() => Promise<void>) | undefined;
 }) {
 	const t = useT();
+	const [replanning, setReplanning] = useState(false);
+	const [replanError, setReplanError] = useState<string | null>(null);
+	const sendBack = async () => {
+		if (!replan) return;
+		setReplanning(true);
+		setReplanError(null);
+		try {
+			await replan();
+		} catch (error) {
+			setReplanError(error instanceof Error ? error.message : "");
+		}
+		setReplanning(false);
+	};
 	const [building, setBuilding] = useState(false);
 	const [buildError, setBuildError] = useState<string | null>(null);
 	const build = async () => {
@@ -417,6 +434,25 @@ function DagDetail({
 					) : null}
 				</div>
 			) : null}
+			{replan && replanReady(dag) ? (
+				<div className="flex flex-wrap items-center gap-8 px-12" data-testid="factory-replan-ready">
+					<span className="tr-text-ui text-text-default">{t("factory.replan.ready")}</span>
+					<Button
+						variant="primary"
+						size="m"
+						disabled={replanning}
+						onClick={() => void sendBack()}
+						data-testid="factory-replan"
+					>
+						{t("factory.replan.action")}
+					</Button>
+					{replanError !== null ? (
+						<span role="alert" className="tr-text-metadata text-feedback-error wrap-anywhere">
+							{replanError || t("factory.error.rejected")}
+						</span>
+					) : null}
+				</div>
+			) : null}
 			<section aria-label={t("factory.gates.heading")}>
 				<h3 className="px-12 pt-8 tr-text-metadata text-text-muted">
 					{t("factory.gates.heading")} ({dag.gates.length})
@@ -468,6 +504,8 @@ export function FactoryTrigger({ workspaceId }: { workspaceId: string }) {
 		startable,
 		roles,
 		start,
+		replannable,
+		replan,
 		startFromPlan,
 		select,
 		run,
@@ -553,6 +591,13 @@ export function FactoryTrigger({ workspaceId }: { workspaceId: string }) {
 						run={run}
 						history={details ? history : undefined}
 						output={details ? output : undefined}
+						replan={
+							replannable
+								? async () => {
+										await replan(dag.dagId);
+									}
+								: undefined
+						}
 						buildFromPlan={
 							startable
 								? async () => {
