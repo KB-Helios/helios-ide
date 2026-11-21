@@ -38,6 +38,20 @@ test("a cut diff says how much is shown and how to see the rest", () => {
 	expect(cut.text).toContain("factory_read");
 });
 
+test("the coverage record can never be a node's own metadata file", () => {
+	const first = run();
+	// Every valid node id starts with a letter or digit, so "diff-coverage" is a valid coder id.
+	first.writeMeta({
+		nodeId: "diff-coverage",
+		branch: "b",
+		path: "p",
+		base: "x",
+	} as unknown as Parameters<FactoryRun["writeMeta"]>[0]);
+	first.notePartialDiffs(["a"]);
+	expect(first.readPartialDiffs()).toEqual(["a"]);
+	expect(first.readMeta("diff-coverage")?.branch).toBe("b");
+});
+
 test("partial diffs are recorded once per source and survive a new FactoryRun", () => {
 	const first = run();
 	expect(first.readPartialDiffs()).toEqual([]);

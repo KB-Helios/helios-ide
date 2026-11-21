@@ -99,8 +99,9 @@ The embedder injects a `SwarmStore` per parent session; pi-swarm never chooses a
   board whole, never a half-written one. A failed write goes to `onStoreError`, never stops the swarm, and is
   retried by the next change. A finished swarm stays stored until a new `swarm_start` replaces it.
 - **Reading it back.** `load()` validates the whole file (version, member and post shapes, contiguous post
-  numbers, cursors); a file that fails is moved to `<file>.corrupt` (evidence, not deleted) and reads as
-  `corrupt`. The owner restores a stored board at `session_start` when the swarm tools are enabled and the
+  numbers, cursors, and `landed` being a boolean when present: a string would read as true in `remove()` and
+  skip its unlanded-changes refusal); a file that fails is moved to `<file>.corrupt` (evidence, not deleted)
+  and reads as `corrupt`. The owner restores a stored board at `session_start` when the swarm tools are enabled and the
   board's parent session id matches; a missing, corrupt, foreign or unrestorable board starts no swarm and is
   reported through `onStoreError`.
 - **Restored means paused.** `Swarm.restore` runs nothing: no child is created, no model is called, no member or
@@ -114,7 +115,8 @@ The embedder injects a `SwarmStore` per parent session; pi-swarm never chooses a
   worktree (never a new one) with its definition, kind and model, told that the host restarted, to inspect its
   worktree and carry on, plus the posts it had not read. Its earlier conversation is gone; its files and the
   board are not. A2A members resume by sending the stored task/context ids to the remote agent. A post to a
-  restored member waits unread until it is resumed (`swarm_post` says so). The coordinator chat's own history is
+  restored member waits unread until it is resumed (`swarm_post` says so). A member removed while its resume is
+  still creating the child stays removed: the resume refuses and closes the late child. The coordinator chat's own history is
   pi's session and needs nothing here.
 
 ## Boundary

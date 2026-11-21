@@ -49,7 +49,9 @@ description: "Use before implementing a feature, a change in behavior, or a bug 
    Ask for approval only when the request has not already approved it; revise the task-spec if the
    user adjusts it.
 8. **Build.** Implement against the accepted design; if it is large and splits into independent parts,
-   choose how to fan out from the "Fan out" table in **choosing-a-workflow**. Before handoff, self-review the task diff: no
+   choose how to fan out from the "Fan out" table in **choosing-a-workflow**. A factory plan ends
+   when the person starts the run, so the build is not done until the run has finished: wait for it,
+   then review what it produced before the next steps. Before handoff, self-review the task diff: no
    silent lint/type suppressions, duplicated nontrivial derivations, rationale left as code
    comments, or remnants of a replaced pattern.
 9. **Amend specs.** Follow `amending-specs.md`.

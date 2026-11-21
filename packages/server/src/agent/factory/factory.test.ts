@@ -997,12 +997,36 @@ function guardHandler(run: FactoryRun) {
 		} as never,
 		run,
 	);
-	return (tool: string, sessionId: string) =>
+	return (tool: string, sessionId: string, input: unknown = {}) =>
 		(handler as Handler)(
-			{ type: "tool_call", toolName: tool, toolCallId: "t", input: {} },
+			{ type: "tool_call", toolName: tool, toolCallId: "t", input },
 			{ sessionManager: { getSessionId: () => sessionId }, signal: undefined },
 		);
 }
+
+test("the integration node's submitted output is replaced by the host's own verdict", async () => {
+	const repo = makeRepo();
+	const untrusted = unitRun(repo, { trusted: false });
+	untrusted.bind("integ", {
+		nodeId: "integrate",
+		node: { role: "integration", sources: ["coder-a"], target: "main" },
+	});
+	const submitTool = guardHandler(untrusted);
+	// The model claims success; the host has no passing record for the combined change.
+	const input: { outputs: Record<string, unknown> } = {
+		outputs: {
+			report: { kind: "text", text: "All green, ship it." },
+			extra: { kind: "text", text: "x" },
+		},
+	};
+	expect(await submitTool("dag_submit_result", "integ", input)).toBeUndefined();
+	expect(Object.keys(input.outputs)).toEqual(["report"]);
+	const text = (input.outputs.report as { text: string }).text;
+	expect(text).toContain("Host verdict for the combined change: FAIL");
+	expect(text).toContain("not trusted");
+	expect(text).not.toContain("All green");
+	expect(untrusted.readIntegrationRecord("integrate")?.ok).toBe(false);
+});
 
 test("the gate guard grants at most the planned corrections per attempt and never loops", async () => {
 	const repo = makeRepo(BAD_FILE_GATE);
@@ -1300,6 +1324,72 @@ test("a resumed landing is refused when the recorded target tip is not an ancest
 	await landFactory(run, { sources: ["coder-a"], release: "release", target: "main" });
 	run.writeIntegrationRecord("integrate", { ...record, targetTip: record.combined });
 	await expect(landFactory(run, LAND)).rejects.toThrow("main moved since the combined gate run");
+});
+
+test("a resumed landing refuses a commit that is not one of its own landings", async () => {
+	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	await landFactory(run, { sources: ["coder-a"], release: "release", target: "main" });
+	// Someone else lands on main after coder-a: the remaining source was never tested on top of it.
+	writeFileSync(join(repo, "other.txt"), "other\n");
+	git(repo, "add", "-A");
+	git(repo, "commit", "-qm", "someone else");
+	await expect(landFactory(run, LAND)).rejects.toThrow("main moved since the combined gate run");
+	expect(existsSync(join(repo, "b.txt"))).toBe(false);
+});
+
+test("a landing that stopped right after its target update finishes on retry", async () => {
+	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	await expect(
+		landFactory(run, LAND, {
+			afterRefUpdate: async () => {
+				throw new Error("host stopped");
+			},
+		}),
+	).rejects.toThrow("host stopped");
+	// The target moved, but nothing was recorded as landed: only the intent is on disk.
+	expect(run.readMeta("coder-a")?.landed).toBeFalsy();
+	expect(run.readMeta("coder-a")?.landing).toBeDefined();
+	const before = git(repo, "rev-parse", "main").trim();
+	expect(run.readMeta("coder-a")?.landing?.to).toBe(before);
+
+	expect(await landFactory(run, LAND)).toMatchObject([
+		{ node: "coder-a", status: "landed", commit: before },
+		{ node: "coder-b", status: "landed" },
+	]);
+	expect(run.readMeta("coder-a")?.landed).toBe(true);
+	// coder-a was not merged a second time, and the checkout holds both changes.
+	expect(git(repo, "rev-list", "--merges", "--count", "main").trim()).toBe("2");
+	expect(lf(readFileSync(join(repo, "a.txt"), "utf8"))).toBe("a\n");
+	expect(lf(readFileSync(join(repo, "b.txt"), "utf8"))).toBe("b\n");
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+});
+
+test("a merge is made only on the tip the combined gates tested", async () => {
+	const repo = makeRepo();
+	const sha = featureCommit(repo, "f.txt", "feature\n");
+	const tested = git(repo, "rev-parse", "main").trim();
+	writeFileSync(join(repo, "other.txt"), "other\n");
+	git(repo, "add", "-A");
+	git(repo, "commit", "-qm", "moved after the gates");
+	const moved = git(repo, "rev-parse", "main").trim();
+	await expect(
+		landOnTarget(repo, join(root, "landing-expected"), "main", sha, "factory: land f", undefined, {
+			expectedTip: tested,
+		}),
+	).rejects.toThrow("no longer at the commit the combined gates tested");
+	expect(git(repo, "rev-parse", "main").trim()).toBe(moved);
+	const tip = await landOnTarget(
+		repo,
+		join(root, "landing-expected"),
+		"main",
+		sha,
+		"factory: land f",
+		undefined,
+		{ expectedTip: moved },
+	);
+	expect(git(repo, "rev-parse", "main").trim()).toBe(tip);
 });
 
 test("a land node of an older definition, without an integration, lands as before", async () => {

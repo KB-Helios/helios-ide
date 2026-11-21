@@ -163,11 +163,22 @@ export async function landOnTarget(
 	message: string,
 	/** Test seams: right after the ref update, and inside the HEAD lock right after the target check. */
 	hooks?: { afterRefUpdate?: () => Promise<void>; insideCheckoutLock?: () => Promise<void> },
+	/**
+	 * `expectedTip`: the commit the target must be at (the one a gate run validated); anything else refuses
+	 * before a merge is made, so the ref compare-and-swap protects the tested base, not whatever the tip is
+	 * now. `intent` runs right before the ref update with the move about to be made, so a stop after the
+	 * update leaves a record the next landing can recognise.
+	 */
+	options?: { expectedTip?: string; intent?: (move: { from: string; to: string }) => void },
 ): Promise<string> {
 	const ref = `refs/heads/${target}`;
 	const resolved = await git(repo, ["rev-parse", "--verify", "-q", `${ref}^{commit}`]);
 	if (resolved.code !== 0) throw new Error(`The target branch ${target} does not exist.`);
 	const tip = resolved.stdout.trim();
+	if (options?.expectedTip && tip !== options.expectedTip)
+		throw new Error(
+			`${target} is no longer at the commit the combined gates tested; nothing was changed.`,
+		);
 	const path = join(scratchRoot, ".landing", randomUUID());
 	mkdirSync(dirname(path), { recursive: true });
 	const added = await git(repo, ["worktree", "add", "--detach", path, tip]);
@@ -225,6 +236,7 @@ export async function landOnTarget(
 		// lock. Then HEAD is locked too: a branch switch must write HEAD under that lock, so one that already
 		// finished is seen below, and one still in flight (even one that read the old tip) fails instead of
 		// landing between the HEAD check and the sync. HEAD cannot change while the sync runs.
+		options?.intent?.({ from: tip, to: merged });
 		const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
 		if (updated.code !== 0)
 			throw new Error(
@@ -324,8 +336,9 @@ export async function combineCommits(
 /**
  * The combined gate record must be a passing verdict on exactly what this landing merges: the same sources
  * at the same commits, on the target tip it was built on. A landing that resumes after some sources landed
- * accepts a tip that moved only by those landings (the recorded tip is still an ancestor) and checks the
- * sources still to land.
+ * accepts only the tip its own last landing left (`resumedTip`, recorded as that source landed), so a commit
+ * from anywhere else can never slip in between, and checks the sources still to land. Returns the tip the
+ * landing must start from; every merge after it is made on the tip the one before produced.
  */
 async function assertIntegrated(
 	run: FactoryRun,
@@ -333,7 +346,8 @@ async function assertIntegrated(
 	land: { integration: string; target: string },
 	shas: Record<string, string>,
 	resumed: boolean,
-): Promise<void> {
+	resumedTip: string | undefined,
+): Promise<string> {
 	const retry = `retry the ${land.integration} node`;
 	const record = run.readIntegrationRecord(land.integration);
 	if (!record)
@@ -356,13 +370,44 @@ async function assertIntegrated(
 	const tip = (
 		await git(repo, ["rev-parse", "--verify", "-q", `refs/heads/${land.target}^{commit}`])
 	).stdout.trim();
-	if (resumed) {
-		const ancestor = await git(repo, ["merge-base", "--is-ancestor", record.targetTip, tip]);
-		if (!record.targetTip || ancestor.code !== 0)
-			throw new Error(`${land.target} moved since the combined gate run; ${retry}.`);
-	} else if (!tip || tip !== record.targetTip) {
+	// Nothing landed yet, or only sources with nothing to merge: the target must still be where the gates
+	// built the combined change. Otherwise it must be exactly where this release's last landing left it.
+	const expected = resumed && resumedTip ? resumedTip : record.targetTip;
+	if (!expected || !tip || tip !== expected)
 		throw new Error(`${land.target} moved since the combined gate run; ${retry}.`);
-	}
+	// This release's landings were made on the tip the gates tested: that tip must be behind where they left it.
+	if (
+		expected !== record.targetTip &&
+		(await git(repo, ["merge-base", "--is-ancestor", record.targetTip, expected])).code !== 0
+	)
+		throw new Error(`${land.target} moved since the combined gate run; ${retry}.`);
+	return tip;
+}
+
+/**
+ * Brings the person's checkout along for a target update that completed without its sync (the host stopped
+ * between the ref update and the sync): only when HEAD is on the target and the index still holds the old
+ * tip, and with the same refusal to overwrite as the normal sync.
+ */
+async function resyncCheckout(
+	repo: string,
+	target: string,
+	move: { from: string; to: string },
+): Promise<void> {
+	const ref = `refs/heads/${target}`;
+	await withIndexLock(repo, async (index) => {
+		const env = { GIT_INDEX_FILE: index };
+		const head = (await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim();
+		if (head !== ref) return false;
+		// An index that already holds the landed commit, or that the person changed since, is left alone.
+		if ((await git(repo, ["diff", "--cached", "--quiet", move.from], env)).code !== 0) return false;
+		const synced = await git(repo, ["read-tree", "-m", "-u", move.from, move.to], env);
+		if (synced.code !== 0)
+			throw new Error(
+				`Landed on ${target} (${move.from} -> ${move.to}), but your checkout could not be brought along: ${(synced.stderr || synced.stdout).trim()}. Move the files it names aside, then run "git read-tree -m -u ${move.from} ${move.to}" in your checkout.`,
+			);
+		return true;
+	});
 }
 
 /**
@@ -395,6 +440,8 @@ interface Pending {
 	empty: boolean;
 	/** An uncommitted change to commit (gated again right before the commit). */
 	dirty: boolean;
+	/** The target tip a landing of this source already produced, when the host stopped before recording it. */
+	done?: string;
 }
 
 /**
@@ -417,6 +464,8 @@ export function landFactory(
 	hooks?: {
 		afterGateCheck?: (nodeId: string) => Promise<void>;
 		afterBranchMove?: (nodeId: string) => Promise<void>;
+		/** Right after a source's target update, before the checkout sync and before it is recorded. */
+		afterRefUpdate?: () => Promise<void>;
 	},
 ): Promise<LandedSource[]> {
 	return run.serial("land", async () => {
@@ -449,6 +498,24 @@ export function landFactory(
 					);
 				run.writeMeta(meta);
 			}
+			// A landing that stopped around its target update left the move it was about to make: the target at
+			// its end means the update completed and only the record was lost; at its start, that it never ran.
+			if (meta.landing) {
+				const now = (
+					await git(repo, ["rev-parse", "--verify", "-q", `refs/heads/${land.target}^{commit}`])
+				).stdout.trim();
+				if (now === meta.landing.to) {
+					pending.push({ meta, empty: false, dirty: false, done: now });
+					continue;
+				}
+				if (now !== meta.landing.from)
+					throw new Error(
+						`${land.target} moved while ${nodeId} was landing; check what landed, then retry the integration node.`,
+					);
+				const { landing: _unfinished, ...rest } = meta;
+				meta = rest;
+				run.writeMeta(meta);
+			}
 			// Same notion of a change as the gates (dependency links are never content).
 			const dirty = (await run.changed(meta)).files.length > 0;
 			if (meta.committed && head !== meta.committed)
@@ -467,26 +534,55 @@ export function landFactory(
 			if (sha) shas[nodeId] = sha;
 			pending.push({ meta, empty: !dirty && !meta.committed, dirty });
 		}
-		if (land.integration)
-			await assertIntegrated(
-				run,
-				repo,
-				{ integration: land.integration, target: land.target },
-				shas,
-				land.sources.some((nodeId) => run.readMeta(nodeId)?.landed),
-			);
+		// The tip this release's own landings left, in landing order, and whether any landing already ran.
+		let resumedTip: string | undefined;
+		let resumed = false;
+		for (const nodeId of land.sources) {
+			const stored = run.readMeta(nodeId);
+			if (stored?.landed) {
+				resumed = true;
+				if (stored.landedTip) resumedTip = stored.landedTip;
+			}
+			const finished = pending.find((p) => p.meta.nodeId === nodeId)?.done;
+			if (finished) {
+				resumed = true;
+				resumedTip = finished;
+			}
+		}
+		// Each merge below is made on the tip the one before produced (the first on the gate-tested tip), so
+		// the compare-and-swap of the ref protects exactly what was tested.
+		let expected = land.integration
+			? await assertIntegrated(
+					run,
+					repo,
+					{ integration: land.integration, target: land.target },
+					shas,
+					resumed,
+					resumedTip,
+				)
+			: undefined;
 
 		const landed: LandedSource[] = land.sources
 			.filter((nodeId) => run.readMeta(nodeId)?.landed)
 			.map((node) => ({ node, status: "already-landed" as const }));
-		for (const { meta: planned, empty, dirty } of pending) {
+		for (const { meta: planned, empty, dirty, done } of pending) {
 			let meta = planned;
 			let commit: string | undefined;
-			if (!empty) {
+			if (done && planned.landing) {
+				// The target update completed before the host recorded it: only the checkout sync may be missing.
+				await resyncCheckout(repo, land.target, planned.landing);
+				commit = done;
+				if (land.integration) expected = done;
+			} else if (!empty) {
 				if (dirty) {
 					// Land exactly the snapshot the gates tested: re-check that the record is fresh (the worktree
 					// still holds that content) and sits on the worktree's HEAD, then move the branch onto it.
 					const sha = await gatedSnapshot(run, meta);
+					// The combined gates validated one snapshot per source; a gate run since then must not swap it.
+					if (land.integration && sha !== shas[meta.nodeId])
+						throw new Error(
+							`${meta.nodeId} was gated again after the combined gate run; retry the ${land.integration} node.`,
+						);
 					await hooks?.afterGateCheck?.(meta.nodeId);
 					const head = (await git(meta.path, ["rev-parse", "HEAD"])).stdout.trim();
 					if ((await git(meta.path, ["rev-parse", `${sha}^`])).stdout.trim() !== head)
@@ -510,9 +606,16 @@ export function landFactory(
 					land.target,
 					sha,
 					`factory: land ${meta.nodeId}`,
+					hooks?.afterRefUpdate ? { afterRefUpdate: hooks.afterRefUpdate } : undefined,
+					{
+						...(expected ? { expectedTip: expected } : {}),
+						intent: (move) => run.writeMeta({ ...meta, landing: move }),
+					},
 				);
+				if (land.integration) expected = commit;
 			}
-			run.writeMeta({ ...meta, landed: true });
+			const { landing: _settled, ...settled } = meta;
+			run.writeMeta({ ...settled, landed: true, ...(commit ? { landedTip: commit } : {}) });
 			// Edits made after the final check are not part of what landed; never delete them with the worktree.
 			const later = !(await removeLandedWorktree(meta));
 			landed.push({

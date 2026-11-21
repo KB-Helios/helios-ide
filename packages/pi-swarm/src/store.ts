@@ -91,6 +91,8 @@ function parseMember(raw: unknown, index: number): Member {
 		str(tree.branch, `${at}.worktree.branch`);
 		str(tree.base, `${at}.worktree.base`);
 	}
+	if (raw.landed !== undefined && typeof raw.landed !== "boolean")
+		fail(`${at}.landed is not a boolean`);
 	if (raw.a2a !== undefined && !(isRecord(raw.a2a) && typeof raw.a2a.agent === "string"))
 		fail(`${at}.a2a is not valid`);
 	if (raw.gates !== undefined && !Array.isArray(raw.gates)) fail(`${at}.gates is not a list`);

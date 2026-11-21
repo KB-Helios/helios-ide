@@ -64,9 +64,10 @@ workflow's; route it per choosing-a-workflow first and come back here when it la
 
 The app has its own **PR Babysit** (an independent read-only review of the PR plus a fixer that answers
 review threads and failing checks, its replies tagged `[helios-babysit]` or `[helios-review]`) and a
-per-commit **Analyze commit** in Changes. When the ask is to watch or auto-fix a PR over time, point
-the user at Babysit instead of building a polling loop here, and never act on its tagged comments as
-if a person wrote them.
+per-commit **Analyze commit** in Changes. An explicit wait-mode ask in this session (watch checks,
+wait until green) is still handled by wait mode above. Only when the ask is to keep watching or
+auto-fixing a PR over time, beyond this session, point the user at Babysit instead of building a
+polling loop here, and never act on its tagged comments as if a person wrote them.
 
 ## Working files
 

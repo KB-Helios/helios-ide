@@ -54,6 +54,13 @@ export interface WorktreeMeta extends Worktree {
 	committed?: string;
 	/** A landing's in-flight move of the branch from `from` onto the gated commit `to` (see landTools). */
 	recording?: { from: string; to: string };
+	/**
+	 * The target ref's move this landing was about to make, recorded before the ref update: a retry that finds
+	 * the target at `to` knows the update completed and only the record was lost; at `from`, that it never ran.
+	 */
+	landing?: { from: string; to: string };
+	/** The target's tip right after this source landed; a resumed landing must find the target exactly there. */
+	landedTip?: string;
 }
 
 export interface GateRecord {
@@ -294,7 +301,7 @@ export class FactoryRun {
 	}
 
 	private coverageFile(): string {
-		return join(this.options.worktreeRoot, ".meta", this.options.dagId, "diff-coverage.json");
+		return join(this.options.worktreeRoot, ".meta", this.options.dagId, ".diff-coverage.json");
 	}
 
 	/** Sources whose diff an inspector was ever shown only in part; release and review reports carry it. */

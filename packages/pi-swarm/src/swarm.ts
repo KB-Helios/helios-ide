@@ -820,6 +820,18 @@ export class Swarm {
 					isolation: member.worktree ? "worktree" : "shared",
 				});
 			if (this.disposed || this.status !== "running") throw new Error("This swarm has finished.");
+			// Read through the board: remove() may have changed the status during the awaits above.
+			if (this.board.require(member.name).status === "killed") {
+				// remove() ran while the child was being created and found no child to stop: close the late one
+				// here, and never let startRun() bring a removed member back to life.
+				const late = this.handles.get(member.name);
+				this.handles.delete(member.name);
+				if (late) {
+					forgetMember(late.sessionId);
+					await late.dispose().catch(() => {});
+				}
+				throw new Error(`@${member.name} was removed.`);
+			}
 			const wasRestored = member.restored === true;
 			delete member.restored;
 			const unread = formatPostsOrEmpty(this.board.takeUnread(member.name));

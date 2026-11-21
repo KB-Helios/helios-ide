@@ -277,6 +277,11 @@ test("a corrupt, partial or unsupported board file reads as corrupt and is kept 
 		array: "[]",
 		"wrong version": JSON.stringify({ ...JSON.parse(good), version: 99 }),
 		"bad member": JSON.stringify({ ...JSON.parse(good), members: [{ name: "Bad Name" }] }),
+		// A string would read as true in remove() and bypass the unlanded-changes refusal.
+		"landed as a string": JSON.stringify({
+			...JSON.parse(good),
+			members: [{ ...member("alpha"), landed: "false" }],
+		}),
 		"bad post order": JSON.stringify({
 			...JSON.parse(good),
 			posts: posts(3).map((p) => ({ ...p, seq: 7 })),
@@ -439,6 +444,21 @@ test("a restored board is paused: no member starts, a vanished worktree is marke
 	await removeWorktree({ ...alpha, repo }, { deleteBranch: true });
 	await removeWorktree({ ...gamma, repo }, { deleteBranch: true });
 }, 60_000);
+
+test("a member removed while its resume creates the child stays removed", async () => {
+	const stored = stateOf(
+		[member("scout", { kind: "scout", brief: { task: "Look", owns: [], avoid: [] } })],
+		{ config: { ...config, isolation: "shared" } },
+	);
+	const swarm = Swarm.restore(stored, deps());
+	const resuming = swarm.resume("scout");
+	// remove() finds no child yet: the resume is still inside spawn().
+	const removing = swarm.remove("scout", true);
+	await expect(resuming).rejects.toThrow("was removed");
+	await removing;
+	expect(swarm.board.require("scout").status).toBe("killed");
+	await swarm.dispose();
+});
 
 test("a restored shared-tree member is re-attached without a worktree", async () => {
 	mkdirSync(join(repo, "src"), { recursive: true });

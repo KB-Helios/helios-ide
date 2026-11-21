@@ -1750,7 +1750,7 @@ beyond small host files next to the worktrees.
   (`MAX_TEXT / sources`, at least 32 KiB), so one large change set cannot hide another, and a cut diff ends with a
   `[truncated: showing N of M characters …]` note that names how to see the rest (`factory_diff` for that source alone,
   `factory_read` for the remaining files). The result also carries a per-source `coverage` list. The host records
-  every source a diff was cut for (`diff-coverage.json` beside the DAG's records); `factory_report` returns them as
+  every source a diff was cut for (`.diff-coverage.json` beside the DAG's records, a name no node id can take); `factory_report` returns them as
   `reviewSawPartialDiffs` for nodes with those sources, the reviewer is told to read the rest and add an info
   finding for anything it could not review, and the release summary leads with the partial coverage. Measured on
   this repository (2026-11): about 1 in 20 commits alone exceeds 256 KiB of diff, so a several-coder run can.
@@ -1770,11 +1770,21 @@ beyond small host files next to the worktrees.
   no source change at all the record is `ok` with nothing to run (the target is unchanged).
   `landFactory` enforces it only when the land node names an `integration` (older definitions are unaffected): the
   record must be `ok`, its `sources` must equal exactly the shas this landing would merge (same set, same
-  commits), and the target's tip must equal `targetTip`. When some sources already landed in this release (a
-  resumed landing) the tip may have moved by those landings: `targetTip` must then be an ancestor of the current
-  tip and every remaining source must match. A refusal says to retry the integrate node. The reviewer takes the
-  integration report as its only input instead of each gate report, since `integrate` already waits for every
-  gate; its inspector marker names the node, so its `factory_report` carries both verdicts.
+  commits), and the target's tip must equal `targetTip`. Every landing records the target's tip it produced
+  (`landedTip`) and, before its ref update, the move it is about to make (`landing: {from, to}`). When some
+  sources already landed in this release (a resumed landing) the target must be exactly at the last recorded
+  `landedTip` (which must descend from `targetTip`), so a commit from anywhere else is refused, and every remaining
+  source must match. A landing whose host stopped after the ref update but before its record finds the target at
+  `landing.to`: it finishes that source without a second merge (bringing the checkout along when its index still
+  holds the old tip) and continues; at `landing.from` the intent is dropped and the source lands normally; anywhere
+  else it is refused. Each merge is made on the tip the previous one produced (the first on `targetTip`): the ref
+  compare-and-swap protects the tested base, and a tip that is not the expected one refuses before any merge.
+  A source's snapshot re-checked at landing must be the one the combined record holds. A refusal says to retry the
+  integrate node. The reviewer takes the integration report as its only input instead of each gate report, since
+  `integrate` already waits for every gate; its inspector marker names the node, so its `factory_report` carries
+  both verdicts. The integrate node's own output is the host's verdict: the guard on `dag_submit_result` makes
+  sure a fresh record exists (running the combined gates if the node did not) and replaces the submitted outputs
+  with it, so text the model wrote can never reach the release.
 - **Gate retries (bounded, host-enforced).** `gateGuard.ts` registers a `tool_call` guard on the factory worker
   extension. When a coder tries `dag_submit_result`, the host runs the project's declared gates in the coder's
   worktree (`runFactoryGates`, or reuses a record whose diff hash is still fresh). A passing record lets the
