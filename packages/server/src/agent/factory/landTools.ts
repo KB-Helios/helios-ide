@@ -397,22 +397,29 @@ async function resyncCheckout(
 	repo: string,
 	target: string,
 	move: { from: string; to: string },
+	hooks?: { insideCheckoutLock?: () => Promise<void> },
 ): Promise<void> {
 	const ref = `refs/heads/${target}`;
-	await withIndexLock(repo, async (index) => {
-		const env = { GIT_INDEX_FILE: index };
-		const head = (await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim();
-		if (head !== ref) return false;
-		// No check of the index against the old tip: a two-way read-tree keeps staged changes to files the landing
-		// does not touch, accepts an index that already holds the landed commit, and refuses (below) rather than
-		// overwrite anything the person changed in a landed file.
-		const synced = await git(repo, ["read-tree", "-m", "-u", move.from, move.to], env);
-		if (synced.code !== 0)
-			throw new Error(
-				`Landed on ${target} (${move.from} -> ${move.to}), but your checkout could not be brought along: ${(synced.stderr || synced.stdout).trim()}. Move the files it names aside, then run "git read-tree -m -u ${move.from} ${move.to}" in your checkout.`,
-			);
-		return true;
-	});
+	await withIndexLock(repo, (index) =>
+		// HEAD is locked too, like in a normal landing: a branch switch must write HEAD under that lock, so
+		// one that already finished is seen by the check below and one still in flight fails instead of
+		// landing between the check and the sync.
+		withHeadLock(repo, target, move, async () => {
+			const env = { GIT_INDEX_FILE: index };
+			const head = (await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim();
+			if (head !== ref) return false;
+			await hooks?.insideCheckoutLock?.();
+			// No check of the index against the old tip: a two-way read-tree keeps staged changes to files the
+			// landing does not touch, accepts an index that already holds the landed commit, and refuses (below)
+			// rather than overwrite anything the person changed in a landed file.
+			const synced = await git(repo, ["read-tree", "-m", "-u", move.from, move.to], env);
+			if (synced.code !== 0)
+				throw new Error(
+					`Landed on ${target} (${move.from} -> ${move.to}), but your checkout could not be brought along: ${(synced.stderr || synced.stdout).trim()}. Move the files it names aside, then run "git read-tree -m -u ${move.from} ${move.to}" in your checkout.`,
+				);
+			return true;
+		}),
+	);
 }
 
 /**
@@ -471,6 +478,8 @@ export function landFactory(
 		afterBranchMove?: (nodeId: string) => Promise<void>;
 		/** Right after a source's target update, before the checkout sync and before it is recorded. */
 		afterRefUpdate?: () => Promise<void>;
+		/** Inside the checkout's HEAD lock, before the checkout sync (a normal landing and a recovery alike). */
+		insideCheckoutLock?: () => Promise<void>;
 	},
 ): Promise<LandedSource[]> {
 	return run.serial("land", async () => {
@@ -567,6 +576,10 @@ export function landFactory(
 				)
 			: undefined;
 
+		const checkoutHooks = {
+			...(hooks?.afterRefUpdate ? { afterRefUpdate: hooks.afterRefUpdate } : {}),
+			...(hooks?.insideCheckoutLock ? { insideCheckoutLock: hooks.insideCheckoutLock } : {}),
+		};
 		const landed: LandedSource[] = land.sources
 			.filter((nodeId) => run.readMeta(nodeId)?.landed)
 			.map((node) => ({ node, status: "already-landed" as const }));
@@ -575,7 +588,7 @@ export function landFactory(
 			let commit: string | undefined;
 			if (done && planned.landing) {
 				// The target update completed before the host recorded it: only the checkout sync may be missing.
-				await resyncCheckout(repo, land.target, planned.landing);
+				await resyncCheckout(repo, land.target, planned.landing, checkoutHooks);
 				commit = done;
 				if (land.integration) expected = done;
 			} else if (!empty) {
@@ -611,7 +624,7 @@ export function landFactory(
 					land.target,
 					sha,
 					`factory: land ${meta.nodeId}`,
-					hooks?.afterRefUpdate ? { afterRefUpdate: hooks.afterRefUpdate } : undefined,
+					checkoutHooks,
 					{
 						...(expected ? { expectedTip: expected } : {}),
 						intent: (move) => run.writeMeta({ ...meta, landing: move }),

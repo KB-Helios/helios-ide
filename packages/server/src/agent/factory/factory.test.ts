@@ -1390,6 +1390,35 @@ test("recovering a stopped landing keeps unrelated staged changes and still sync
 	expect(readFileSync(join(repo, "mine.txt"), "utf8")).toBe("mine\n");
 });
 
+test("a branch switch cannot slip into a recovery's checkout sync either", async () => {
+	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	await expect(
+		landFactory(run, LAND, {
+			afterRefUpdate: async () => {
+				throw new Error("host stopped");
+			},
+		}),
+	).rejects.toThrow("host stopped");
+	const switches: number[] = [];
+	await landFactory(run, LAND, {
+		insideCheckoutLock: async () => {
+			// The person switches branches inside the recovery's sync interval, quiet or not: neither form can
+			// write HEAD while the recovery holds its lock, so both fail instead of being synced into.
+			for (const args of [
+				["checkout", "-b", `elsewhere-${switches.length}`],
+				["checkout", "-q", "-b", `elsewhere-q-${switches.length}`],
+			])
+				switches.push(Bun.spawnSync(["git", ...args], { cwd: repo }).exitCode);
+		},
+	});
+	expect(switches.length).toBeGreaterThanOrEqual(4);
+	expect(switches.every((code) => code !== 0)).toBe(true);
+	expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main");
+	expect(lf(readFileSync(join(repo, "a.txt"), "utf8"))).toBe("a\n");
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+});
+
 test("the integration guard reruns the combined gates when the target moved since the record", async () => {
 	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
 	const first = await runIntegrationGates(run, "integrate", INTEGRATE);
