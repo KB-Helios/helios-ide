@@ -46,7 +46,12 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   **Cancel step** for queued, running or interrupted work. `nodeCommand` builds the whitelisted wire command from
   the attempt and activation the host reported; a step that never ran has no control.
 - **Output** — a step that has submitted lists its declared output names; picking one reads it with `dag.output`
-  into a bounded viewer (the host cuts at 64 KiB and says so; a file output is only described).
+  into a bounded viewer (the host cuts at 64 KiB and says so). A file output (v137, `DagOutputView.artifact`) shows its
+  name, media type and size, then the host's preview: text in the same code block, an inline image (png, jpeg, gif or
+  webp up to 2 MiB; `artifactImageSrc` in `factoryModel.ts` only builds a data URL for those types and plain base64,
+  never SVG), otherwise only name and size. A host older than v137 sends the size only and the pane shows the old
+  size line. The pane uses its own `<pre>` and `<img>` rather than `resource-renderers`, which render workspace files
+  and artifacts by path or id, not an inline host preview.
 - **History** — a collapsed list of the DAG's events (kind, step, which kind of caller, time) read on demand from
   `dag.history` in pages with **Load more**. Rows are a manifest: no event body or path.
 - **Worker slots** — one line under the description, `Workers: running of limit · queued`, shown only while

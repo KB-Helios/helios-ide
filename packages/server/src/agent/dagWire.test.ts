@@ -663,3 +663,103 @@ test("a plan that breaks the rules is rejected by the host even after a person a
 		"Invalid dagId",
 	);
 });
+
+async function submitArtifact(path: string): Promise<{ dagId: string; localPath: string }> {
+	const definition = approvalDefinition();
+	definition.nodes[0] = {
+		id: "work",
+		task: "Produce a file",
+		outputs: { result: { kind: "artifact" } },
+		approval: { authority: "human", question: "Ship it?" },
+	};
+	const created = value(
+		await owner().execute({
+			commandId: `art-create-${serial++}`,
+			command: { kind: "create", definition },
+		}),
+	);
+	faux.setResponses([
+		fauxAssistantMessage(
+			fauxToolCall("dag_submit_result", { outputs: { result: { kind: "artifact", path } } }),
+		),
+	]);
+	const paused = await readWorkspaceDag(workspaceId, created.dagId);
+	await executeWorkspaceDag({
+		workspaceId,
+		dagId: created.dagId,
+		commandId: `art-resume-${serial++}`,
+		expectedVersion: paused.version,
+		command: { kind: "resume" },
+	});
+	const settled = await until(created.dagId, (snapshot) =>
+		snapshot.gates.some((g) => g.disposition === "pending"),
+	);
+	const file = value(
+		await owner().getOutput({
+			dagId: created.dagId,
+			proposalId: settled.nodes[0]?.proposalId ?? "",
+			name: "result",
+		}),
+	).value.file;
+	return { dagId: created.dagId, localPath: file.localPath };
+}
+
+const PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAfbLI3wAAAABJRU5ErkJggg==",
+	"base64",
+);
+
+test("an artifact output is a verified preview: text, image, oversize and binary, never a path", async () => {
+	mkdirSync(join(root, "checkout", "out", "deep"), { recursive: true });
+	writeFileSync(join(root, "checkout", "out", "deep", "report.md"), "# Report\nline two\n");
+	const text = await submitArtifact("out/deep/report.md");
+	const textView = await readWorkspaceOutput(workspaceId, text.dagId, "work", "result");
+	expect(textView).toMatchObject({
+		kind: "artifact",
+		truncated: false,
+		text: "# Report\nline two\n",
+		artifact: { name: "report.md", mediaType: "text/markdown" },
+	});
+	expect(textView?.artifact?.imageBase64).toBeUndefined();
+	const wire = JSON.stringify(textView);
+	expect(wire).not.toContain("localPath");
+	expect(wire).not.toContain("deep");
+	expect(wire).not.toContain(root);
+
+	// Text longer than the bound is cut and flagged.
+	const cut = await readWorkspaceOutput(workspaceId, text.dagId, "work", "result", 6);
+	expect(cut).toMatchObject({ text: "# Repo", truncated: true });
+
+	writeFileSync(join(root, "checkout", "out", "pixel.png"), PNG);
+	const image = await submitArtifact("out/pixel.png");
+	const imageView = await readWorkspaceOutput(workspaceId, image.dagId, "work", "result");
+	expect(imageView?.artifact).toEqual({
+		name: "pixel.png",
+		mediaType: "image/png",
+		imageBase64: PNG.toString("base64"),
+	});
+	expect(imageView?.text).toBeUndefined();
+	// An image over the image cap is described only.
+	const big = await readWorkspaceOutput(workspaceId, image.dagId, "work", "result", 1000, 10);
+	expect(big?.artifact).toEqual({ name: "pixel.png", mediaType: "image/png" });
+	expect(big?.sizeBytes).toBe(PNG.length);
+
+	writeFileSync(join(root, "checkout", "out", "blob.bin"), Buffer.from([1, 2, 0, 3, 4]));
+	const blob = await submitArtifact("out/blob.bin");
+	const blobView = await readWorkspaceOutput(workspaceId, blob.dagId, "work", "result");
+	expect(blobView).toMatchObject({
+		sizeBytes: 5,
+		truncated: false,
+		artifact: { name: "blob.bin", mediaType: "application/octet-stream" },
+	});
+	expect(blobView?.text).toBeUndefined();
+}, 60_000);
+
+test("an artifact whose captured payload no longer matches its hash is not shown", async () => {
+	writeFileSync(join(root, "checkout", "tamper.txt"), "genuine");
+	const tampered = await submitArtifact("tamper.txt");
+	writeFileSync(tampered.localPath, "forgery");
+	await expect(
+		readWorkspaceOutput(workspaceId, tampered.dagId, "work", "result"),
+	).rejects.toMatchObject({ code: "RESOURCE_UNAVAILABLE" });
+}, 30_000);

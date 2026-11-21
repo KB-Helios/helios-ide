@@ -1566,8 +1566,15 @@ returns a `DagHistoryPage` (`items` oldest first, at most `DAG_HISTORY_MAX_PAGE`
 with no event body, captured-file reference or path. `dag.output` `{ workspaceId, dagId, nodeId, name }` returns a
 `DagOutputView` for a name the node declares (an undeclared one fails `RESOURCE_UNAVAILABLE`) or `null` before it
 submitted: `text` at most `DAG_OUTPUT_MAX_BYTES` (64 KiB) with `truncated`, and `sizeBytes`; an `artifact` output is
-reported without content. `DagNodeView.outputs` lists the readable names of nodes that submitted. Both reads are
+reported without content up to v136. `DagNodeView.outputs` lists the readable names of nodes that submitted. Both reads are
 human-only like the rest of `dag.*`. Older hosts have neither method and the pane omits history and output.
+
+From **`DAG_ARTIFACT_PROTOCOL_VERSION`** (v137, additive): `DagOutputView.artifact` (`DagArtifactView`) on an `artifact`
+output: `name` (a base name, never a host path), `mediaType` and, for a png, jpeg, gif or webp of at most
+`DAG_OUTPUT_IMAGE_MAX_BYTES` (2 MiB), `imageBase64`. Text-like content rides in the existing `text` (at most
+`DAG_OUTPUT_MAX_BYTES`, `truncated`); other files carry the metadata and `sizeBytes` only. The host verifies the
+payload's SHA-256 before showing any content and fails `RESOURCE_UNAVAILABLE` on a mismatch. A host older than v137
+omits `artifact` and the pane falls back to the size-only line. No new method.
 
 From **`DAG_START_PROTOCOL_VERSION`** (v135, additive): starting a factory run. `dag.roles` `{ workspaceId }` returns
 `FactoryRolesView` (the models the host can serve with their vendor `family` and `reasoning`, at most 500, the host's

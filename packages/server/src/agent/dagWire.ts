@@ -1,6 +1,7 @@
 import { open, readFile } from "node:fs/promises";
 import {
 	DAG_HISTORY_MAX_PAGE,
+	DAG_OUTPUT_IMAGE_MAX_BYTES,
 	DAG_OUTPUT_MAX_BYTES,
 	type DagExecuteRequest,
 	type DagHistoryItem,
@@ -24,6 +25,7 @@ import type {
 import { getWorkspace } from "../workspaces";
 import { sessionlessProjectTrust } from "./agentSessionManager";
 import { dagServiceFor } from "./dag";
+import { previewArtifact } from "./dagArtifact";
 import { cancelPendingDagChanges, publishDagChangedNow } from "./dagChanges";
 import { startFactory, startFactoryFromPlan } from "./dagStart";
 import { factoryQueueOf, globalFactoryQueue, isPlannerNode } from "./factory";
@@ -415,8 +417,9 @@ async function readHead(path: string, max: number): Promise<{ bytes: Buffer; tru
 
 /**
  * The human-read-only `dag.output`: one declared output of a node's current proposal. The name must be
- * one the node declares, the text is bounded to `DAG_OUTPUT_MAX_BYTES` and an artifact output reports
- * only its size. Never a path, another node's proposal or a transcript. `null` until the node submitted.
+ * one the node declares and the text is bounded to `DAG_OUTPUT_MAX_BYTES`. An artifact output is a
+ * hash-verified preview of pi-dag's captured payload (see `previewArtifact`): base name and media type,
+ * text-like content as `text`, a small image as base64, anything else described only. Never a path, another node's proposal or a transcript. `null` until the node submitted.
  */
 export async function readWorkspaceOutput(
 	workspaceId: string,
@@ -425,6 +428,7 @@ export async function readWorkspaceOutput(
 	name: string,
 	/** Tests lower the bound; the wire always uses `DAG_OUTPUT_MAX_BYTES`. */
 	maxBytes = DAG_OUTPUT_MAX_BYTES,
+	imageMaxBytes = DAG_OUTPUT_IMAGE_MAX_BYTES,
 ): Promise<DagOutputView | null> {
 	const id = dagIdOf(dagId);
 	str(nodeId, "nodeId", 128);
@@ -445,7 +449,25 @@ export async function readWorkspaceOutput(
 		kind: output.value.kind,
 		sizeBytes: output.value.file.sizeBytes,
 	};
-	if (output.value.kind === "artifact") return { ...base, truncated: false };
+	if (output.value.kind === "artifact") {
+		const { file } = output.value;
+		const preview = await previewArtifact(
+			{
+				localPath: file.localPath,
+				sizeBytes: file.sizeBytes,
+				sha256: file.sha256,
+				label: output.value.preview,
+			},
+			maxBytes,
+			imageMaxBytes,
+		);
+		return {
+			...base,
+			...(preview.text === undefined ? {} : { text: preview.text }),
+			truncated: preview.truncated,
+			artifact: preview.artifact,
+		};
+	}
 	try {
 		const head = await readHead(output.value.file.localPath, maxBytes);
 		return {
