@@ -19,7 +19,7 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   is optional and defaults to a localized note) and **Reject** (a reason is required, as pi-dag requires
   one); an input gate takes a text answer. This is the done-when of the factory roadmap step: a decision
   needs no chat.
-- **Start a run** — a collapsed **Start a run** form (host v135): the task, **Planner** or **One coder** as
+- **Start a run** — a collapsed **Start a run** form (host v135): the task, **Planner** or **Coders** as
   the splitter, and a model per role from `dag.roles` (**Automatic (…)** leaves the choice to the host; only
   an actual pick is sent). A reviewer in the coder's vendor family (`reviewerSharesFamily`, judged on the
   family the host reports) needs the explicit **Allow a reviewer from the coder's model family** switch; the
@@ -27,8 +27,17 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   created **paused** and selected: starting work stays your Resume. A Planner run is a planning DAG: its
   planner's `plan` output is readable in the step's Output viewer, its approval is an ordinary human gate
   under **Waiting for you**, and once the planner step completed the pane offers **Create factory run**
-  (`dag.startFromPlan`, which the host re-checks). Multi-coder plans are the planner's or the wire's
-  (`dag.start` `coders`); the form itself only offers one coder.
+  (`dag.startFromPlan`, which the host re-checks). **Coders** lists the coders yourself (`CoderRows.tsx`, `coderPlan.ts`): up to `MAX_PLAN_CODERS` (8) rows,
+  each a fieldset with an id, a task, `owns` globs and optional `avoid` globs (one glob per line), with keyboard
+  **Add coder** (focus moves to the new row's id) and **Remove** (the last row stays). The form sends them as
+  `dag.start` `coders`, so the factory DAG is created straight away, paused. A sole coder may leave its task
+  empty (it takes the run's task) and `owns` empty; with several, each needs a task and `owns`.
+  `coderIssues` mirrors the host's `parseCoderPlans` before sending: ids plain (`^[a-z][a-z0-9-]{0,31}$`),
+  unique, not `release`/`land`/`review`/`planner`/`gate-*`; tasks up to 8000 characters; globs at most 64,
+  inside the repository (no absolute, drive-letter or `..`); `owns` disjoint under a port of the host's
+  conservative `mayOverlap` (literal-prefix rule of `factory/template.ts`, which this package may not import, so
+  the two are kept in step by hand and by the unit tests). A row's problems show only after you touched it,
+  and the submit button stays disabled while any remain. The host re-validates; its refusal still shows.
 - **Graph** — a collapsible drawing of the DAG above the Steps list: steps as boxes (id plus the status word,
   border colour as a second channel) in columns by their longest dependency chain, joined by curved dependency
   edges. `layoutDag` in `graphLayout.ts` is a pure layered layout (columns by depth, rows ordered by the average
@@ -80,6 +89,8 @@ workspace and shows the DAG list (title, mode, how many gates wait for you) and,
   shows it without the run log and findings, one older than `DAG_QUEUE_PROTOCOL_VERSION` without the
   worker-slots line, and one older than `DAG_DETAILS_PROTOCOL_VERSION` (v134) without output and history, and one older than
   `DAG_START_PROTOCOL_VERSION` (v135) without the start form (the trigger then still needs a DAG to appear).
+- The worker cap (`AppConfig.factoryMaxConcurrent`) is set in Settings → Chat → Factory, not here; this pane
+  only shows its effect (`Workers: …`, `All workspaces: …`).
 - Not here yet: creating or editing a DAG, skip/steer/reconcile and manual result acceptance.
 - Pure derivations (dependency lookup, node ordering, pending total) live in `factoryModel.ts` and are
   unit tested.

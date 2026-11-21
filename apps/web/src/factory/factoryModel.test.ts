@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { DagReviewView } from "@thinkrail/contracts";
+import { newCoder } from "./coderPlan";
 import {
 	bySeverity,
 	dagActions,
@@ -151,6 +152,7 @@ const rolesView = (sameFamilyOnly = false) => ({
 const form = (patch: Partial<StartForm> = {}): StartForm => ({
 	task: "Add the thing",
 	mode: "plan",
+	coders: [newCoder("k0", "coder")],
 	picks: {},
 	allowSameFamily: false,
 	...patch,
@@ -170,9 +172,9 @@ test("a role left on its default sends no model, and a pick sends exactly that m
 	});
 });
 
-test("one coder mode sends the task as the single coder; planner mode sends none", () => {
+test("one coder with no task of its own takes the run task; planner mode sends none", () => {
 	const view = rolesView();
-	expect(startRequest(view, form({ mode: "single", task: "  Fix it  " }))).toEqual({
+	expect(startRequest(view, form({ mode: "coders", task: "  Fix it  " }))).toEqual({
 		task: "Fix it",
 		coders: [{ id: "coder", task: "Fix it" }],
 	});

@@ -13,6 +13,7 @@ import type {
 	FactoryRoleName,
 	FactoryRolesView,
 } from "@thinkrail/contracts";
+import { type CoderDraft, coderIssues, MAX_PLAN_CODERS, parseGlobs } from "./coderPlan";
 
 /** Statuses that need a person before the DAG can move on; shown first and never hidden. */
 const ATTENTION: ReadonlySet<DagNodeStatus> = new Set([
@@ -150,12 +151,14 @@ export function historyTarget(item: Pick<DagHistoryItem, "target">): string {
 		: "";
 }
 
-export type RunMode = "plan" | "single";
+export type RunMode = "plan" | "coders";
 
 /** The start form's state: the task, who splits it, and a model pick per role (`""` is the host's default). */
 export interface StartForm {
 	task: string;
 	mode: RunMode;
+	/** The coders of a `coders` run; ignored when a planner splits the task. */
+	coders: CoderDraft[];
 	picks: Partial<Record<FactoryRoleName, string>>;
 	allowSameFamily: boolean;
 }
@@ -200,9 +203,16 @@ export function reviewerSharesFamily(
 export function startBlocker(
 	view: FactoryRolesView,
 	form: StartForm,
-): "task" | "same-family" | null {
+): "task" | "coders" | "same-family" | null {
 	const task = form.task.trim();
 	if (task.length === 0 || task.length > START_TASK_MAX) return "task";
+	if (
+		form.mode === "coders" &&
+		(form.coders.length === 0 ||
+			form.coders.length > MAX_PLAN_CODERS ||
+			coderIssues(form.coders, task).length > 0)
+	)
+		return "coders";
 	if (reviewerSharesFamily(view, form) && !form.allowSameFamily) return "same-family";
 	return null;
 }
@@ -215,7 +225,8 @@ export function startRequest(
 	view: FactoryRolesView,
 	form: StartForm,
 ): Omit<DagStartRequest, "workspaceId" | "commandId"> | null {
-	if (startBlocker(view, form) === "task") return null;
+	const blocker = startBlocker(view, form);
+	if (blocker === "task" || blocker === "coders") return null;
 	const roles: Partial<Record<FactoryRoleName, FactoryModelChoice>> = {};
 	for (const role of ROLE_ORDER) {
 		const key = form.picks[role];
@@ -223,9 +234,22 @@ export function startRequest(
 		if (model) roles[role] = { provider: model.provider, id: model.id };
 	}
 	const task = form.task.trim();
+	const coders =
+		form.mode === "coders"
+			? form.coders.map((coder) => {
+					const owns = parseGlobs(coder.owns);
+					const avoid = parseGlobs(coder.avoid);
+					return {
+						id: coder.id.trim(),
+						task: coder.task.trim() || task,
+						...(owns.length ? { owns } : {}),
+						...(avoid.length ? { avoid } : {}),
+					};
+				})
+			: undefined;
 	return {
 		task,
-		...(form.mode === "single" ? { coders: [{ id: "coder", task }] } : {}),
+		...(coders ? { coders } : {}),
 		...(Object.keys(roles).length ? { roles } : {}),
 		...(form.allowSameFamily && reviewerSharesFamily(view, form)
 			? { allowSameFamilyReviewer: true }
