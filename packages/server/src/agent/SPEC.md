@@ -1645,7 +1645,14 @@ beyond small host files next to the worktrees.
   `thinkrail-gate-sandbox.exe` (an AppContainer, see apps/desktop), found next to the host executable or at
   `THINKRAIL_GATE_SANDBOX_HELPER`; Linux runs `bwrap` (read-only system and checkout, the home folder hidden by a
   tmpfs, `--unshare-all`, cleared environment) and macOS `sandbox-exec` (a profile denying network and writes
-  outside the scratch directory); those two are tested here only through their generated arguments. The sandbox is
+  outside the scratch directory); `sandbox.test.ts` checks their generated arguments on every platform, and
+  `sandbox.native.test.ts` runs commands inside the real sandbox on Linux and macOS (exit code and output come back,
+  the checkout and dependency folders refuse writes, creation and deletion, the scratch directory is writable and is
+  `TEMP`/`HOME`, loopback, internet and name resolution are unreachable, a file in the user's home is unreadable, no
+  host secret is visible). That suite skips, with the reason in its name, where the sandbox is unavailable, and fails
+  instead when `THINKRAIL_REQUIRE_GATE_SANDBOX=1`; CI's `gate-sandbox` job (`ubuntu-latest` with `bubblewrap` installed
+  and AppArmor's unprivileged-user-namespace restriction lifted, and `macos-latest`) sets it, so a runner that loses
+  its sandbox cannot leave the boundary unverified. The sandbox is
   asked `availability()` before any checkout is made, and a helper that cannot be set up during the run throws
   `SandboxUnavailableError`; both end in a gate record with `ok: false`, a `reason`, no results and no command
   executed, so nothing lands. There is no unconfined mode. An AppContainer cannot start Bun in an ordinary profile
