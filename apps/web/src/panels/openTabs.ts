@@ -37,6 +37,8 @@ export type OpenTabPlacement = Pick<LayoutOpenOptions, "activate" | "targetGroup
 interface ReadFlight {
 	intent: TabIntent;
 	placement: OpenTabPlacement;
+	/** A passive caller's veto, checked once the read lands: true drops the open instead of installing it. */
+	stale: (() => boolean) | undefined;
 	claimPreview: boolean;
 	navigation: CenterNavigationStamp | null;
 	requestedAt: number;
@@ -59,6 +61,7 @@ async function openReadTab<T>(
 	requestedNavigation?: CenterNavigationStamp | null,
 	claimPreview = false,
 	placement: OpenTabPlacement = {},
+	stale?: () => boolean,
 ): Promise<void> {
 	const navigation =
 		requestedNavigation === undefined
@@ -77,6 +80,7 @@ async function openReadTab<T>(
 			placement.activate === false && pending.placement.activate !== false;
 		if (!passiveJoiningForeground) {
 			pending.placement = placement;
+			pending.stale = stale;
 			pending.navigation = navigation;
 			pending.requestedAt = navTick(workspaceId);
 		}
@@ -103,6 +107,7 @@ async function openReadTab<T>(
 	const flight: ReadFlight = {
 		intent,
 		placement,
+		stale,
 		claimPreview: intent === "preview" || claimPreview,
 		navigation,
 		requestedAt: navTick(workspaceId),
@@ -124,6 +129,7 @@ async function installRead<T>(
 ): Promise<void> {
 	try {
 		const payload = await read();
+		if (flight.stale?.()) return;
 		const currentState = useAppStore.getState();
 		const overtaken = flight.navigation
 			? !isCenterNavigationCurrent(currentState, workspaceId, flight.navigation)
@@ -161,6 +167,7 @@ export function openFileInTab(
 	intent: TabIntent,
 	requestedNavigation?: CenterNavigationStamp | null,
 	placement: OpenTabPlacement = {},
+	stale?: () => boolean,
 ): Promise<void> {
 	const path = projectRelativePath(
 		reported,
@@ -186,6 +193,7 @@ export function openFileInTab(
 		requestedNavigation,
 		false,
 		placement,
+		stale,
 	);
 }
 
@@ -336,14 +344,17 @@ export function userNavigationEpoch(workspaceId: string): number {
 	return userNavigationEpochs.get(workspaceId) ?? 0;
 }
 
-/** Hosts without session-state records report a run only through each chat's own streaming flag. */
+/**
+ * Session-state records are the truth where the host sends them; only a workspace with none (an older host)
+ * falls back to each chat's own streaming flag, so a host that says idle is never overruled by a stale flag.
+ */
 export function workspaceAgentRunning(workspaceId: string): boolean {
 	const state = useAppStore.getState();
-	return (
-		selectWorkspaceIsRunning(state, workspaceId) ||
-		(state.tabsByWorkspace[workspaceId] ?? []).some(
-			(tab) => tab.kind === "chat" && state.sessions[tab.sessionId]?.isStreaming === true,
-		)
+	if (Object.keys(state.sessionStateByWorkspace[workspaceId] ?? {}).length > 0) {
+		return selectWorkspaceIsRunning(state, workspaceId);
+	}
+	return (state.tabsByWorkspace[workspaceId] ?? []).some(
+		(tab) => tab.kind === "chat" && state.sessions[tab.sessionId]?.isStreaming === true,
 	);
 }
 
@@ -362,10 +373,16 @@ export async function followFileAtLine(
 		path,
 		selectWorkspaceById(useAppStore.getState(), workspaceId)?.worktreePath,
 	);
-	await openFileInTab(workspaceId, canonical, "preview", null, {
-		activate: false,
-		...(targetGroupId ? { targetGroupId } : {}),
-	});
+	if (!stillFollowing()) return;
+	// The preview must not be installed over the user's own selection once they paused or navigated.
+	await openFileInTab(
+		workspaceId,
+		canonical,
+		"preview",
+		null,
+		{ activate: false, ...(targetGroupId ? { targetGroupId } : {}) },
+		() => !stillFollowing(),
+	);
 	// Opening may have waited on a read; the user's pause or off switch wins over a stale follow.
 	if (!stillFollowing()) return;
 	useAppStore
