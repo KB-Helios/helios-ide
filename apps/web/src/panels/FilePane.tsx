@@ -17,6 +17,7 @@ import { selectWorkspaceById, selectWorkspaceIsRunning, useAppStore } from "../s
 import { getTransport } from "../transport";
 import { FollowAgentControls } from "./FollowAgentControls";
 import { OpenInBrowserButton, useOpensInBrowser } from "./OpenInBrowserButton";
+import { noteUserNavigation, workspaceAgentRunning } from "./openTabs";
 import { resourceBytesUrl, useResetViewStateOnImplementationChange } from "./resourcePane";
 import { reviewFlagFor } from "./reviewModel";
 import { SendReviewButton } from "./SendReviewButton";
@@ -122,7 +123,11 @@ export function FilePane({ tab }: { tab: FileTab }) {
 						onPlacedThreadIds={onPlacedThreadIds}
 						viewState={tab.viewState}
 						onViewState={saveViewState}
-						onUserNavigated={() => useAppStore.getState().pauseFollow(tab.workspaceId)}
+						onUserNavigated={() => {
+							noteUserNavigation(tab.workspaceId);
+							if (workspaceAgentRunning(tab.workspaceId))
+								useAppStore.getState().pauseFollow(tab.workspaceId);
+						}}
 						{...(tab.reveal
 							? {
 									reveal: tab.reveal,

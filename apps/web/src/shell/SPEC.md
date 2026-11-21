@@ -592,8 +592,11 @@ preview tab and scrolls to what changed, without taking focus from the conversat
 - **What line.** `changedLine` reads the file after the mutation and finds the edit's new text (the first
   line of `newText`, else `1`); a `write` reveals line 1. The reveal carries `flash: true`, so the renderer
   marks that line with the accent for 1.5 s.
-- **Pausing.** A wheel, pointer or key event inside the editor is manual navigation: it calls
-  `pauseFollow(workspaceId)`, and the file toolbar shows **Resume following**. Enabling the toggle or pressing
+- **Pausing.** While an agent runs in the workspace, a wheel, pointer or key event inside the editor is manual
+  navigation: it calls `pauseFollow(workspaceId)`, and the file toolbar shows **Resume following**. An idle
+  workspace has nothing to follow, so the same event does not pause: the toolbar would appear under the
+  pointer on the first click and shift the editor before the click lands. Every manual navigation still bumps a
+  per-workspace epoch (`noteUserNavigation`), so a follow queued earlier (captured at queue time by `createFollowQueue`, not when its read starts) never reveals over it. "Running" is `workspaceAgentRunning`: session-state records, else any chat's own streaming flag, so hosts without session state still pause. Enabling the toggle or pressing
   the pill resumes; a pause never outlives the toggle and is per workspace.
 - **Toggle.** The file toolbar's **Follow agent** switch (`followAgent`, default on, this client only). The
   toolbar is otherwise hidden for a single-renderer file, so it appears while an agent runs in the workspace or

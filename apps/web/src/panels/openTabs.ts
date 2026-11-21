@@ -18,6 +18,7 @@ import {
 	layoutOpenOptionsForNavigation,
 	selectDiffTabTargetRef,
 	selectWorkspaceById,
+	selectWorkspaceIsRunning,
 	selectWorkspaceNavTick,
 	selectWorkspaceTick,
 	type TabIntent,
@@ -324,6 +325,28 @@ export async function openChangesTab(
  * selected there and flashes the line; without one it only joins the strip, so a single-group layout never
  * swaps the conversation out from under the user.
  */
+const userNavigationEpochs = new Map<string, number>();
+
+/** Counts the user's manual navigation in a workspace's editors; a follow that began earlier must not reveal. */
+export function noteUserNavigation(workspaceId: string): void {
+	userNavigationEpochs.set(workspaceId, (userNavigationEpochs.get(workspaceId) ?? 0) + 1);
+}
+
+export function userNavigationEpoch(workspaceId: string): number {
+	return userNavigationEpochs.get(workspaceId) ?? 0;
+}
+
+/** Hosts without session-state records report a run only through each chat's own streaming flag. */
+export function workspaceAgentRunning(workspaceId: string): boolean {
+	const state = useAppStore.getState();
+	return (
+		selectWorkspaceIsRunning(state, workspaceId) ||
+		(state.tabsByWorkspace[workspaceId] ?? []).some(
+			(tab) => tab.kind === "chat" && state.sessions[tab.sessionId]?.isStreaming === true,
+		)
+	);
+}
+
 export async function followFileAtLine(
 	workspaceId: string,
 	path: string,
