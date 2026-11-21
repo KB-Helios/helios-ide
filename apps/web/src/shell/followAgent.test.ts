@@ -115,14 +115,20 @@ describe("createFollowQueue", () => {
 		const heldRead = new Promise<void>((resolve) => {
 			releaseRead = resolve;
 		});
+		let readStarted = () => {};
+		const firstReadStarted = new Promise<void>((resolve) => {
+			readStarted = resolve;
+		});
 
 		enqueue("ws", async (isStale) => {
+			readStarted();
 			await heldRead;
 			outcomes.push(isStale() ? "first:stale" : "first:fresh");
 		});
 		enqueue("ws", async (isStale) => {
 			outcomes.push(isStale() ? "second:stale" : "second:fresh");
 		});
+		await firstReadStarted;
 		epochs.set("ws", 1);
 		enqueue("ws", async (isStale) => {
 			outcomes.push(isStale() ? "third:stale" : "third:fresh");
