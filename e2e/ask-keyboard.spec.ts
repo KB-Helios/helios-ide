@@ -202,6 +202,13 @@ async function routeSessionStates(page: Page) {
 		browser.send(JSON.stringify({ channel: "session.state", data: record }));
 	};
 	return {
+		// The host reports a seeded question the moment the workspace loads, long before `hold` can look up
+		// the workspace id. A chat opened on that cached `needsInput` is accepting, so the card spends its
+		// one-shot focus claim on it and nothing is left for the arrival `release` stages. Reserving the
+		// session first keeps every host frame idle from the start.
+		reserve(sessionId: string): void {
+			held.add(sessionId);
+		},
 		async hold(sessionId: string, toolCallId: string): Promise<HeldQuestion> {
 			const wire = await E2eWire.connect(Number(new URL(page.url()).port));
 			let record: SessionStateRecord;
@@ -245,6 +252,7 @@ async function openHeldRound(
 	const states = await routeSessionStates(page);
 	await openFixtureProject(page);
 	const session = seedQuestionnaire(name, toolCallId, { questions: [ROLLOUT] }, BASE_TS);
+	states.reserve(session.id);
 	await enterDefaultWorkspace(page, { panels: false });
 	await hideAuxiliaryWorkbench(page);
 	const held = await states.hold(session.id, toolCallId);
