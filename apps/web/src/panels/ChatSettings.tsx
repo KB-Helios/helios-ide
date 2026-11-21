@@ -11,6 +11,7 @@ import { cn } from "@thinkrail/ui/utils";
 import type { ChatMessageOrder } from "@/chat/chatPreferences";
 import { selectActiveWorkspace, toast, useAppStore } from "@/store";
 import { errorText, getTransport } from "@/transport";
+import { FactorySettings } from "./FactorySettings";
 import { LineWidthControl } from "./LineWidthSettings";
 import { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl";
 import { SettingsGroup, SettingsPageContainer } from "./SettingsGroup";
@@ -118,6 +119,7 @@ export function ChatSettings() {
 	const protocolVersion = useAppStore((state) => state.protocolVersion);
 	const subagentsEnabled = useAppStore((state) => state.subagentsEnabled);
 	const subagentMaxConcurrent = useAppStore((state) => state.subagentMaxConcurrent);
+	const factoryMaxConcurrent = useAppStore((state) => state.factoryMaxConcurrent);
 	const activeWorkspace = useAppStore(selectActiveWorkspace);
 	const setChatMessageOrder = useAppStore((state) => state.setChatMessageOrder);
 
@@ -203,6 +205,14 @@ export function ChatSettings() {
 					)
 				}
 				onWorkspaceLimitChange={setWorkspaceSubagentLimit}
+			/>
+
+			<FactorySettings
+				protocolVersion={protocolVersion}
+				value={factoryMaxConcurrent}
+				onChange={(value) =>
+					void saveSettings({ factoryMaxConcurrent: value }, t("settings.factory.capFailed"))
+				}
 			/>
 		</SettingsPageContainer>
 	);

@@ -611,7 +611,7 @@ re-read while a server starts. The state vocabulary and the attention/active pre
   **`favoriteModels` / `recentModels: WireModel[]`** (defaulting to `[]` so a pre-v77 host reads as "none"),
   **`analyticsEnabled: boolean`**, **`analyticsConsentConfirmed: boolean`**,
   **`notificationsEnabled: boolean`** (the attention-notification master toggle),
-  **`subagentsEnabled: boolean`**, **`subagentMaxConcurrent: number`**, **`disabledExtensions: string[]`**
+  **`subagentsEnabled: boolean`**, **`subagentMaxConcurrent: number`**, **`factoryMaxConcurrent: number`** (the machine-wide factory worker cap; an invalid or absent value reads as the default 8), **`disabledExtensions: string[]`**
   (defaulting to `[]` so a pre-v82 host reads as "all on"), **`extensionSettings: ExtensionSettingValues`**
   (defaulting to `{}` so a pre-v105 host reads as "every declared default"), **`keybindingOverrides:
   KeybindingOverrides`** (the host's `keybindings` map as sent, any non-object `{}`; the resolver in
