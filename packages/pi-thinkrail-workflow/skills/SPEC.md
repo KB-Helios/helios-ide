@@ -205,6 +205,7 @@ flowchart LR
 | `choosing-a-workflow` | router (root) — classification + routing for workflow-eligible work | — (conditional pointer from the always-on rule, rule 4) | active; every classification, including the default entry for small behavior changes and bug reports, observed green by the routing suite (2026-10) |
 | `writing-workflow-skills` | worker — authoring checklist for adding workflows | — (self-trigger only, rule 4) | active |
 | `shipping-a-pr` | worker — PR lifecycle (create with gates / body or screenshot maintenance / up-to-date sync / checks / review comments — phases as sibling docs) | `choosing-a-workflow` (root) + narrow self-trigger | active; snapshot-by-default completion and verification reuse unverified by use (rule 14 suspended) |
+| `running-a-factory` | worker — propose, plan and hand over an AI-factory run (parallel coders in worktrees, host-run gates, independent review, human release), then read results back and respond to a rejection; never starts, approves or lands one | `choosing-a-workflow` (root, its "Fan out" section) + narrow self-trigger | active; unverified by use (rule 14 suspended); see "Per-skill design notes" |
 
 The family is open and grows from real use; candidates (research/spike, refactor, a composing
 skill in the composer pattern with its stage workers, and **extending an existing spec graph** — the
@@ -369,3 +370,18 @@ follows is only the rationale the skill bodies don't state:
   rules 3/7 when the setup trio carried three drifting copies of the bar (and the dispatcher — a
   router — carried norms it shouldn't, per rule 2). The goal-doc shape (a living product record with no
   versions or roadmap) lives here, not in either setup worker, because both draft the graph root.
+- **`running-a-factory`** exists because the factory's authority model must be visible to the agent. A chat
+  controller holds `dag_create`/`dag_edit`/`dag_control`/`dag_decide`/`dag_read` on every workspace DAG, and
+  a DAG it creates is served the factory worker tools when a node's system prompt carries a `<factory-node>`
+  marker (`withFactoryWorkers` wraps every DAG service). So a chat *can* write a factory-shaped DAG; what it
+  cannot do is release or land it: release is a pi-dag human-authority gate, `factory_land` re-checks on the
+  host that the latest approval was decided by a `human` actor, and `dag_decide` is a controller tool. A
+  hand-written DAG also skips everything `buildFactoryDefinition` and the planner validate (disjoint
+  `owns`, the gate budget, a cross-family reviewer, model roles). By design decision the skill therefore
+  keeps the start in the person's hands (the Factory pane, which also builds the planning DAG) and has the
+  agent prepare the brief, read results with `dag_read`, and respond to rejections, never decide a gate.
+  The skill relies on the host's DAG and does not add workflow machinery: the "no runtime machinery" rule
+  above concerns the workflow family, not what a worker skill may tell the agent about host features.
+  The routing side is the router's "Fan out" section: subagents for read-only fan-out, `/swarm` (and A2A
+  members) for chat-driven collaboration, the factory for gated, reviewed, human-released implementation.
+  It is a section, not a classification, so the always-on entry rule is unchanged.

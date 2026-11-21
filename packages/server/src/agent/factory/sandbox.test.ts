@@ -226,7 +226,9 @@ describe("sandbox command construction", () => {
 	});
 
 	test("program lookup honours PATH and PATHEXT; system folders need no toolchain grant", () => {
-		const bin = mkdtempSync(join(root, "bin-"));
+		// Folders are compared by real path (toolchainFolders resolves symlinks): on macOS the temp folder
+		// `/var/...` is a link to `/private/var/...`.
+		const bin = realpathSync(mkdtempSync(join(root, "bin-")));
 		writeFileSync(join(bin, "mytool.EXE"), "");
 		const env = { PATH: bin, PATHEXT: ".EXE" };
 		expect(findProgram("mytool", env, "win32")).toBe(join(bin, "mytool.EXE"));

@@ -23,6 +23,13 @@ export function sourcesOf(bound: BoundNode): string[] {
 	return node.sources;
 }
 
+/** The integration node whose combined-gate verdict this node reports: itself, or the one it names. */
+export function integrationOf(bound: BoundNode): string | undefined {
+	const { node } = bound;
+	if (node.role === "integration") return bound.nodeId;
+	return node.role === "coder" || node.role === "gate" ? undefined : node.integration;
+}
+
 /** The one worktree a file or gate tool acts on: the only source, or the one the node names. */
 export function sourceWorktree(
 	run: FactoryRun,

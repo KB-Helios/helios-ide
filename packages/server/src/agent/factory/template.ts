@@ -23,7 +23,12 @@ export interface BeforeReleaseContext {
 	/** One gate node per coder, same order. */
 	gates: string[];
 	release: string;
-	/** The output port every gate node publishes its report on. */
+	/**
+	 * The integration node (the combined gate run); it waits for every gate and feeds the release node, so
+	 * a node wired after it starts only once the combined change has been gated. Pass it to `factoryInspector`.
+	 */
+	integration: string;
+	/** The output port every gate node, and the integration node, publishes its report on. */
 	gateOutput: string;
 }
 
@@ -59,7 +64,7 @@ export interface FactoryPlan {
 	models?: Partial<Record<TemplateRole, RoleModel>>;
 }
 
-export type TemplateRole = "coder" | "gate" | "release" | "land";
+export type TemplateRole = "coder" | "gate" | "integration" | "release" | "land";
 export interface RoleModel {
 	model: NonNullable<NonNullable<DagNodeSpec["session"]>["model"]>;
 	thinkingLevel?: NonNullable<DagNodeSpec["session"]>["thinkingLevel"];
@@ -82,24 +87,39 @@ function withModel(spec: DagNodeSpec, choice: RoleModel | undefined): DagNodeSpe
  * factory read tools (`factory_read`, `factory_list`, `factory_report`, `factory_diff`) and the
  * `<factory-node>` marker the host maps to the worktrees. Merge `tools` into the node's tool allowlist and
  * append `systemPromptSuffix` to its system prompt; the node still has no way to write or run anything.
+ * With `integration`, the node's `factory_report` also carries that node's combined-gate verdict.
  */
-export function factoryInspector(sources: readonly string[]): {
+export function factoryInspector(
+	sources: readonly string[],
+	integration?: string,
+): {
 	tools: string[];
 	systemPromptSuffix: string;
 } {
 	return {
 		tools: [...ROLE_TOOLS.inspector],
-		systemPromptSuffix: encodeFactoryNode({ role: "inspector", sources: [...sources] }),
+		systemPromptSuffix: encodeFactoryNode({
+			role: "inspector",
+			sources: [...sources],
+			...(integration ? { integration } : {}),
+		}),
 	};
 }
 
 export const RELEASE_NODE = "release";
 export const LAND_NODE = "land";
+export const INTEGRATE_NODE = "integrate";
 export const GATE_OUTPUT = "report";
 const gateId = (coderId: string) => `gate-${coderId}`;
 
 export function factoryNodeIds(coders: readonly string[]) {
-	return { coders: [...coders], gates: coders.map(gateId), release: RELEASE_NODE, land: LAND_NODE };
+	return {
+		coders: [...coders],
+		gates: coders.map(gateId),
+		integration: INTEGRATE_NODE,
+		release: RELEASE_NODE,
+		land: LAND_NODE,
+	};
 }
 
 function literalPrefix(glob: string): string {
@@ -154,7 +174,7 @@ export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
 	if (plan.coders.length === 0) throw new Error("A factory needs at least one coder");
 	if (new Set(ids.coders).size !== ids.coders.length) throw new Error("Coder ids must be unique");
 	for (const id of ids.coders)
-		if (id === RELEASE_NODE || id === LAND_NODE || id.startsWith("gate-"))
+		if (id === RELEASE_NODE || id === LAND_NODE || id === INTEGRATE_NODE || id.startsWith("gate-"))
 			throw new Error(`Coder id ${id} is reserved`);
 	for (const coder of plan.coders)
 		if (plan.coders.length > 1 && !coder.owns?.length)
@@ -171,6 +191,7 @@ export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
 		coders: ids.coders,
 		gates: ids.gates,
 		release: RELEASE_NODE,
+		integration: INTEGRATE_NODE,
 		gateOutput: GATE_OUTPUT,
 	});
 	const nodes: DagNodeSpec[] = [];
@@ -217,18 +238,39 @@ export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
 		});
 	}
 
+	nodes.push(
+		node(
+			INTEGRATE_NODE,
+			{ role: "integration", sources: ids.coders, target: plan.target },
+			`You run the combined quality gates for ${ids.coders.length} change set(s). ${WORKTREE_RULES} The host builds the combined change (the target's tip with every change set merged in) and decides the verdict; you only report it.`,
+			`Call factory_run_gates once, then submit output \`${GATE_OUTPUT}\` (text): the verdict for the combined change and the failing output, if any.`,
+			{
+				inputs: Object.fromEntries(ids.gates.map((gate) => [gate, { kind: "text" as const }])),
+				outputs: { [GATE_OUTPUT]: { kind: "text" } },
+			},
+		),
+	);
+	for (const gate of ids.gates)
+		connections.push({
+			id: `${gate}-to-${INTEGRATE_NODE}`,
+			kind: "data",
+			from: { nodeId: gate, output: GATE_OUTPUT },
+			to: { nodeId: INTEGRATE_NODE, input: gate },
+		});
+
 	nodes.push(...(extra?.nodes ?? []));
 	connections.push(...(extra?.connections ?? []));
 
 	nodes.push(
 		node(
 			RELEASE_NODE,
-			{ role: "release", sources: ids.coders },
+			{ role: "release", sources: ids.coders, integration: INTEGRATE_NODE },
 			`You prepare the release summary for a human reviewer. ${WORKTREE_RULES}`,
-			`Call factory_report, then submit output \`summary\` (text): per change set the changed files, the diff stat and the gate verdict, exactly as the host reports them.`,
+			`Call factory_report, then submit output \`summary\` (text): per change set the changed files, the diff stat and the gate verdict, and the combined change's gate verdict, exactly as the host reports them. When the report lists reviewSawPartialDiffs, say first that the review saw only part of those change sets.`,
 			{
 				inputs: {
 					...Object.fromEntries(ids.gates.map((gate) => [gate, { kind: "text" as const }])),
+					[INTEGRATE_NODE]: { kind: "text" as const },
 					...(extra?.releaseInputs ?? {}),
 				},
 				outputs: { summary: { kind: "text" } },
@@ -249,11 +291,23 @@ export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
 			from: { nodeId: gate, output: GATE_OUTPUT },
 			to: { nodeId: RELEASE_NODE, input: gate },
 		});
+	connections.push({
+		id: `${INTEGRATE_NODE}-to-${RELEASE_NODE}`,
+		kind: "data",
+		from: { nodeId: INTEGRATE_NODE, output: GATE_OUTPUT },
+		to: { nodeId: RELEASE_NODE, input: INTEGRATE_NODE },
+	});
 
 	nodes.push(
 		node(
 			LAND_NODE,
-			{ role: "land", sources: ids.coders, release: RELEASE_NODE, target: plan.target },
+			{
+				role: "land",
+				sources: ids.coders,
+				integration: INTEGRATE_NODE,
+				release: RELEASE_NODE,
+				target: plan.target,
+			},
 			`You land approved factory work. ${WORKTREE_RULES}`,
 			`Call factory_land once, then submit output \`landed\` (text) with what it reports. If it refuses, submit the refusal; never try another way.`,
 			{
@@ -274,11 +328,13 @@ export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
 			? "coder"
 			: ids.gates.includes(id)
 				? "gate"
-				: id === RELEASE_NODE
-					? "release"
-					: id === LAND_NODE
-						? "land"
-						: undefined;
+				: id === INTEGRATE_NODE
+					? "integration"
+					: id === RELEASE_NODE
+						? "release"
+						: id === LAND_NODE
+							? "land"
+							: undefined;
 	return {
 		title: plan.title,
 		defaults: { tools: [] },

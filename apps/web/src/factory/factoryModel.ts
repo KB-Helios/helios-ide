@@ -2,6 +2,7 @@ import type {
 	DagGateView,
 	DagHistoryItem,
 	DagNodeStatus,
+	DagOutputView,
 	DagQueueView,
 	DagReviewSeverity,
 	DagReviewView,
@@ -13,6 +14,7 @@ import type {
 	FactoryRoleName,
 	FactoryRolesView,
 } from "@thinkrail/contracts";
+import { type CoderDraft, coderIssues, MAX_PLAN_CODERS, parseGlobs } from "./coderPlan";
 
 /** Statuses that need a person before the DAG can move on; shown first and never hidden. */
 const ATTENTION: ReadonlySet<DagNodeStatus> = new Set([
@@ -150,12 +152,14 @@ export function historyTarget(item: Pick<DagHistoryItem, "target">): string {
 		: "";
 }
 
-export type RunMode = "plan" | "single";
+export type RunMode = "plan" | "coders";
 
 /** The start form's state: the task, who splits it, and a model pick per role (`""` is the host's default). */
 export interface StartForm {
 	task: string;
 	mode: RunMode;
+	/** The coders of a `coders` run; ignored when a planner splits the task. */
+	coders: CoderDraft[];
 	picks: Partial<Record<FactoryRoleName, string>>;
 	allowSameFamily: boolean;
 }
@@ -200,9 +204,16 @@ export function reviewerSharesFamily(
 export function startBlocker(
 	view: FactoryRolesView,
 	form: StartForm,
-): "task" | "same-family" | null {
+): "task" | "coders" | "same-family" | null {
 	const task = form.task.trim();
 	if (task.length === 0 || task.length > START_TASK_MAX) return "task";
+	if (
+		form.mode === "coders" &&
+		(form.coders.length === 0 ||
+			form.coders.length > MAX_PLAN_CODERS ||
+			coderIssues(form.coders, task).length > 0)
+	)
+		return "coders";
 	if (reviewerSharesFamily(view, form) && !form.allowSameFamily) return "same-family";
 	return null;
 }
@@ -215,7 +226,8 @@ export function startRequest(
 	view: FactoryRolesView,
 	form: StartForm,
 ): Omit<DagStartRequest, "workspaceId" | "commandId"> | null {
-	if (startBlocker(view, form) === "task") return null;
+	const blocker = startBlocker(view, form);
+	if (blocker === "task" || blocker === "coders") return null;
 	const roles: Partial<Record<FactoryRoleName, FactoryModelChoice>> = {};
 	for (const role of ROLE_ORDER) {
 		const key = form.picks[role];
@@ -223,9 +235,22 @@ export function startRequest(
 		if (model) roles[role] = { provider: model.provider, id: model.id };
 	}
 	const task = form.task.trim();
+	const coders =
+		form.mode === "coders"
+			? form.coders.map((coder) => {
+					const owns = parseGlobs(coder.owns);
+					const avoid = parseGlobs(coder.avoid);
+					return {
+						id: coder.id.trim(),
+						task: coder.task.trim() || task,
+						...(owns.length ? { owns } : {}),
+						...(avoid.length ? { avoid } : {}),
+					};
+				})
+			: undefined;
 	return {
 		task,
-		...(form.mode === "single" ? { coders: [{ id: "coder", task }] } : {}),
+		...(coders ? { coders } : {}),
 		...(Object.keys(roles).length ? { roles } : {}),
 		...(form.allowSameFamily && reviewerSharesFamily(view, form)
 			? { allowSameFamilyReviewer: true }
@@ -236,6 +261,17 @@ export function startRequest(
 /** A planning DAG whose planner finished (its approval is checked again on the host). */
 export function planReady(dag: Pick<DagView, "nodes">): boolean {
 	return dag.nodes.some((node) => node.planner === true && node.status === "completed");
+}
+
+/** The factory steps whose rejection `dag.replan` can send back to the planner. */
+const REPLAN_NODES: ReadonlySet<string> = new Set(["release", "review"]);
+
+/**
+ * A factory DAG whose release (or review) a person rejected and nobody has decided since. The host checks
+ * again, and refuses a run whose settings it cannot recover, so this only decides whether to offer it.
+ */
+export function replanReady(dag: Pick<DagView, "nodes">): boolean {
+	return dag.nodes.some((node) => node.rejected === true && REPLAN_NODES.has(node.id));
 }
 
 /**
@@ -256,4 +292,25 @@ export function reviewForGate(
 		if (upstream) return upstream;
 	}
 	return undefined;
+}
+
+const INLINE_IMAGE_TYPES: ReadonlySet<string> = new Set([
+	"image/png",
+	"image/jpeg",
+	"image/gif",
+	"image/webp",
+]);
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * The `src` for an artifact output's inline image, or `null` when there is none to show. Only the four
+ * raster types the host inlines are accepted and the payload must be plain base64, so nothing else
+ * (SVG, a script-bearing type, a malformed value) is ever turned into a data URL.
+ */
+export function artifactImageSrc(view: DagOutputView): string | null {
+	const artifact = view.artifact;
+	if (view.kind !== "artifact" || !artifact?.imageBase64) return null;
+	if (!INLINE_IMAGE_TYPES.has(artifact.mediaType) || !BASE64.test(artifact.imageBase64))
+		return null;
+	return `data:${artifact.mediaType};base64,${artifact.imageBase64}`;
 }

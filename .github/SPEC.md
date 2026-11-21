@@ -128,7 +128,11 @@ server that never answers is restarted a bounded number of times, then fails the
 single Playwright retry, only the virtual display is retried: once it is proven, the smoke and browser tests
 get no further environment retries.
 
-A platform's native behavior is proven only on that platform. Windows remains a PR gate because its
+A platform's native behavior is proven only on that platform. A `gate-sandbox` job runs the factory gate
+sandboxes (bubblewrap on `ubuntu-latest`, `sandbox-exec` on `macos-latest`) for real, with
+`THINKRAIL_REQUIRE_GATE_SANDBOX=1` so an unavailable sandbox fails the job rather than skipping its tests; the Ubuntu
+lane installs `bubblewrap` and lifts AppArmor's `apparmor_restrict_unprivileged_userns` on the throwaway runner,
+which otherwise blocks the user namespace bubblewrap needs (the agent spec's "Gate sandbox"). Windows remains a PR gate because its
 executable, environment, path, and trash behavior differs materially from POSIX hosts. Its subprocess unit
 gate also exercises native descendant-console behavior, which the Linux unit run cannot prove. Its
 desktop window-chrome unit gate binds the `user32.dll` frame symbols the frameless title bar relies on,

@@ -45,6 +45,10 @@ export interface Member {
 	doneClaim?: string;
 	fixRounds: number;
 	error?: string;
+	/** Loaded from a stored board after a host restart: no live session until it is resumed. */
+	restored?: boolean;
+	/** Restored, but its worktree directory no longer exists. */
+	worktreeMissing?: boolean;
 	createdAt: string;
 }
 

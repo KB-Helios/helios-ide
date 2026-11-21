@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	DAG_HISTORY_MAX_PAGE,
+	DAG_OUTPUT_IMAGE_MAX_BYTES,
 	DAG_OUTPUT_MAX_BYTES,
 	DEFAULT_CONFIG,
 	FACTORY_MAX_CONCURRENT,
@@ -37,10 +38,12 @@ import {
 	CUSTOM_MODEL_CONTEXT_WINDOW_LIMITS,
 	completionDelivery,
 	customMessageText,
+	DAG_ARTIFACT_PROTOCOL_VERSION,
 	DAG_DETAILS_PROTOCOL_VERSION,
 	DAG_PROTOCOL_VERSION,
 	DAG_PUSH_PROTOCOL_VERSION,
 	DAG_QUEUE_PROTOCOL_VERSION,
+	DAG_REPLAN_PROTOCOL_VERSION,
 	DAG_REVIEW_PROTOCOL_VERSION,
 	DAG_START_PROTOCOL_VERSION,
 	DEFAULT_MODEL_PROTOCOL_VERSION,
@@ -833,6 +836,12 @@ test("starting a factory run is pinned to v135", () => {
 	expect(WS_METHODS.dagStartFromPlan).toBe("dag.startFromPlan");
 });
 
+test("replanning a rejected factory run is pinned to v138", () => {
+	expect(DAG_REPLAN_PROTOCOL_VERSION).toBe(138);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_REPLAN_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagReplan).toBe("dag.replan");
+});
+
 test("the machine-wide factory cap is pinned to v136 with bounded whole-number values", () => {
 	expect(FACTORY_CAP_PROTOCOL_VERSION).toBe(136);
 	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(FACTORY_CAP_PROTOCOL_VERSION);
@@ -841,4 +850,10 @@ test("the machine-wide factory cap is pinned to v136 with bounded whole-number v
 	for (const good of [1, 8, 64]) expect(isFactoryMaxConcurrent(good)).toBe(true);
 	for (const bad of [0, 65, 1.5, "8", null, undefined, Number.NaN])
 		expect(isFactoryMaxConcurrent(bad)).toBe(false);
+});
+
+test("artifact output previews are pinned to v137 with a 2 MiB image cap", () => {
+	expect(DAG_ARTIFACT_PROTOCOL_VERSION).toBe(137);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_ARTIFACT_PROTOCOL_VERSION);
+	expect(DAG_OUTPUT_IMAGE_MAX_BYTES).toBe(2 * 1024 * 1024);
 });

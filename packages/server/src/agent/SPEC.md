@@ -1406,7 +1406,7 @@ context-budget limitations and their upgrade checks live in [[pi-compatibility]]
 
 Pi owns provider retry; the host never adds one. Pi retries only errors that match its retryable
 patterns: "Anthropic stream ended before message_stop" does, "Could not parse Anthropic SSE event" does
-not. `patches/@earendil-works%2Fpi-ai@1.5.2.patch` (root `patchedDependencies`, upstream
+not. `patches/@earendil-works%2Fpi-ai@1.6.0.patch` (root `patchedDependencies`, upstream
 earendil-works/pi#10390, #564) fixes two defects in pi-ai's `anthropic-messages` SSE parser that end a
 turn with that parse error. The two fixes have different outcomes:
 
@@ -1489,7 +1489,20 @@ owner, over the same workspace `DelegationService`, with worktrees under
 `canDeliverCompletion`. Members are ordinary delegation children (they count against the per-chat
 subagent limit and appear in the roster); `swarmMemberExtension` is in the curated child set so only
 members get board tools. `onChange` publishes the full snapshot on `swarm.changed`; `swarm.get` and
-`swarm.diff` read it. The owner is disposed with the session's resources. Board state is in memory.
+`swarm.diff` read it. The owner is disposed with the session's resources.
+
+The board is durable (pi-swarm "Durability"). `swarmFor` injects a file store at
+`<dataDir>/swarms/<workspaceId>/<sessionId>.json` (written atomically; an id that is not a plain workspace or
+pi session id gets no store). A stored board is restored **paused** when its chat's session starts again
+(`session_start`, so `swarm.get` and the pane show it once the chat is open): no member turn and no
+coordinator turn is started by the restore, members whose worktree vanished are marked, and the person resumes
+members through the coordinator chat (`swarm_resume`, which starts fresh children in the existing worktrees). The
+pane stays read-only. Store failures are logged (`swarm` scope), never fatal. `removeWorkspaceSwarm` (archive,
+after `removeWorkspaceDag`, before `removeWorkspaceDelegation`) deletes the workspace's boards and
+`trashWorkspaceSwarm` (deleting a chat without a project, after `trashWorkspaceDag`, before
+`trashWorkspaceDelegation`) trashes them. Both run inside `closeWorkspaceSessions`' teardown, after every owner
+was disposed (its last write), so no owner writes a board back. Worktrees and branches under
+`swarm-worktrees` are not touched by either.
 
 ## DAG owner
 
@@ -1550,7 +1563,7 @@ execution context as `dag.execute`, and always create the DAG **paused**.
   running graph. `startFactoryFromPlan` checks on the host that the DAG carries a `<factory-plan>` marker, the
   `planner` node is `completed`, and its latest approval was decided by a **human** actor
   (`isReleaseApprovedByHuman`); it then reads the `plan` output (256 KiB) and validates it with `parseCoderPlans` as
-  if a person had typed it: 1..8 coders, ids `[a-z][a-z0-9-]{0,31}` and not `release`/`land`/`review`/`planner`/
+  if a person had typed it: 1..8 coders, ids `[a-z][a-z0-9-]{0,31}` and not `release`/`land`/`integrate`/`review`/`planner`/
   `gate-*`, unique, task at most 8000 characters, owns/avoid at most 64 globs that stay inside the repository (no
   absolute path, no `..`), owns required and disjoint (`mayOverlap`) when several coders run, no unknown field.
   Only then does `buildFactoryDefinition` create the factory DAG (idempotent: command id `factory-from-<plan>`).
@@ -1558,9 +1571,26 @@ execution context as `dag.execute`, and always create the DAG **paused**.
   a person approved the plan and, separately, the release. Rejecting the plan keeps the planner blocked; the
   person retries that step (pane control) and approves again. The planning DAG has no `<factory-node>` marker, so
   the factory worker extension never serves it.
+- **Replan.** `dag.replan` (`replanFactory` in `dagStart.ts`, wired as `replanWorkspaceFactory`) sends a rejected
+  factory release back to the planner. Both starts write the run's `PlanRun` (title, the person's `task`, target,
+  gate budget, notes, role models) into the **reviewer node's** system prompt as a `<factory-plan>` block, so a
+  factory DAG carries what its planner carried; the planner's block also names `replanOf`. The host checks: the
+  `release` node carries the factory marker, the latest approval of `release` (else `review`) is a **rejection a
+  human decided**, and that `PlanRun` can be read back; otherwise `DAG_REJECTED` ("not a factory DAG", "No release
+  or review was rejected by a person", "The original plan run cannot be recovered"). The roles are re-resolved with
+  the stored models as explicit picks (one that is gone is refused plainly), then a new **paused** planning DAG,
+  titled `Replan: <title>`, is created with `buildReplanTask` (`factory/replan.ts`): the original task, the
+  person's reason, the reviewer's findings (most serious first, at most 20 listed, the rest counted) and the
+  per-coder gate reports, each part cut with a note and the whole at `MAX_TASK_CHARS`. It never starts the
+  planner: that and the plan approval are the person's own clicks, and the human release of the factory built
+  from it is separate again. The command id derives from the DAG and the rejecting gate, so a double click replays
+  the same planning DAG while a later rejection (after a retry) makes a new one. `toDagView` sets
+  `DagNodeView.rejected` from the latest approval gate. A replan keeps only the latest rejection's feedback: the
+  next plan run's `task` stays the person's original one.
 - Tests: `dagWire.test.ts` (roles read, chosen coders and models, same-family refusal and note, validation and
-  replay, planner approved by a person vs refused for a chat controller, invalid plans rejected after approval),
-  `factory/plan.test.ts`.
+  replay, planner approved by a person vs refused for a chat controller, invalid plans rejected after approval,
+  replan of a rejected release or review with bounds, roles and lineage, and its refusals),
+  `factory/plan.test.ts`, `factory/replan.test.ts`.
 
 ### History and output reads
 
@@ -1568,9 +1598,20 @@ execution context as `dag.execute`, and always create the DAG **paused**.
 and projects each row to a manifest: kind, version, time, the caller **kind** (never an id) and target. The event
 content and its captured files stay in storage. `dag.output` (`readWorkspaceOutput`) reads one declared output of
 the node's current proposal through `getOutput`: the name must be in the node's declared outputs, the file is read
-head-only up to `DAG_OUTPUT_MAX_BYTES` (a larger one is cut and flagged `truncated`), an `artifact` output reports
-only its size, and no path is ever returned. `toDagView` adds `outputs` for nodes that already submitted. Tests:
-`dagWire.test.ts`.
+head-only up to `DAG_OUTPUT_MAX_BYTES` (a larger one is cut and flagged `truncated`), and no path is ever returned.
+`toDagView` adds `outputs` for nodes that already submitted. An `artifact` output is a **preview** built by
+`dagArtifact.ts` (`previewArtifact`) from pi-dag's captured payload, the file `getOutput` issues, never a path a model
+supplied: the whole payload (at most pi-dag's 16 MiB value quota) is streamed once and its size and SHA-256 are
+checked against the stored identity, so a missing, resized or altered payload fails `RESOURCE_UNAVAILABLE` and shows
+nothing. `artifact.name` is only the base name of the path the worker submitted (pi-dag keeps it as the value
+preview; control characters stripped, at most 255 characters), a label that is never opened. The media type is decided
+here: a png, jpeg, gif or webp **signature** wins, then the extension for text-like types (unknown extensions with
+no NUL byte in the first 8 KiB are `text/plain`), else `application/octet-stream`. Content: text-like files return up
+to `DAG_OUTPUT_MAX_BYTES` as `text` (`truncated` when cut); an image of at most `DAG_OUTPUT_IMAGE_MAX_BYTES`
+(2 MiB) returns `artifact.imageBase64`; a larger image, a binary file and SVG (never inlined as an image, shown as
+text) return metadata or text only. There is no separate download read: a whole-file transfer does not fit the
+bounded-JSON wire (it would need the binary-route pattern the image store uses) and is left out. Tests:
+`dagWire.test.ts` (text, image, image over the cap, text over the bound, binary, hash mismatch, no path in the wire).
 
 ### Live progress push
 
@@ -1603,8 +1644,10 @@ beyond small host files next to the worktrees.
   block (`spec.ts`, schema-validated), which a controller or person wrote into the definition and a worker cannot
   edit. Every tool resolves the calling session to its node and role (`ROLE_TOOLS`) and refuses otherwise.
 - **Roles.** `coder` (owns/avoid; read, list, write, edit, run gates, report), `gate` (one source; runs gates),
-  `release` (the join: read-only, report, diff), `inspector` (read-only over named sources; the step-4 reviewer
-  uses `factoryInspector(sources)`), `land` (only `factory_land`). Nodes list only `factory_*` tools plus pi-dag's
+  `integration` (all sources plus the target; runs the combined gates, report, diff), `release` (the join:
+  read-only, report, diff), `inspector` (read-only over named sources; the step-4 reviewer uses
+  `factoryInspector(sources, integration?)`), `land` (only `factory_land`). `release`, `inspector` and `land`
+  may name an `integration` node; an older definition without the field behaves exactly as before. Nodes list only `factory_*` tools plus pi-dag's
   protocol tools, so no node has pi's `write`/`edit`/`bash`.
 - **Worktree and cwd.** pi-dag gives a node no cwd of its own (every child runs in the DAG's checkout, and a
   reopened child ignores any workspace provider), so confinement does not rest on cwd. The host creates a coder's
@@ -1645,7 +1688,14 @@ beyond small host files next to the worktrees.
   `thinkrail-gate-sandbox.exe` (an AppContainer, see apps/desktop), found next to the host executable or at
   `THINKRAIL_GATE_SANDBOX_HELPER`; Linux runs `bwrap` (read-only system and checkout, the home folder hidden by a
   tmpfs, `--unshare-all`, cleared environment) and macOS `sandbox-exec` (a profile denying network and writes
-  outside the scratch directory); those two are tested here only through their generated arguments. The sandbox is
+  outside the scratch directory); `sandbox.test.ts` checks their generated arguments on every platform, and
+  `sandbox.native.test.ts` runs commands inside the real sandbox on Linux and macOS (exit code and output come back,
+  the checkout and dependency folders refuse writes, creation and deletion, the scratch directory is writable and is
+  `TEMP`/`HOME`, loopback, internet and name resolution are unreachable, a file in the user's home is unreadable, no
+  host secret is visible). That suite skips, with the reason in its name, where the sandbox is unavailable, and fails
+  instead when `THINKRAIL_REQUIRE_GATE_SANDBOX=1`; CI's `gate-sandbox` job (`ubuntu-latest` with `bubblewrap` installed
+  and AppArmor's unprivileged-user-namespace restriction lifted, and `macos-latest`) sets it, so a runner that loses
+  its sandbox cannot leave the boundary unverified. The sandbox is
   asked `availability()` before any checkout is made, and a helper that cannot be set up during the run throws
   `SandboxUnavailableError`; both end in a gate record with `ok: false`, a `reason`, no results and no command
   executed, so nothing lands. There is no unconfined mode. An AppContainer cannot start Bun in an ordinary profile
@@ -1658,7 +1708,7 @@ beyond small host files next to the worktrees.
   gate cannot write, create or delete in the snapshot or its dependencies, X→Y→X fails, no loopback or internet, no
   read outside the grants, no host secret, the profile and access entries are cleaned up).
 - **Landing enforcement.** pi-dag's `approval` gates the release of the node's output, not its start, so the flow
-  is `gate-* -> release (approval: human) -> land`, with the land node consuming the release output.
+  is `gate-* -> integrate -> release (approval: human) -> land`, with the land node consuming the release output.
   pi-dag therefore never starts `land` before a person approved `release` (only a `human` caller can; a chat
   controller or `owner` binding cannot). Because a model-driven node could still be wired wrongly, `factory_land`
   re-checks on the host that `release` is `completed` and its latest approval gate was `approved` by a `human`
@@ -1687,12 +1737,55 @@ beyond small host files next to the worktrees.
   already-landed sources stay marked so a rerun skips them. The checkout is the person's own and is never merged in. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
   uncommitted changes in the checkout stay untouched unless they overlap.
 - **Template and the step-4 hook.** `buildFactoryDefinition({ title, target, coders, maxConcurrent?, gateRetries?, beforeRelease? })`
-  builds `coder-*` -> `gate-<coder>` -> `release` (human approval) -> `land`. `beforeRelease(ctx)` is the single
+  builds `coder-*` -> `gate-<coder>` -> `integrate` -> `release` (human approval) -> `land`. `integrate` is
+  always added (its id is reserved, like `release`, `land` and `gate-*`; the planner may not use it), takes every
+  gate report as input, publishes `report` and feeds a new `integrate` input of `release`; the `land` node names it
+  (`integration: "integrate"`) and the `release` node reports its verdict. `beforeRelease(ctx)` is the single
   insertion point for review: it returns extra `nodes`, `connections` and the extra input ports
-  (`releaseInputs`) the `release` node needs, and receives `{ coders, gates, release, gateOutput }`. A node that
+  (`releaseInputs`) the `release` node needs, and receives `{ coders, gates, release, integration, gateOutput }`. A node that
   only has a control connection into `release` also holds it. Give a reviewer read access to the worktrees with
-  `factoryInspector(ctx.coders)` (tools plus system-prompt suffix); it then reads the host's diff via
+  `factoryInspector(ctx.coders, ctx.integration)` (tools plus system-prompt suffix); it then reads the host's diff via
   `factory_diff` instead of copying one through a model.
+- **Diff coverage is never silent.** `factory_diff` gives every source its own share of the 256 KiB tool result
+  (`MAX_TEXT / sources`, at least 32 KiB), so one large change set cannot hide another, and a cut diff ends with a
+  `[truncated: showing N of M characters …]` note that names how to see the rest (`factory_diff` for that source alone,
+  `factory_read` for the remaining files). The result also carries a per-source `coverage` list. The host records
+  every source a diff was cut for (`.diff-coverage.json` beside the DAG's records, a name no node id can take); `factory_report` returns them as
+  `reviewSawPartialDiffs` for nodes with those sources, the reviewer is told to read the rest and add an info
+  finding for anything it could not review, and the release summary leads with the partial coverage. Measured on
+  this repository (2026-11): about 1 in 20 commits alone exceeds 256 KiB of diff, so a several-coder run can.
+- **Combined (integration) gate.** Gates per coder branch cannot see two branches that each pass but break the
+  target together. `factory_run_gates`, called by the `integrate` node (role `integration`: `sources`, `target`),
+  builds the combined change on the host (`integrationTools.ts`, `combineCommits` in `landTools.ts`): a throwaway
+  detached checkout of the target's tip, with each non-empty source's **landable** commit merged in source order.
+  Landable is what landing would merge, from one shared helper (`landableCommit`): the fresh passing gated
+  snapshot while the worktree holds an uncommitted change, else the commit a landing already recorded
+  (`meta.committed`); a source that already landed is part of the target and an empty one is skipped. The gates
+  then run on the combined commit through the same sandboxed snapshot checkout as a coder's (`executeGates`), so
+  the same fail-closed rules apply. The record (`<node>.integration.json`: `ok`, `reason?`, `commands`, `results`,
+  `targetTip`, `sources` as node id to sha, `combined`, `tree`, `ranAt`) is `ok: false` with a plain reason, and
+  nothing runs, for: a source without a fresh passing gate record or with an ownership violation, a merge
+  conflict, an untrusted project, no declared gates, a combined change that alters a build/gate definition,
+  drifted checkout definitions, a missing target, or an unavailable sandbox. A cancelled run is never recorded. With
+  no source change at all the record is `ok` with nothing to run (the target is unchanged).
+  `landFactory` enforces it only when the land node names an `integration` (older definitions are unaffected): the
+  record must be `ok`, its `sources` must equal exactly the shas this landing would merge (same set, same
+  commits), and the target's tip must equal `targetTip`. Every landing records the target's tip it produced
+  (`landedTip`) and, before its ref update, the move it is about to make (`landing: {from, to}`). When some
+  sources already landed in this release (a resumed landing) the target must be exactly at the last recorded
+  `landedTip` (which must descend from `targetTip`), so a commit from anywhere else is refused, and every remaining
+  source must match. A landing whose host stopped after the ref update but before its record finds the target at
+  `landing.to`: it finishes that source without a second merge (bringing the checkout along as a normal landing
+  does, under the same index and HEAD locks (the HEAD lock is held until the synced index is installed), so a branch switch cannot slip in; staged changes to other files are
+  kept, and a landed file the person changed refuses) and continues; at `landing.from` the intent is dropped and the source lands normally; anywhere
+  else it is refused. Each merge is made on the tip the previous one produced (the first on `targetTip`): the ref
+  compare-and-swap protects the tested base, and a tip that is not the expected one refuses before any merge.
+  A source's snapshot re-checked at landing must be the one the combined record holds. A refusal says to retry the
+  integrate node. The reviewer takes the integration report as its only input instead of each gate report, since
+  `integrate` already waits for every gate; its inspector marker names the node, so its `factory_report` carries
+  both verdicts. The integrate node's own output is the host's verdict: the guard on `dag_submit_result` makes
+  sure a fresh record exists (same sources on the same target tip; the combined gates run if the node did not or if either moved) and replaces the submitted outputs
+  with it, so text the model wrote can never reach the release.
 - **Gate retries (bounded, host-enforced).** `gateGuard.ts` registers a `tool_call` guard on the factory worker
   extension. When a coder tries `dag_submit_result`, the host runs the project's declared gates in the coder's
   worktree (`runFactoryGates`, or reuses a record whose diff hash is still fresh). A passing record lets the
@@ -1744,10 +1837,10 @@ and returns node specs for a template to insert.
   256 KiB read, no paths.
 
 Plugging into the step-3 template (`factoryHook.ts`): resolve roles once, pass
-`models: factoryModels(roles)` (coders on the coder model; gate, release and land on the scout) and
+`models: factoryModels(roles)` (coders on the coder model; gate, integration, release and land on the scout) and
 `beforeRelease: factoryReviewHook({ roles })`. The hook's `review` node reads the coders' worktrees through
 `factoryInspector` (`factory_diff`/`factory_report`/`factory_read`/`factory_list`, nothing that writes or runs),
-takes every gate report as input so it starts after all gates, carries a human approval, and feeds its
+takes the integration report as input so it starts after all gates and the combined gate run, carries a human approval, and feeds its
 `findings` into the release node's `review` input — release cannot start until a person approved the review,
 and landing still needs the release approval. `buildReviewerPiece` remains for graphs that have a diff output
 port to feed it. Integration test: `factoryHook.test.ts`.

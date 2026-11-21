@@ -2,8 +2,10 @@ import type { DagConnection, DagNodeSpec } from "pi-dag";
 import {
 	type BeforeRelease,
 	type BeforeReleaseContext,
+	encodePlanRun,
 	type FactoryPlan,
 	factoryInspector,
+	type PlanRun,
 } from "../factory";
 import { FINDINGS_PORT, REVIEW_NODE_ID, REVIEWER_SYSTEM_PROMPT } from "./reviewer";
 import type { ResolvedRoles, RoleSelection } from "./roles";
@@ -18,13 +20,20 @@ export interface FactoryReviewOptions {
 	roles: Pick<FactoryRoles, "reviewer">;
 	nodeId?: string;
 	focus?: string;
+	/**
+	 * What the person chose when the run started. Written into the reviewer's system prompt (the one node
+	 * every factory DAG has besides the template's own) so `dag.replan` can start a new planning DAG with the
+	 * same roles, target and budget from this DAG alone.
+	 */
+	run?: PlanRun;
 }
 
 /**
  * The reviewer wired into the factory template's `beforeRelease` hook. It inspects every coder's
  * worktree through the host's read-only factory tools (`factory_diff`, `factory_report`, `factory_read`,
  * `factory_list`), so no diff is copied through a model and it can neither write nor run anything.
- * Each gate report feeds it, so it starts only after all gates; its `findings` feed the release node,
+ * The integration report feeds it (that node waits for every gate), so it starts only after all gates and
+ * the combined gate run, and its report carries both verdicts; its `findings` feed the release node,
  * and its human approval must be given before those findings are released — release therefore waits
  * for a person to answer the review, and then for the release approval itself.
  */
@@ -33,12 +42,13 @@ export function factoryReviewHook(
 ): (context: BeforeReleaseContext) => BeforeRelease {
 	return (context) => {
 		const nodeId = options.nodeId ?? REVIEW_NODE_ID;
-		const inspector = factoryInspector(context.coders);
+		const inspector = factoryInspector(context.coders, context.integration);
 		const node: DagNodeSpec = {
 			id: nodeId,
 			task: [
 				`Review the combined change of ${context.coders.length} parallel coder(s): ${context.coders.join(", ")}.`,
-				"Use factory_report for the gate verdicts and factory_diff for each change set; open files with factory_read only for context.",
+				"Use factory_report for the gate verdicts and the combined change's gate verdict, and factory_diff for each change set; open files with factory_read only for context.",
+				"factory_diff never cuts silently: a cut diff ends with a [truncated: ...] note. When you see one, read the rest of that change set's files with factory_read, and add an info finding naming any part you could not review.",
 				options.focus ? `Focus: ${options.focus}` : "",
 				`Submit exactly one output, \`${FINDINGS_PORT}\`, as {kind:'json'} with this shape:`,
 				'{"findings":[{"severity":"critical|high|medium|low|info","file":"path/relative/to/repo","summary":"one concrete sentence"}]}',
@@ -50,9 +60,11 @@ export function factoryReviewHook(
 				model: options.roles.reviewer.model,
 				thinkingLevel: options.roles.reviewer.thinkingLevel,
 				tools: inspector.tools,
-				systemPrompt: `${REVIEWER_SYSTEM_PROMPT}\n\n${inspector.systemPromptSuffix}`,
+				systemPrompt: `${REVIEWER_SYSTEM_PROMPT}\n\n${inspector.systemPromptSuffix}${
+					options.run ? `\n\n${encodePlanRun(options.run)}` : ""
+				}`,
 			},
-			inputs: Object.fromEntries(context.gates.map((gate) => [gate, { kind: "text" as const }])),
+			inputs: { [context.integration]: { kind: "text" as const } },
 			outputs: { [FINDINGS_PORT]: { kind: "json" } },
 			approval: {
 				authority: "human",
@@ -61,14 +73,12 @@ export function factoryReviewHook(
 			},
 		};
 		const connections: DagConnection[] = [
-			...context.gates.map(
-				(gate): DagConnection => ({
-					id: `${gate}-to-${nodeId}`,
-					kind: "data",
-					from: { nodeId: gate, output: context.gateOutput },
-					to: { nodeId, input: gate },
-				}),
-			),
+			{
+				id: `${context.integration}-to-${nodeId}`,
+				kind: "data",
+				from: { nodeId: context.integration, output: context.gateOutput },
+				to: { nodeId, input: context.integration },
+			},
 			{
 				id: `${nodeId}-to-${context.release}`,
 				kind: "data",
@@ -85,7 +95,7 @@ export function factoryReviewHook(
 }
 
 /**
- * Template models from resolved roles: coders on the coder model; the mechanical gate, release and land
+ * Template models from resolved roles: coders on the coder model; the mechanical gate, integration, release and land
  * nodes on the scout (the cheapest model of the coder's family). The reviewer is set by `factoryReviewHook`.
  */
 export function factoryModels(
@@ -98,6 +108,7 @@ export function factoryModels(
 	return {
 		coder: pick(roles.coder),
 		gate: pick(roles.scout),
+		integration: pick(roles.scout),
 		release: pick(roles.scout),
 		land: pick(roles.scout),
 	};

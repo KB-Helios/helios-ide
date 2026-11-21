@@ -47,6 +47,14 @@ export {
 export { swarmMemberExtension } from "./src/memberExtension.ts";
 export { reviewVerdict } from "./src/prompts.ts";
 export {
+	createFileSwarmStore,
+	parseSwarmState,
+	SWARM_STATE_VERSION,
+	type SwarmLoad,
+	type SwarmState,
+	type SwarmStore,
+} from "./src/store.ts";
+export {
 	type AddMemberInput,
 	type Isolation,
 	Swarm,

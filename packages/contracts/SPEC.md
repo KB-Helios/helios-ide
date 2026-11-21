@@ -1566,8 +1566,15 @@ returns a `DagHistoryPage` (`items` oldest first, at most `DAG_HISTORY_MAX_PAGE`
 with no event body, captured-file reference or path. `dag.output` `{ workspaceId, dagId, nodeId, name }` returns a
 `DagOutputView` for a name the node declares (an undeclared one fails `RESOURCE_UNAVAILABLE`) or `null` before it
 submitted: `text` at most `DAG_OUTPUT_MAX_BYTES` (64 KiB) with `truncated`, and `sizeBytes`; an `artifact` output is
-reported without content. `DagNodeView.outputs` lists the readable names of nodes that submitted. Both reads are
+reported without content up to v136. `DagNodeView.outputs` lists the readable names of nodes that submitted. Both reads are
 human-only like the rest of `dag.*`. Older hosts have neither method and the pane omits history and output.
+
+From **`DAG_ARTIFACT_PROTOCOL_VERSION`** (v137, additive): `DagOutputView.artifact` (`DagArtifactView`) on an `artifact`
+output: `name` (a base name, never a host path), `mediaType` and, for a png, jpeg, gif or webp of at most
+`DAG_OUTPUT_IMAGE_MAX_BYTES` (2 MiB), `imageBase64`. Text-like content rides in the existing `text` (at most
+`DAG_OUTPUT_MAX_BYTES`, `truncated`); other files carry the metadata and `sizeBytes` only. The host verifies the
+payload's SHA-256 before showing any content and fails `RESOURCE_UNAVAILABLE` on a mismatch. A host older than v137
+omits `artifact` and the pane falls back to the size-only line. No new method.
 
 From **`DAG_START_PROTOCOL_VERSION`** (v135, additive): starting a factory run. `dag.roles` `{ workspaceId }` returns
 `FactoryRolesView` (the models the host can serve with their vendor `family` and `reasoning`, at most 500, the host's
@@ -1581,6 +1588,17 @@ family exists). `dag.start` `DagStartRequest` (`workspaceId`, an idempotency `co
 under a **human** approval (checked on the host, not on the wire) and returns the same `DagStartResult`; repeating
 it returns the same DAG. `DagNodeView.planner` marks the planning DAG's node. Validation failures are
 `DAG_REJECTED` with the host's plain reason; no field names a caller. Older hosts have none of these methods.
+
+From **`DAG_REPLAN_PROTOCOL_VERSION`** (v138, additive): sending a rejected factory run back to the planner.
+`dag.replan` `DagReplanRequest { workspaceId, dagId }` (`dagId` is the rejected **factory** DAG) returns the same
+`DagStartResult` as `dag.start`, always `kind: "plan"`: a new, **paused** planning DAG whose planner task holds the
+original task, the reason the person gave when rejecting, the reviewer's findings and the per-coder gate verdicts
+(bounded, cut with a note), on the roles, target branch and gate budget the rejected run was started with. It never
+starts model work, and no field names a caller. The host refuses (`DAG_REJECTED`, plain reason) a DAG that is not a
+factory DAG, has no rejection by a person on its `release` or `review` gate, or whose original run cannot be
+recovered (a factory DAG created before v138 carries none). `DagNodeView.rejected` marks a node whose latest
+approval gate a person rejected and nothing has been decided since; the pane offers the action from it. Replaying
+the same rejection returns the same planning DAG. Older hosts have neither the method nor the field.
 
 From **`FACTORY_CAP_PROTOCOL_VERSION`** (v136, additive): `AppConfig.factoryMaxConcurrent` (**`FACTORY_MAX_CONCURRENT`**
 = 1-64, default 8, validated by `isFactoryMaxConcurrent`; a bad stored value falls back to the default and a bad

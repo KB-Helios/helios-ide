@@ -23,7 +23,8 @@ description: "Use before implementing a feature, a change in behavior, or a bug 
 ## The workflow
 
 1. **Orient.** Use the spec-graph skill to find the specs that govern the area; read code second to
-   confirm implementation details. Do not read unrelated specs. Note any non-obvious decision the
+   confirm implementation details (prefer the `code_symbol_search` / `code_find_references` /
+   `code_goto_definition` / `code_file_outline` tools over broad text search when they are available). Do not read unrelated specs. Note any non-obvious decision the
    change touches whose *why* is not recorded — it becomes a question in step 6.
 2. **Scope check.** If the request bundles independent product decisions or subsystems, separate
    them rather than blending unrelated decisions into one task-spec.
@@ -47,7 +48,11 @@ description: "Use before implementing a feature, a change in behavior, or a bug 
    expansion, and ambiguous requirements; then present one cohesive design scaled to the change.
    Ask for approval only when the request has not already approved it; revise the task-spec if the
    user adjusts it.
-8. **Build.** Implement against the accepted design. Before handoff, self-review the task diff: no
+8. **Build.** Implement against the accepted design; if it is large and splits into independent parts,
+   choose how to fan out from the "Fan out" table in **choosing-a-workflow**. A factory plan ends
+   when the person starts the run, and the chat cannot wait for it: hand off, then stop. When the
+   person comes back and the run has finished, read it with `dag_read`, review what it produced, and
+   only then continue to the next steps. Before handoff, self-review the task diff: no
    silent lint/type suppressions, duplicated nontrivial derivations, rationale left as code
    comments, or remnants of a replaced pattern.
 9. **Amend specs.** Follow `amending-specs.md`.

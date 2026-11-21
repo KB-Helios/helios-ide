@@ -1,6 +1,7 @@
 import { open, readFile } from "node:fs/promises";
 import {
 	DAG_HISTORY_MAX_PAGE,
+	DAG_OUTPUT_IMAGE_MAX_BYTES,
 	DAG_OUTPUT_MAX_BYTES,
 	type DagExecuteRequest,
 	type DagHistoryItem,
@@ -24,8 +25,9 @@ import type {
 import { getWorkspace } from "../workspaces";
 import { sessionlessProjectTrust } from "./agentSessionManager";
 import { dagServiceFor } from "./dag";
+import { previewArtifact } from "./dagArtifact";
 import { cancelPendingDagChanges, publishDagChangedNow } from "./dagChanges";
-import { startFactory, startFactoryFromPlan } from "./dagStart";
+import { replanFactory, startFactory, startFactoryFromPlan } from "./dagStart";
 import { factoryQueueOf, globalFactoryQueue, isPlannerNode } from "./factory";
 import { FINDINGS_PORT, isReviewerNode, parseFindings } from "./factoryReview/reviewer";
 import { getPiRuntime } from "./piRuntime";
@@ -126,6 +128,17 @@ function nodeRun(
 	};
 }
 
+/** A person rejected the node's latest approval gate and no newer gate has been decided or opened. */
+function isRejected(snapshot: DagSnapshot, nodeId: string): boolean {
+	const latest = snapshot.gates
+		.filter((gate) => gate.kind === "approval" && gate.target.nodeId === nodeId)
+		.sort(
+			(a, b) => a.target.attempt - b.target.attempt || a.target.activation - b.target.activation,
+		)
+		.at(-1);
+	return latest?.disposition === "rejected" && latest.decision?.actor.kind === "human";
+}
+
 export function toDagView(snapshot: DagSnapshot): DagView {
 	const known = new Set(snapshot.nodes.map((node) => node.id));
 	const edges: DagView["edges"] = [];
@@ -152,6 +165,7 @@ export function toDagView(snapshot: DagSnapshot): DagView {
 			...(node.activation === undefined ? {} : { activation: node.activation }),
 			...(isReviewerNode(node.outputs) ? { reviewer: true as const } : {}),
 			...(isPlannerNode(node.outputs) ? { planner: true as const } : {}),
+			...(isRejected(snapshot, node.id) ? { rejected: true as const } : {}),
 			...(node.proposalId && node.outputs && Object.keys(node.outputs).length
 				? { outputs: Object.keys(node.outputs) }
 				: {}),
@@ -415,8 +429,9 @@ async function readHead(path: string, max: number): Promise<{ bytes: Buffer; tru
 
 /**
  * The human-read-only `dag.output`: one declared output of a node's current proposal. The name must be
- * one the node declares, the text is bounded to `DAG_OUTPUT_MAX_BYTES` and an artifact output reports
- * only its size. Never a path, another node's proposal or a transcript. `null` until the node submitted.
+ * one the node declares and the text is bounded to `DAG_OUTPUT_MAX_BYTES`. An artifact output is a
+ * hash-verified preview of pi-dag's captured payload (see `previewArtifact`): base name and media type,
+ * text-like content as `text`, a small image as base64, anything else described only. Never a path, another node's proposal or a transcript. `null` until the node submitted.
  */
 export async function readWorkspaceOutput(
 	workspaceId: string,
@@ -425,6 +440,7 @@ export async function readWorkspaceOutput(
 	name: string,
 	/** Tests lower the bound; the wire always uses `DAG_OUTPUT_MAX_BYTES`. */
 	maxBytes = DAG_OUTPUT_MAX_BYTES,
+	imageMaxBytes = DAG_OUTPUT_IMAGE_MAX_BYTES,
 ): Promise<DagOutputView | null> {
 	const id = dagIdOf(dagId);
 	str(nodeId, "nodeId", 128);
@@ -445,7 +461,25 @@ export async function readWorkspaceOutput(
 		kind: output.value.kind,
 		sizeBytes: output.value.file.sizeBytes,
 	};
-	if (output.value.kind === "artifact") return { ...base, truncated: false };
+	if (output.value.kind === "artifact") {
+		const { file } = output.value;
+		const preview = await previewArtifact(
+			{
+				localPath: file.localPath,
+				sizeBytes: file.sizeBytes,
+				sha256: file.sha256,
+				label: output.value.preview,
+			},
+			maxBytes,
+			imageMaxBytes,
+		);
+		return {
+			...base,
+			...(preview.text === undefined ? {} : { text: preview.text }),
+			truncated: preview.truncated,
+			artifact: preview.artifact,
+		};
+	}
 	try {
 		const head = await readHead(output.value.file.localPath, maxBytes);
 		return {
@@ -481,6 +515,17 @@ export async function startWorkspaceFactory(params: unknown): Promise<DagStartRe
 export async function startWorkspaceFactoryFromPlan(params: unknown): Promise<DagStartResult> {
 	const workspaceId = startWorkspaceId(params);
 	const result = await startFactoryFromPlan(await commandClient(workspaceId), params);
+	publishDagChangedNow({ workspaceId, dagId: result.dagId });
+	return result;
+}
+
+/**
+ * `dag.replan`: a person sends a rejected factory release back to the planner. Creates a new, paused
+ * planning DAG (see `replanFactory`); the caller is the human binding, never a wire field.
+ */
+export async function replanWorkspaceFactory(params: unknown): Promise<DagStartResult> {
+	const workspaceId = startWorkspaceId(params);
+	const result = await replanFactory(await commandClient(workspaceId), params);
 	publishDagChangedNow({ workspaceId, dagId: result.dagId });
 	return result;
 }

@@ -146,7 +146,7 @@ import { projectSessionEvent } from "./sessionEventProjection";
 import { repairDanglingToolCalls } from "./sessionRepair";
 import { deriveSessionState } from "./sessionState";
 import type { SkillAdmissionContext } from "./skillAdmission";
-import { disposeSessionSwarm, swarmFor } from "./swarm";
+import { disposeSessionSwarm, removeWorkspaceSwarm, swarmFor } from "./swarm";
 import {
 	assessRespondability,
 	buildToolResponseMessage,
@@ -3314,6 +3314,7 @@ export async function closeWorkspaceSessions<T>(
 export function removeWorkspaceSessions(workspaceId: string, cwd?: string): Promise<void> {
 	return closeWorkspaceSessions(workspaceId, async () => {
 		await removeWorkspaceDag(workspaceId);
+		removeWorkspaceSwarm(workspaceId);
 		removeWorkspaceDelegation(workspaceId);
 		removeWorkspaceResourceHistory(workspaceId);
 		if (cwd) await purgeDiskSessions(cwd);

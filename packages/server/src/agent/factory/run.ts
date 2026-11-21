@@ -54,6 +54,13 @@ export interface WorktreeMeta extends Worktree {
 	committed?: string;
 	/** A landing's in-flight move of the branch from `from` onto the gated commit `to` (see landTools). */
 	recording?: { from: string; to: string };
+	/**
+	 * The target ref's move this landing was about to make, recorded before the ref update: a retry that finds
+	 * the target at `to` knows the update completed and only the record was lost; at `from`, that it never ran.
+	 */
+	landing?: { from: string; to: string };
+	/** The target's tip right after this source landed; a resumed landing must find the target exactly there. */
+	landedTip?: string;
 }
 
 export interface GateRecord {
@@ -73,12 +80,29 @@ export interface GateRecord {
 	ranAt: string;
 }
 
+/** The host's verdict on the combined change: the target's tip with every source's landable commit merged in. */
+export interface IntegrationRecord {
+	ok: boolean;
+	/** Why no gate ran or the combined change cannot be judged, when `results` is empty. */
+	reason?: string;
+	commands: string[];
+	results: GateResult[];
+	/** The target branch's tip the combined commit was built on; empty when it could not be resolved. */
+	targetTip: string;
+	/** The landable commit of every non-empty source that went into the combined change. */
+	sources: Record<string, string>;
+	/** The combined commit the gates ran on, and its tree; empty when none was built. */
+	combined: string;
+	tree: string;
+	ranAt: string;
+}
+
 export interface BoundNode {
 	nodeId: string;
 	node: FactoryNode;
 }
 
-const MAX_TEXT = 256 * 1024;
+export const MAX_TEXT = 256 * 1024;
 export const MAX_WRITE = 2 * 1024 * 1024;
 
 export function hashPatch(patch: string): string {
@@ -173,6 +197,27 @@ export class FactoryRun {
 		return join(this.options.worktreeRoot, ".meta", this.options.dagId, `${nodeId}.gates.json`);
 	}
 
+	private integrationFile(nodeId: string): string {
+		return join(
+			this.options.worktreeRoot,
+			".meta",
+			this.options.dagId,
+			`${nodeId}.integration.json`,
+		);
+	}
+
+	readIntegrationRecord(nodeId: string): IntegrationRecord | undefined {
+		try {
+			return JSON.parse(readFileSync(this.integrationFile(nodeId), "utf8")) as IntegrationRecord;
+		} catch {
+			return undefined;
+		}
+	}
+
+	writeIntegrationRecord(nodeId: string, record: IntegrationRecord): void {
+		writeAtomically(this.integrationFile(nodeId), JSON.stringify(record, null, 2));
+	}
+
 	readMeta(nodeId: string): WorktreeMeta | undefined {
 		try {
 			return JSON.parse(readFileSync(this.metaFile(nodeId), "utf8")) as WorktreeMeta;
@@ -255,6 +300,29 @@ export class FactoryRun {
 		}
 	}
 
+	private coverageFile(): string {
+		return join(this.options.worktreeRoot, ".meta", this.options.dagId, ".diff-coverage.json");
+	}
+
+	/** Sources whose diff an inspector was ever shown only in part; release and review reports carry it. */
+	readPartialDiffs(): string[] {
+		try {
+			const saved = JSON.parse(readFileSync(this.coverageFile(), "utf8")) as { partial?: unknown };
+			return Array.isArray(saved.partial)
+				? saved.partial.filter((id): id is string => typeof id === "string")
+				: [];
+		} catch {
+			return [];
+		}
+	}
+
+	/** Records that `nodeIds`' diffs were cut when shown, so a person sees the review covered only part. */
+	notePartialDiffs(nodeIds: readonly string[]): void {
+		if (nodeIds.length === 0) return;
+		const partial = [...new Set([...this.readPartialDiffs(), ...nodeIds])].sort();
+		writeAtomically(this.coverageFile(), JSON.stringify({ partial }));
+	}
+
 	writeGateRecord(nodeId: string, record: GateRecord): void {
 		writeAtomically(this.gateFile(nodeId), JSON.stringify(record, null, 2));
 	}
@@ -329,6 +397,26 @@ export function confinedPath(
 
 export function relativeUnix(root: string, full: string): string {
 	return relative(root, full).split(sep).join("/");
+}
+
+/** The smallest share of `MAX_TEXT` one source's diff gets when several are shown in one call. */
+export const MIN_DIFF_SHARE = 32 * 1024;
+
+/**
+ * One source's diff cut to `limit` characters, with an explicit marker the reader cannot miss when it was
+ * cut: how much is shown and how to see the rest. A cut is never silent.
+ */
+export function clipDiff(
+	nodeId: string,
+	patch: string,
+	limit: number,
+): { text: string; truncated: boolean; shown: number; total: number } {
+	const total = patch.length;
+	if (total <= limit) return { text: patch, truncated: false, shown: total, total };
+	const marker = `
+[truncated: showing ${limit} of ${total} characters of ${nodeId}'s diff. Call factory_diff with source="${nodeId}" for a larger share, and open the remaining changed files (factory_report lists them) with factory_read.]
+`;
+	return { text: patch.slice(0, limit) + marker, truncated: true, shown: limit, total };
 }
 
 export function clip(text: string): { text: string; truncated: boolean } {

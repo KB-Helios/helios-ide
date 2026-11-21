@@ -34,6 +34,7 @@ export {
 	readWorkspaceOutput,
 	readWorkspaceQueue,
 	readWorkspaceReview,
+	replanWorkspaceFactory,
 	startWorkspaceFactory,
 	startWorkspaceFactoryFromPlan,
 	stopDagWire,
@@ -159,6 +160,7 @@ export {
 	readSwarmMemberDiff,
 	setSwarmPublisher,
 	swarmFor,
+	trashWorkspaceSwarm,
 } from "./swarm";
 export {
 	SET_TITLE_TOOL_NAME,

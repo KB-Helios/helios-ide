@@ -61,6 +61,7 @@ import {
 	isChatHandoffMessage,
 	isContinueInWorkspaceRequestMessage,
 	isControlMessage,
+	isFactoryMaxConcurrent,
 	isLineWidth,
 	isLocalePreference,
 	isQuestionPanelHeight,
@@ -1215,6 +1216,7 @@ interface AppState {
 	notificationsEnabled: boolean;
 	subagentsEnabled: boolean;
 	subagentMaxConcurrent: number;
+	factoryMaxConcurrent: number;
 	settleIdleDays: number | null;
 	jbcentralQuotaEnabled: boolean;
 	jbcentralQuotaRefreshSeconds: number;
@@ -1688,6 +1690,9 @@ function configPatch(config: AppConfig) {
 		subagentMaxConcurrent: isSubagentMaxConcurrent(config.subagentMaxConcurrent)
 			? config.subagentMaxConcurrent
 			: DEFAULT_CONFIG.subagentMaxConcurrent,
+		factoryMaxConcurrent: isFactoryMaxConcurrent(config.factoryMaxConcurrent)
+			? config.factoryMaxConcurrent
+			: DEFAULT_CONFIG.factoryMaxConcurrent,
 		settleIdleDays: isSettleIdleDays(config.settleIdleDays)
 			? config.settleIdleDays
 			: DEFAULT_CONFIG.settleIdleDays,
@@ -2653,6 +2658,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 	notificationsEnabled: DEFAULT_CONFIG.notificationsEnabled,
 	subagentsEnabled: DEFAULT_CONFIG.subagentsEnabled,
 	subagentMaxConcurrent: DEFAULT_CONFIG.subagentMaxConcurrent,
+	factoryMaxConcurrent: DEFAULT_CONFIG.factoryMaxConcurrent,
 	settleIdleDays: DEFAULT_CONFIG.settleIdleDays,
 	jbcentralQuotaEnabled: DEFAULT_CONFIG.jbcentralQuotaEnabled,
 	jbcentralQuotaRefreshSeconds: DEFAULT_CONFIG.jbcentralQuotaRefreshSeconds,

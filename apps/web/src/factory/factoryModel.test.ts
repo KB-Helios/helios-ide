@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import type { DagReviewView } from "@thinkrail/contracts";
+import { newCoder } from "./coderPlan";
 import {
+	artifactImageSrc,
 	bySeverity,
 	dagActions,
 	dependsOn,
@@ -13,6 +15,7 @@ import {
 	pendingTotal,
 	planReady,
 	queueLine,
+	replanReady,
 	reviewerSharesFamily,
 	reviewForGate,
 	type StartForm,
@@ -151,6 +154,7 @@ const rolesView = (sameFamilyOnly = false) => ({
 const form = (patch: Partial<StartForm> = {}): StartForm => ({
 	task: "Add the thing",
 	mode: "plan",
+	coders: [newCoder("k0", "coder")],
 	picks: {},
 	allowSameFamily: false,
 	...patch,
@@ -170,9 +174,9 @@ test("a role left on its default sends no model, and a pick sends exactly that m
 	});
 });
 
-test("one coder mode sends the task as the single coder; planner mode sends none", () => {
+test("one coder with no task of its own takes the run task; planner mode sends none", () => {
 	const view = rolesView();
-	expect(startRequest(view, form({ mode: "single", task: "  Fix it  " }))).toEqual({
+	expect(startRequest(view, form({ mode: "coders", task: "  Fix it  " }))).toEqual({
 		task: "Fix it",
 		coders: [{ id: "coder", task: "Fix it" }],
 	});
@@ -219,6 +223,22 @@ test("a plan is ready for the factory once its planner completed", () => {
 	expect(planReady({ nodes: [node("completed")] })).toBe(false);
 });
 
+test("a rejected release or review offers a replan, a rejected plan or an undecided gate does not", () => {
+	const node = (id: string, rejected?: true) => ({
+		id,
+		status: "needs-attention" as const,
+		held: false,
+		task: "",
+		...(rejected ? { rejected } : {}),
+	});
+	expect(replanReady({ nodes: [node("release", true)] })).toBe(true);
+	expect(replanReady({ nodes: [node("review", true), node("release")] })).toBe(true);
+	expect(replanReady({ nodes: [node("release"), node("review")] })).toBe(false);
+	// A rejected plan is retried in place; only the factory's own steps are sent back to the planner.
+	expect(replanReady({ nodes: [node("planner", true)] })).toBe(false);
+	expect(replanReady({ nodes: [node("api", true)] })).toBe(false);
+});
+
 test("the machine-wide cap shows only when it is full and holds work back", () => {
 	const global = (running: number, queued: number) => ({ limit: 3, running, queued });
 	expect(
@@ -257,4 +277,30 @@ test("a release gate shows the findings of the reviewer that feeds it", () => {
 	expect(reviewForGate(target("release"), dag, { review })).toBe(review);
 	expect(reviewForGate(target("land"), dag, { review })).toBeUndefined();
 	expect(reviewForGate(target("release"), { edges: [] }, { review })).toBeUndefined();
+});
+
+test("an artifact image is inlined only for the host's raster types and plain base64", () => {
+	const view = (artifact: { name: string; mediaType: string; imageBase64?: string }) => ({
+		nodeId: "n",
+		name: "result",
+		proposalId: "p",
+		disposition: "pending" as const,
+		kind: "artifact" as const,
+		sizeBytes: 4,
+		truncated: false,
+		artifact,
+	});
+	expect(
+		artifactImageSrc(view({ name: "a.png", mediaType: "image/png", imageBase64: "AAAA" })),
+	).toBe("data:image/png;base64,AAAA");
+	expect(artifactImageSrc(view({ name: "a.png", mediaType: "image/png" }))).toBeNull();
+	expect(
+		artifactImageSrc(view({ name: "a.svg", mediaType: "image/svg+xml", imageBase64: "AAAA" })),
+	).toBeNull();
+	expect(
+		artifactImageSrc(view({ name: "a.png", mediaType: "image/png", imageBase64: '"><script>' })),
+	).toBeNull();
+	expect(
+		artifactImageSrc({ ...view({ name: "a", mediaType: "text/plain" }), kind: "text" }),
+	).toBeNull();
 });

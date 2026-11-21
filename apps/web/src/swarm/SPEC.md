@@ -28,6 +28,10 @@ It appears only once the host reports a swarm for the chat and shows three tabs:
 - The host is the authority. `useSwarm` reads `swarm.get` once per connection and then replaces its
   component-local copy with each `swarm.changed` snapshot for this chat; there is no store copy.
 - A host older than `SWARM_PROTOCOL_VERSION` hides the surface.
+- A board restored after a host restart arrives as an ordinary snapshot: its members are `paused` with
+  `restored` (and `worktreeMissing`) set and an error line saying why, so they show the existing paused
+  warning state and the host's restore post is on the board. Resuming stays with the coordinator chat
+  (`swarm_resume`); the pane has no resume control.
 - State is glyph + color + word, never color alone; a failure (paused member, needs-fixes, failed gate) is
   never hidden.
 - Read-only in v1: steering stays with the coordinator chat (and members' own transcripts). Talking to a

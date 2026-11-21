@@ -12,6 +12,7 @@ export { formatGateFailure, isFixable } from "./gateGuard";
 export { landFactory } from "./landTools";
 export {
 	buildPlanningDefinition,
+	encodePlanRun,
 	isPlannerNode,
 	MAX_PLAN_CODERS,
 	PLAN_PORT,
@@ -22,6 +23,11 @@ export {
 	parsePlanRun,
 	planRunRoles,
 } from "./plan";
+export {
+	buildReplanTask,
+	REPLAN_FINDINGS_MAX,
+	type ReplanFeedback,
+} from "./replan";
 export { FactoryRun } from "./run";
 export {
 	DEFAULT_FACTORY_SLOTS,
@@ -55,6 +61,8 @@ export {
 	type FactoryPlan,
 	factoryInspector,
 	factoryNodeIds,
+	INTEGRATE_NODE,
+	RELEASE_NODE,
 	type RoleModel,
 	type TemplateRole,
 } from "./template";
