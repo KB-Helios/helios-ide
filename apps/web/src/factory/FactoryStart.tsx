@@ -10,6 +10,8 @@ import { Switch } from "@thinkrail/ui/switch";
 import { Textarea } from "@thinkrail/ui/textarea";
 import { ToggleSegment } from "@thinkrail/ui/toggle-segment";
 import { useState } from "react";
+import { CoderRows } from "./CoderRows";
+import { coderIssues, newCoder } from "./coderPlan";
 import {
 	effectiveKey,
 	modelKey,
@@ -33,7 +35,7 @@ function roleLabel(t: T, role: FactoryRoleName): string {
 }
 
 /**
- * Starts a factory run: the task, who splits it (a planner whose plan you approve, or one coder) and,
+ * Starts a factory run: the task, who splits it (a planner whose plan you approve, or coders you list) and,
  * optionally, a model per role. A role left on "automatic" is chosen by the host; a reviewer in the
  * coder's vendor family needs an explicit switch and is then recorded in the run. The new DAG is created
  * paused and selected, so the next step is yours: Resume.
@@ -51,6 +53,7 @@ export function FactoryStart({
 	const [form, setForm] = useState<StartForm>({
 		task: "",
 		mode: "plan",
+		coders: [newCoder("coder-row-0", "coder")],
 		picks: {},
 		allowSameFamily: false,
 	});
@@ -116,17 +119,25 @@ export function FactoryStart({
 						onClick={() => setForm({ ...form, mode: "plan" })}
 					/>
 					<ToggleSegment
-						testid="factory-start-mode-single"
-						label={t("factory.start.mode.single")}
-						active={form.mode === "single"}
-						onClick={() => setForm({ ...form, mode: "single" })}
+						testid="factory-start-mode-coders"
+						label={t("factory.start.mode.coders")}
+						active={form.mode === "coders"}
+						onClick={() => setForm({ ...form, mode: "coders" })}
 					/>
 				</div>
 				<p className="tr-text-metadata text-text-muted">
 					{form.mode === "plan"
 						? t("factory.start.mode.planHint")
-						: t("factory.start.mode.singleHint")}
+						: t("factory.start.mode.codersHint")}
 				</p>
+				{form.mode === "coders" ? (
+					<CoderRows
+						coders={form.coders}
+						issues={coderIssues(form.coders, form.task)}
+						disabled={busy}
+						onChange={(coders) => setForm({ ...form, coders })}
+					/>
+				) : null}
 				{loadFailed ? (
 					<span role="alert" className="tr-text-metadata text-feedback-error">
 						{t("factory.start.rolesError")}

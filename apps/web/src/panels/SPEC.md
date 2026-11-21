@@ -1105,7 +1105,12 @@ a project picker, the prompt hero, and the reused
   never clamp. A workspace limit is disabled while that workspace's subagents are effectively off; the
   global limit stays editable even when global is off, because workspaces forced on still inherit it.
   Global mutations converge through `settings.changed`, workspace ones through `workspace.updated`; none
-  is optimistic);
+  is optimistic). A **Factory** group (`FactorySettings.tsx`, from `FACTORY_CAP_PROTOCOL_VERSION`) follows with
+  one row, **Workers at once, all workspaces**: the machine-wide `AppConfig.factoryMaxConcurrent` (the store's
+  `factoryMaxConcurrent`, which is also what the row shows), a number field following the same auto-save draft
+  pattern, validated by `isFactoryMaxConcurrent` (whole 1–64; an invalid draft stays visible with its range
+  error, is not saved and never clamps), converging through `settings.changed` with a toast on rejection. The
+  host applies it live; each workspace's own cap stays the Subagents limit;
   the
   **shell-owned injected Layout
   section** (Balanced/Focus/Review
