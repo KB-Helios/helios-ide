@@ -158,9 +158,47 @@ planner", "Gate retries" och "Factory resources"), [[submodule-web-factory]] och
    att något test kräver mer. Alla `factory.*`-nycklar finns nu på ryska (rättat med katalogens ordlista:
    «рецензент»), medan es, ja, pl, zh-CN och zh-TW faller tillbaka på engelska.
 
-Kvar och inte gjort: ett reglage för den globala gränsen i inställningarna; flerkodarplaner i startformuläret (kabeln
-och planeraren klarar dem); `dag.output` för artefaktutfall (bara storleken visas); nätverksisolering för barnsessioner
-(öppen fråga ovan); de översättningar som katalogerna fortfarande saknar.
+### Andra omgången (2026-11-21)
+
+Det som stod kvar efter första uppföljningen, plus brister som en genomgång av agentstegen hittade. Detaljerna står
+i [[submodule-server-agent]], [[submodule-web-factory]], [[module-contracts]] och [[module-pi-swarm]].
+
+1. **Grind för den sammanslagna ändringen: klart.** Grindarna körde bara per kodargren, så två grenar som var för sig
+   gick igenom kunde landa ett trasigt mål. Mallen har nu alltid en `integrate`-nod (roll `integration`) efter alla
+   grindnoder: värden slår ihop varje kodares landningsbara commit på målets spets i en kastbar utcheckning och kör
+   projektets grindar på resultatet i samma OS-sandlåda. Granskaren väntar på den, release visar utslaget, och
+   `factory_land` vägrar om posten inte gick igenom, om dess källor inte är exakt de commits som skulle landa eller
+   om målet har flyttat sig (undantag: en återupptagen, delvis landning). Äldre definitioner utan nod landar som förr.
+2. **Avslag går tillbaka till planeraren: klart, med en person som trycker.** Ett avslaget release- eller
+   granskningsbeslut visar "Replan with this feedback" i panelen (`dag.replan`, v138). Det bygger en ny, pausad
+   planerings-DAG med den ursprungliga uppgiften, personens skäl, granskarens fynd och grindrapporterna (begränsat till
+   `MAX_TASK_CHARS`), med samma roller, modeller och mål. Inget modellarbete startar av sig självt vid ett avslag.
+3. **Flera kodare i startformuläret: klart.** Upp till 8 rader med id, uppgift, `owns` och `avoid`, validerade som på
+   värden (samma konservativa överlappsregel); värdens avslag visas fortfarande.
+4. **Reglage för den globala gränsen: klart** (Inställningar → Chatt → Fabrik, 1–64).
+5. **`dag.output` för artefakter: klart** (v137). En hash-kontrollerad förhandsvisning: text upp till 64 KiB, bilder
+   upp till 2 MiB, annars namn och storlek. Ingen nedladdning; det skulle kräva den binära vägen.
+6. **Diffar kapas aldrig tyst: klart.** Mätt på det här repot: ungefär var tjugonde commit är ensam över de 256 KiB
+   som ett verktygsresultat rymmer. `factory_diff` ger nu varje källa sin egen andel, märker varje kapning i texten,
+   och värden bokför kapade källor så att granskaren läser resten och release-sammanfattningen säger att granskningen
+   var partiell.
+7. **Swarm-tavlan överlever en omstart: klart.** Den sparas atomiskt per workspace och återställs pausad;
+   `swarm_resume` startar om medlemmar i deras befintliga worktrees.
+8. **Verklig körning av Linux- och macOS-sandlådan: inkopplad, inte körd än.** CI-jobbet `gate-sandbox` kör de
+   riktiga sandlådetesterna på ubuntu-latest och macos-latest och misslyckas i stället för att hoppa över när
+   sandlådan saknas.
+9. **Agenten känner till fabriken: klart.** Routern `choosing-a-workflow` skickar uppdelningsbart arbete till
+   subagenter, `/swarm` eller fabriken, och skillen `running-a-factory` lär agenten att lämna över en färdig plan till
+   panelen. En chatt kan bygga en fabriksliknande DAG men aldrig släppa eller landa den: landningen kontrollerar på
+   värden att en människa godkände release.
+10. **Språk:** alla `factory.*`- och `settings.factory.*`-nycklar översätts till es, ja, pl, zh-CN och zh-TW.
+
+`scout`-rollen behålls som den billiga modellen för de mekaniska noderna (grind, integration, release, landning);
+någon egen spaningsnod före planeraren läggs inte till.
+
+Kvar: en riktig körning från början till slut mot en verklig leverantör (två kodare, en grind som rättas, ett fynd,
+ett avslag med ny plan, godkännande och landning); första körningen av `gate-sandbox` i CI; nätverksisolering för
+barnsessioner i allmänhet (se nedan).
 
 ## Öppna frågor
 
@@ -173,7 +211,10 @@ och planeraren klarar dem); `dag.output` för artefaktutfall (bara storleken vis
   bubblewrap, macOS `sandbox-exec`. Ögonblicksbilden och beroendemapparna går att läsa men inte skriva, en privat
   scratch-mapp går att skriva, nätverk saknas helt och användarens övriga filer är stängda (se
   `packages/server/src/agent/SPEC.md`, "Gate sandbox"). Saknas sandlådan körs inga grindar och posten blir
-  `ok: false` med skäl. Kvar: barnsessionerna (frågan ovan) och en verklig körning av Linux- och macOS-vägarna,
-  som hittills bara är testade via sina genererade argument.
-- **Bounds:** `pi-dag` tillåter 128 noder och 16 MiB per värde. Det räcker troligen, men behöver
-  mätas mot riktiga repo-diffar.
+  `ok: false` med skäl. Linux- och macOS-vägarna körs på riktigt i CI-jobbet `gate-sandbox` (se Andra omgången,
+  punkt 8). Kvar: barnsessionerna (frågan ovan). Fabrikens egna noder har bara `factory_*`-verktyg och därmed inget
+  verktyg som når nätet; frågan gäller allmänna DAG-barn och subagenter.
+- **Bounds: besvarad.** `pi-dag` tillåter 128 noder, 512 kopplingar, 1 MiB definition och 16 MiB per värde. Den
+  största planen (8 kodare) blir 20 noder, och den största diffen på `main` det senaste halvåret var 2,8 MB, och
+  ingen diff blir ett DAG-värde (granskaren läser via verktyg). Gränserna behålls. Det som bet var fabrikens egen
+  kapning på 256 KiB i `factory_diff`, som nu är synlig (Andra omgången, punkt 6).
