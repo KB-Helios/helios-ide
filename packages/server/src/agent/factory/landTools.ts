@@ -264,9 +264,105 @@ async function removeLandedWorktree(meta: WorktreeMeta): Promise<boolean> {
 	return true;
 }
 
-/** The source's uncommitted change must have clean ownership and a fresh passing host gate record. */
-async function assertGated(run: FactoryRun, meta: WorktreeMeta): Promise<void> {
-	await gatedSnapshot(run, meta);
+/**
+ * The commit landing would merge for a source: its fresh passing gated snapshot while the worktree holds an
+ * uncommitted change, else the commit a landing already made from it; undefined for a source with no change.
+ * Throws like `gatedSnapshot` when a change has no fresh passing gate record.
+ */
+export async function landableCommit(
+	run: FactoryRun,
+	meta: WorktreeMeta,
+): Promise<string | undefined> {
+	const dirty = (await run.changed(meta)).files.length > 0;
+	return dirty ? gatedSnapshot(run, meta) : meta.committed;
+}
+
+/**
+ * Merges each commit onto a detached throwaway checkout of `tip`, in order, and returns the combined commit
+ * and its tree. The person's checkout is never involved; a conflict is aborted and named.
+ */
+export async function combineCommits(
+	repo: string,
+	scratchRoot: string,
+	tip: string,
+	parts: { node: string; sha: string }[],
+): Promise<{ commit: string; tree: string } | { conflict: string }> {
+	const path = join(scratchRoot, ".integration", randomUUID());
+	mkdirSync(dirname(path), { recursive: true });
+	const added = await git(repo, ["worktree", "add", "--detach", path, tip]);
+	if (added.code !== 0)
+		throw new Error(
+			`Could not prepare the combined checkout: ${(added.stderr || added.stdout).trim()}`,
+		);
+	try {
+		const identity = await mergeIdentity(repo);
+		for (const { node, sha } of parts) {
+			const result = await git(path, [
+				...identity,
+				"merge",
+				"--no-ff",
+				"-m",
+				`factory: integrate ${node}`,
+				sha,
+			]);
+			if (result.code !== 0) {
+				await git(path, ["merge", "--abort"]);
+				return {
+					conflict: `Merging ${node} into the combined change failed: ${(result.stderr || result.stdout).trim()}`,
+				};
+			}
+		}
+		const commit = (await git(path, ["rev-parse", "HEAD"])).stdout.trim();
+		const tree = (await git(path, ["rev-parse", "HEAD^{tree}"])).stdout.trim();
+		return { commit, tree };
+	} finally {
+		await git(repo, ["worktree", "remove", "--force", path]);
+		rmSync(path, { recursive: true, force: true });
+	}
+}
+
+/**
+ * The combined gate record must be a passing verdict on exactly what this landing merges: the same sources
+ * at the same commits, on the target tip it was built on. A landing that resumes after some sources landed
+ * accepts a tip that moved only by those landings (the recorded tip is still an ancestor) and checks the
+ * sources still to land.
+ */
+async function assertIntegrated(
+	run: FactoryRun,
+	repo: string,
+	land: { integration: string; target: string },
+	shas: Record<string, string>,
+	resumed: boolean,
+): Promise<void> {
+	const retry = `retry the ${land.integration} node`;
+	const record = run.readIntegrationRecord(land.integration);
+	if (!record)
+		throw new Error(
+			`The combined change has no gate record yet; run the ${land.integration} node.`,
+		);
+	if (!record.ok)
+		throw new Error(
+			`The combined change did not pass its gates${record.reason ? ` (${record.reason})` : ""}; fix the cause, then ${retry}.`,
+		);
+	const recorded = record.sources;
+	const covered = resumed
+		? Object.entries(shas).every(([node, sha]) => recorded[node] === sha)
+		: Object.keys(recorded).length === Object.keys(shas).length &&
+			Object.entries(shas).every(([node, sha]) => recorded[node] === sha);
+	if (!covered)
+		throw new Error(
+			`The combined gate run does not cover what would land now (a source changed or was added since); ${retry}.`,
+		);
+	const tip = (
+		await git(repo, ["rev-parse", "--verify", "-q", `refs/heads/${land.target}^{commit}`])
+	).stdout.trim();
+	if (resumed) {
+		const ancestor = await git(repo, ["merge-base", "--is-ancestor", record.targetTip, tip]);
+		if (!record.targetTip || ancestor.code !== 0)
+			throw new Error(`${land.target} moved since the combined gate run; ${retry}.`);
+	} else if (!tip || tip !== record.targetTip) {
+		throw new Error(`${land.target} moved since the combined gate run; ${retry}.`);
+	}
 }
 
 /**
@@ -275,7 +371,7 @@ async function assertGated(run: FactoryRun, meta: WorktreeMeta): Promise<void> {
  * ownership. The caller lands this commit, so a gate run that replaces the record afterwards cannot change
  * what lands.
  */
-async function gatedSnapshot(run: FactoryRun, meta: WorktreeMeta): Promise<string> {
+export async function gatedSnapshot(run: FactoryRun, meta: WorktreeMeta): Promise<string> {
 	const record = run.readGateRecord(meta.nodeId);
 	const [tree, { violations }] = await Promise.all([contentTree(meta.path), run.changed(meta)]);
 	if (violations.length)
@@ -313,7 +409,7 @@ interface Pending {
  */
 export function landFactory(
 	run: FactoryRun,
-	land: { sources: string[]; release: string; target: string },
+	land: { sources: string[]; release: string; target: string; integration?: string },
 	/**
 	 * Test seams: after a source's final gate check (before its snapshot is recorded), and right after the
 	 * source branch moved onto that snapshot (before the move is recorded as done).
@@ -333,6 +429,7 @@ export function landFactory(
 
 		// Preflight everything before touching the target: all-or-nothing up to the merges themselves.
 		const pending: Pending[] = [];
+		const shas: Record<string, string> = {};
 		for (const nodeId of land.sources) {
 			let meta = run.readMeta(nodeId);
 			if (!meta) throw new Error(`Node ${nodeId} has no worktree to land`);
@@ -366,9 +463,18 @@ export function landFactory(
 				if (ahead !== "" && ahead !== "0")
 					throw new Error(`${nodeId} has commits the factory did not make; refusing to land it.`);
 			}
-			if (dirty) await assertGated(run, meta);
+			const sha = dirty ? await gatedSnapshot(run, meta) : meta.committed;
+			if (sha) shas[nodeId] = sha;
 			pending.push({ meta, empty: !dirty && !meta.committed, dirty });
 		}
+		if (land.integration)
+			await assertIntegrated(
+				run,
+				repo,
+				{ integration: land.integration, target: land.target },
+				shas,
+				land.sources.some((nodeId) => run.readMeta(nodeId)?.landed),
+			);
 
 		const landed: LandedSource[] = land.sources
 			.filter((nodeId) => run.readMeta(nodeId)?.landed)

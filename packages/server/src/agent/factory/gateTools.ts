@@ -1,25 +1,13 @@
-import { basename, join } from "node:path";
+import { basename } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { detectGates, runGates } from "pi-swarm";
+import { detectGates } from "pi-swarm";
 import { Type } from "typebox";
-import { boundFor, sourcesOf, sourceWorktree, toolResult } from "./access";
+import { boundFor, integrationOf, sourcesOf, sourceWorktree, toolResult } from "./access";
+import { CHANGED_DEFINITIONS, definitionDrift, executeGates } from "./gateExec";
+import { integrationStatus, runIntegrationGates } from "./integrationTools";
 import { clip, type FactoryRun, type GateRecord, type WorktreeMeta } from "./run";
-import { defaultGateSandbox, withGateSandbox } from "./sandbox";
-import {
-	blobAt,
-	contentTree,
-	inSnapshotCheckout,
-	snapshotCommit,
-	snapshotFiles,
-	treeFiles,
-	treeStat,
-	workingBlob,
-} from "./snapshot";
-import { FACTORY_TOOL, isProtectedBasename, PROTECTED_BASENAMES } from "./spec";
-
-const GATE_TIMEOUT_MS = 15 * 60_000;
-/** The refusal for a worktree that changed a build/gate definition; the coder can fix it by reverting. */
-export const CHANGED_DEFINITIONS = "Gates do not run over changed build or gate definitions";
+import { contentTree, snapshotCommit, snapshotFiles, treeFiles, treeStat } from "./snapshot";
+import { FACTORY_TOOL, isProtectedBasename } from "./spec";
 
 /**
  * Runs the project's declared gates in one worktree and records the verdict on the host. The commands
@@ -77,64 +65,15 @@ export function runFactoryGates(
 					`The checkout's gate definitions changed since this worktree was made (${drifted.join(", ")}); the worktree needs a fresh base before its gates can run.`,
 				);
 			} else {
-				const sandbox = run.options.sandbox ?? defaultGateSandbox();
-				const available = await sandbox.availability();
-				if (!available.ok) {
-					// Fail closed: gate code never runs unconfined, and the record says why nothing ran.
-					record = refuse(available.reason);
-				} else {
-					const gateRoot =
-						sandbox.checkoutRoot?.(run.options.worktreeRoot) ?? run.options.worktreeRoot;
-					const { results, unavailable } = await inSnapshotCheckout(
-						repo,
-						gateRoot,
-						snap.commit,
-						(checkout) =>
-							withGateSandbox(
-								sandbox,
-								{ checkout, commands, scratchRoot: join(gateRoot, ".gate-scratch") },
-								async (gates) => ({
-									results: await runGates(commands, checkout, {
-										timeoutMs: GATE_TIMEOUT_MS,
-										runner: gates.runner,
-										...(signal ? { signal } : {}),
-									}),
-									unavailable: gates.unavailable(),
-								}),
-							),
-					);
-					// A cancelled run says nothing about quality: never record it, so the next call runs the gates.
-					if (signal?.aborted) throw signal.reason ?? new Error("The gate run was cancelled");
-					if (unavailable) {
-						// The sandbox could not be set up for this run, so the command never executed.
-						record = refuse(`The gate sandbox could not be set up: ${unavailable}`);
-					} else {
-						const passed =
-							results.length === commands.length && results.every((result) => result.ok);
-						record = { ok: passed, commands, results, ...base };
-					}
-				}
+				const executed = await executeGates(run, repo, snap.commit, commands, signal);
+				record = executed.reason
+					? refuse(executed.reason)
+					: { ok: executed.ok, commands, results: executed.results, ...base };
 			}
 		}
 		run.writeGateRecord(meta.nodeId, record);
 		return record;
 	});
-}
-
-/**
- * Root build/gate definitions that differ between the trusted checkout (where the gate commands are
- * detected) and the snapshot (where they run). Compared by blob id, so only real content differences count.
- */
-async function definitionDrift(repo: string, worktree: string, commit: string): Promise<string[]> {
-	const drifted: string[] = [];
-	for (const name of PROTECTED_BASENAMES) {
-		const [checkout, snapshot] = await Promise.all([
-			workingBlob(repo, name),
-			blobAt(worktree, commit, name),
-		]);
-		if (checkout !== snapshot) drifted.push(name);
-	}
-	return drifted;
 }
 
 /** The host's verdict on one worktree: ownership, a fresh passing gate record, nothing stale. */
@@ -205,6 +144,22 @@ export function registerGateTools(pi: ExtensionAPI, run: FactoryRun): void {
 		}),
 		async execute(_id, args, signal, _update, ctx) {
 			const bound = boundFor(run, ctx, FACTORY_TOOL.gates);
+			if (bound.node.role === "integration") {
+				const record = await runIntegrationGates(run, bound.nodeId, bound.node, signal);
+				return toolResult({
+					node: bound.nodeId,
+					ok: record.ok,
+					reason: record.reason ?? null,
+					targetTip: record.targetTip,
+					sources: record.sources,
+					results: record.results.map((result) => ({
+						command: result.command,
+						ok: result.ok,
+						exitCode: result.exitCode,
+						outputTail: result.ok ? "" : result.outputTail,
+					})),
+				});
+			}
 			const meta = sourceWorktree(run, bound, args.source);
 			const record = await runFactoryGates(run, meta, signal);
 			return toolResult({
@@ -226,7 +181,7 @@ export function registerGateTools(pi: ExtensionAPI, run: FactoryRun): void {
 		name: FACTORY_TOOL.report,
 		label: "Worktree report",
 		description:
-			"The host's own report on your source worktrees: changed files, diff stat, ownership violations and the latest recorded gate verdict (and whether it is still fresh).",
+			"The host's own report on your source worktrees: changed files, diff stat, ownership violations and the latest recorded gate verdict (and whether it is still fresh). Nodes tied to an integration node also get the combined change's gate verdict.",
 		parameters: Type.Object({}),
 		async execute(_id, _args, _signal, _update, ctx) {
 			const bound = boundFor(run, ctx, FACTORY_TOOL.report);
@@ -238,7 +193,13 @@ export function registerGateTools(pi: ExtensionAPI, run: FactoryRun): void {
 					return sourceStatus(run, run.activeWorktree(nodeId));
 				}),
 			);
-			return toolResult({ sources });
+			const integration = integrationOf(bound);
+			return toolResult({
+				sources,
+				...(integration
+					? { integration: await integrationStatus(run, integration, sourcesOf(bound)) }
+					: {}),
+			});
 		},
 	});
 }

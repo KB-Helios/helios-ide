@@ -55,6 +55,7 @@ export {
 	type FactoryPlan,
 	factoryInspector,
 	factoryNodeIds,
+	INTEGRATE_NODE,
 	type RoleModel,
 	type TemplateRole,
 } from "./template";

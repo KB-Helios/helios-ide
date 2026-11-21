@@ -468,6 +468,7 @@ test("a person starts a factory with chosen coders and role models; it is create
 		"gate-api",
 		"web",
 		"gate-web",
+		"integrate",
 		"review",
 		"release",
 		"land",

@@ -28,12 +28,14 @@ import { registerGateGuard } from "./gateGuard";
 import { runFactoryGates, sourceStatus } from "./gateTools";
 import {
 	buildFactoryDefinition,
+	encodeFactoryNode,
 	FactoryRun,
 	factoryInspector,
 	isReleaseApprovedByHuman,
 	landFactory,
 	parseFactoryNode,
 } from "./index";
+import { runIntegrationGates } from "./integrationTools";
 import { landOnTarget } from "./landTools";
 import { confinedPath, setRecordWriteSeamForTests, writeAtomically } from "./run";
 import { setDefaultGateSandbox } from "./sandbox";
@@ -222,6 +224,8 @@ test("two coders run in parallel worktrees, pass gates and land only after a hum
 			if (turn === 2) return call("factory_run_gates", {});
 			return submit("summary", `coder ${coder} done`);
 		}
+		if (/"role\\":\\"integration\\"/.test(seen))
+			return turn === 0 ? call("factory_run_gates", {}) : submit("report", "combined ok");
 		const gateOf = /"role\\":\\"gate\\"/.test(seen);
 		if (gateOf) return turn === 0 ? call("factory_run_gates", {}) : submit("report", "gates ok");
 		if (/"role\\":\\"release\\"/.test(seen))
@@ -267,6 +271,7 @@ test("two coders run in parallel worktrees, pass gates and land only after a hum
 	expect(status["coder-b"]).toBe("completed");
 	expect(status["gate-coder-a"]).toBe("completed");
 	expect(status["gate-coder-b"]).toBe("completed");
+	expect(status.integrate).toBe("completed");
 	expect(status.release).toBe("waiting-approval");
 	expect(status.land).toBe("pending");
 	expect(toolCalls).not.toContain("factory_land");
@@ -317,7 +322,7 @@ test("two coders run in parallel worktrees, pass gates and land only after a hum
 	const settled = await until(owner, dagId, (state) =>
 		state.nodes.every((node) => node.status === "completed"),
 	);
-	expect(settled.nodes).toHaveLength(6);
+	expect(settled.nodes).toHaveLength(7);
 	expect(toolCalls.filter((name) => name === "factory_land")).toHaveLength(1);
 	expect(await isReleaseApprovedByHuman(dagServiceFor(workspaceId), dagId, "release")).toBe(true);
 
@@ -892,13 +897,14 @@ test("the factory template validates ownership and exposes a hook before the rel
 	expect(definition.nodes.map((node) => node.id)).toEqual([
 		"a",
 		"gate-a",
+		"integrate",
 		"review",
 		"release",
 		"land",
 	]);
 	const release = definition.nodes.find((node) => node.id === "release");
 	expect(release?.approval?.authority).toBe("human");
-	expect(Object.keys(release?.inputs ?? {})).toEqual(["gate-a", "review"]);
+	expect(Object.keys(release?.inputs ?? {})).toEqual(["gate-a", "integrate", "review"]);
 	const prompt = definition.nodes.find((node) => node.id === "a")?.session?.systemPrompt;
 	expect(parseFactoryNode(prompt)).toEqual({ role: "coder", owns: [], avoid: [], retries: 2 });
 	expect(factoryInspector(["a"]).tools).toEqual([
@@ -1074,4 +1080,234 @@ test("the template writes a bounded, validated correction budget into every code
 	expect(budget(5)).toMatchObject({ retries: 5 });
 	for (const bad of [-1, 6, 1.5, Number.NaN])
 		expect(() => budget(bad)).toThrow("gateRetries must be a whole number");
+});
+
+test("the template gates the combined change: an integrate node between the gates and the release", () => {
+	expect(() =>
+		buildFactoryDefinition({
+			title: "t",
+			target: "main",
+			coders: [{ id: "integrate", task: "x" }],
+		}),
+	).toThrow("reserved");
+	const definition = buildFactoryDefinition({
+		title: "t",
+		target: "main",
+		coders: [
+			{ id: "a", task: "x", owns: ["src/a/**"] },
+			{ id: "b", task: "y", owns: ["src/b/**"] },
+		],
+		models: { integration: { model: { provider: "p", id: "scout" } } },
+	});
+	const byId = (id: string) => definition.nodes.find((node) => node.id === id);
+	const integrate = byId("integrate");
+	expect(parseFactoryNode(integrate?.session?.systemPrompt)).toEqual({
+		role: "integration",
+		sources: ["a", "b"],
+		target: "main",
+	});
+	expect(integrate?.session?.tools).toEqual([
+		"factory_report",
+		"factory_run_gates",
+		"factory_diff",
+	]);
+	expect(integrate?.session?.model).toEqual({ provider: "p", id: "scout" });
+	expect(Object.keys(integrate?.inputs ?? {})).toEqual(["gate-a", "gate-b"]);
+	expect(integrate?.outputs).toEqual({ report: { kind: "text" } });
+	expect(Object.keys(byId("release")?.inputs ?? {})).toEqual(["gate-a", "gate-b", "integrate"]);
+	const wired = (id: string) => definition.connections.some((connection) => connection.id === id);
+	expect(wired("gate-a-to-integrate") && wired("gate-b-to-integrate")).toBe(true);
+	expect(wired("integrate-to-release")).toBe(true);
+	expect(parseFactoryNode(byId("release")?.session?.systemPrompt)).toMatchObject({
+		role: "release",
+		integration: "integrate",
+	});
+	expect(parseFactoryNode(byId("land")?.session?.systemPrompt)).toMatchObject({
+		role: "land",
+		integration: "integrate",
+	});
+	expect(parseFactoryNode(factoryInspector(["a"], "integrate").systemPromptSuffix)).toEqual({
+		role: "inspector",
+		sources: ["a"],
+		integration: "integrate",
+	});
+	// Definitions written before the integration role keep parsing: the field is only enforced when present.
+	expect(
+		parseFactoryNode(
+			encodeFactoryNode({ role: "land", sources: ["a"], release: "release", target: "main" }),
+		),
+	).toEqual({ role: "land", sources: ["a"], release: "release", target: "main" });
+});
+
+/** a.txt and b.txt are each fine alone; the gate fails only when both exist and disagree. */
+const CONSISTENT_GATE =
+	"bun -e \"const fs = require('fs'); const read = (f) => fs.existsSync(f) ? fs.readFileSync(f, 'utf8').trim() : ''; const a = read('a.txt'); const b = read('b.txt'); process.exit(a && b && a !== b ? 1 : 0)\"";
+
+const SOURCES = ["coder-a", "coder-b"];
+const INTEGRATE = { sources: SOURCES, target: "main" };
+const LAND = { sources: SOURCES, release: "release", target: "main", integration: "integrate" };
+
+/** Two coders in their own worktrees, each with a passing per-coder gate record. */
+async function twoGatedCoders(contents: { a: string; b: string }, gate = PASSING_GATE) {
+	const repo = makeRepo(gate);
+	const run = unitRun(repo, { trusted: true, approved: true });
+	const a = await run.ensureWorktree("coder-a", { owns: ["a.txt"], avoid: [] });
+	const b = await run.ensureWorktree("coder-b", { owns: ["b.txt"], avoid: [] });
+	writeFileSync(join(a.path, "a.txt"), contents.a);
+	writeFileSync(join(b.path, "b.txt"), contents.b);
+	expect((await runFactoryGates(run, a)).ok).toBe(true);
+	expect((await runFactoryGates(run, b)).ok).toBe(true);
+	return { repo, run, a, b };
+}
+
+test("the combined gate passes on two disjoint coders and records exactly what it merged", async () => {
+	const { repo, run, a, b } = await twoGatedCoders({ a: "same\n", b: "same\n" }, CONSISTENT_GATE);
+	const record = await runIntegrationGates(run, "integrate", INTEGRATE);
+	expect(record.ok).toBe(true);
+	expect(record.commands.length).toBeGreaterThan(0);
+	expect(record.targetTip).toBe(git(repo, "rev-parse", "main").trim());
+	expect(record.sources).toEqual({
+		"coder-a": run.readGateRecord("coder-a")?.snapshot ?? "",
+		"coder-b": run.readGateRecord("coder-b")?.snapshot ?? "",
+	});
+	expect(git(repo, "rev-parse", `${record.combined}^{tree}`).trim()).toBe(record.tree);
+	expect(run.readIntegrationRecord("integrate")).toEqual(record);
+	// Nothing happened to the person's checkout, and no scratch checkout is left registered.
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+	expect(git(repo, "worktree", "list", "--porcelain")).not.toContain(".integration");
+	expect(existsSync(a.path) && existsSync(b.path)).toBe(true);
+});
+
+test("the combined gate fails when the merged tree breaks a gate that each branch passes", async () => {
+	const { repo, run } = await twoGatedCoders({ a: "one\n", b: "two\n" }, CONSISTENT_GATE);
+	const record = await runIntegrationGates(run, "integrate", INTEGRATE);
+	expect(record.ok).toBe(false);
+	expect(record.results.some((result) => !result.ok)).toBe(true);
+	expect(record.combined).not.toBe("");
+	expect(git(repo, "rev-parse", "main").trim()).toBe(record.targetTip);
+	await expect(landFactory(run, LAND)).rejects.toThrow("did not pass its gates");
+	expect(existsSync(join(repo, "a.txt"))).toBe(false);
+});
+
+test("a merge conflict between sources fails the combined gate with a plain reason", async () => {
+	const repo = makeRepo();
+	const run = unitRun(repo, { trusted: true, approved: true });
+	for (const [id, content] of [
+		["coder-a", "from a\n"],
+		["coder-b", "from b\n"],
+	] as const) {
+		const meta = await run.ensureWorktree(id, { owns: ["shared.txt"], avoid: [] });
+		writeFileSync(join(meta.path, "shared.txt"), content);
+		expect((await runFactoryGates(run, meta)).ok).toBe(true);
+	}
+	const record = await runIntegrationGates(run, "integrate", INTEGRATE);
+	expect(record.ok).toBe(false);
+	expect(record.reason).toContain("Merging coder-b into the combined change failed");
+	expect(record.results).toEqual([]);
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+});
+
+test("the combined gate fails closed without a fresh gate record, trust or a sandbox", async () => {
+	const { repo, run, a } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	writeFileSync(join(a.path, "a.txt"), "edited after its gates\n");
+	const stale = await runIntegrationGates(run, "integrate", INTEGRATE);
+	expect(stale.ok).toBe(false);
+	expect(stale.reason).toContain("coder-a has no fresh passing gate record");
+	expect(stale.reason).toContain("retry the integrate node");
+	expect((await runFactoryGates(run, a)).ok).toBe(true);
+	expect((await runIntegrationGates(run, "integrate", INTEGRATE)).ok).toBe(true);
+
+	const untrusted = unitRun(repo, { trusted: false });
+	expect((await runIntegrationGates(untrusted, "integrate", INTEGRATE)).reason).toContain(
+		"not trusted",
+	);
+
+	const caged = new FactoryRun({
+		workspaceId: "unit",
+		dagId: run.dagId,
+		cwd: repo,
+		worktreeRoot: run.options.worktreeRoot,
+		isTrusted: () => true,
+		releaseApproved: async () => true,
+		sandbox: {
+			kind: "missing",
+			availability: async () => ({ ok: false, reason: "No sandbox on this host." }),
+			launch: async () => {
+				throw new Error("must not run");
+			},
+		},
+	});
+	const refused = await runIntegrationGates(caged, "integrate", INTEGRATE);
+	expect(refused.ok).toBe(false);
+	expect(refused.reason).toBe("No sandbox on this host.");
+	expect(refused.results).toEqual([]);
+});
+
+test("landing with an integration node needs a passing record for exactly what it merges", async () => {
+	const { repo, run, a } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	await expect(landFactory(run, LAND)).rejects.toThrow("no gate record yet");
+
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	// A source gated again after a change is a different commit than the one integrated.
+	writeFileSync(join(a.path, "a.txt"), "changed\n");
+	expect((await runFactoryGates(run, a)).ok).toBe(true);
+	await expect(landFactory(run, LAND)).rejects.toThrow("does not cover what would land now");
+
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	// The target moved after the combined run.
+	writeFileSync(join(repo, "other.txt"), "other\n");
+	git(repo, "add", "-A");
+	git(repo, "commit", "-qm", "moved");
+	await expect(landFactory(run, LAND)).rejects.toThrow("main moved since the combined gate run");
+	expect(existsSync(join(repo, "a.txt"))).toBe(false);
+
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	expect(await landFactory(run, LAND)).toMatchObject([
+		{ node: "coder-a", status: "landed" },
+		{ node: "coder-b", status: "landed" },
+	]);
+	expect(lf(readFileSync(join(repo, "a.txt"), "utf8"))).toBe("changed\n");
+	expect(lf(readFileSync(join(repo, "b.txt"), "utf8"))).toBe("b\n");
+});
+
+test("a source set that differs from the combined run is refused", async () => {
+	const { run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	const first = run.readIntegrationRecord("integrate");
+	run.writeIntegrationRecord("integrate", {
+		...(first as NonNullable<typeof first>),
+		sources: { "coder-a": first?.sources["coder-a"] ?? "" },
+	});
+	await expect(landFactory(run, LAND)).rejects.toThrow("does not cover what would land now");
+});
+
+test("a landing that resumes after some sources landed accepts a target moved only by them", async () => {
+	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	// coder-a landed in an earlier attempt of this release.
+	await landFactory(run, { sources: ["coder-a"], release: "release", target: "main" });
+	expect(run.readMeta("coder-a")?.landed).toBe(true);
+	expect(await landFactory(run, LAND)).toMatchObject([
+		{ node: "coder-a", status: "already-landed" },
+		{ node: "coder-b", status: "landed" },
+	]);
+	expect(existsSync(join(repo, "b.txt"))).toBe(true);
+});
+
+test("a resumed landing is refused when the recorded target tip is not an ancestor of the target", async () => {
+	const { run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	const record = await runIntegrationGates(run, "integrate", INTEGRATE);
+	await landFactory(run, { sources: ["coder-a"], release: "release", target: "main" });
+	run.writeIntegrationRecord("integrate", { ...record, targetTip: record.combined });
+	await expect(landFactory(run, LAND)).rejects.toThrow("main moved since the combined gate run");
+});
+
+test("a land node of an older definition, without an integration, lands as before", async () => {
+	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	const old = { sources: SOURCES, release: "release", target: "main" };
+	expect(await landFactory(run, old)).toMatchObject([
+		{ node: "coder-a", status: "landed" },
+		{ node: "coder-b", status: "landed" },
+	]);
+	expect(existsSync(join(repo, "a.txt")) && existsSync(join(repo, "b.txt"))).toBe(true);
 });
