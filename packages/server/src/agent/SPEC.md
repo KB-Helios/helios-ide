@@ -1746,6 +1746,14 @@ beyond small host files next to the worktrees.
   only has a control connection into `release` also holds it. Give a reviewer read access to the worktrees with
   `factoryInspector(ctx.coders, ctx.integration)` (tools plus system-prompt suffix); it then reads the host's diff via
   `factory_diff` instead of copying one through a model.
+- **Diff coverage is never silent.** `factory_diff` gives every source its own share of the 256 KiB tool result
+  (`MAX_TEXT / sources`, at least 32 KiB), so one large change set cannot hide another, and a cut diff ends with a
+  `[truncated: showing N of M characters …]` note that names how to see the rest (`factory_diff` for that source alone,
+  `factory_read` for the remaining files). The result also carries a per-source `coverage` list. The host records
+  every source a diff was cut for (`diff-coverage.json` beside the DAG's records); `factory_report` returns them as
+  `reviewSawPartialDiffs` for nodes with those sources, the reviewer is told to read the rest and add an info
+  finding for anything it could not review, and the release summary leads with the partial coverage. Measured on
+  this repository (2026-11): about 1 in 20 commits alone exceeds 256 KiB of diff, so a several-coder run can.
 - **Combined (integration) gate.** Gates per coder branch cannot see two branches that each pass but break the
   target together. `factory_run_gates`, called by the `integrate` node (role `integration`: `sources`, `target`),
   builds the combined change on the host (`integrationTools.ts`, `combineCommits` in `landTools.ts`): a throwaway

@@ -266,7 +266,7 @@ export function buildFactoryDefinition(plan: FactoryPlan): DagDefinition {
 			RELEASE_NODE,
 			{ role: "release", sources: ids.coders, integration: INTEGRATE_NODE },
 			`You prepare the release summary for a human reviewer. ${WORKTREE_RULES}`,
-			`Call factory_report, then submit output \`summary\` (text): per change set the changed files, the diff stat and the gate verdict, and the combined change's gate verdict, exactly as the host reports them.`,
+			`Call factory_report, then submit output \`summary\` (text): per change set the changed files, the diff stat and the gate verdict, and the combined change's gate verdict, exactly as the host reports them. When the report lists reviewSawPartialDiffs, say first that the review saw only part of those change sets.`,
 			{
 				inputs: {
 					...Object.fromEntries(ids.gates.map((gate) => [gate, { kind: "text" as const }])),

@@ -48,6 +48,7 @@ export function factoryReviewHook(
 			task: [
 				`Review the combined change of ${context.coders.length} parallel coder(s): ${context.coders.join(", ")}.`,
 				"Use factory_report for the gate verdicts and the combined change's gate verdict, and factory_diff for each change set; open files with factory_read only for context.",
+				"factory_diff never cuts silently: a cut diff ends with a [truncated: ...] note. When you see one, read the rest of that change set's files with factory_read, and add an info finding naming any part you could not review.",
 				options.focus ? `Focus: ${options.focus}` : "",
 				`Submit exactly one output, \`${FINDINGS_PORT}\`, as {kind:'json'} with this shape:`,
 				'{"findings":[{"severity":"critical|high|medium|low|info","file":"path/relative/to/repo","summary":"one concrete sentence"}]}',

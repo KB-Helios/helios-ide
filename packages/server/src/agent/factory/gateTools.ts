@@ -5,7 +5,14 @@ import { Type } from "typebox";
 import { boundFor, integrationOf, sourcesOf, sourceWorktree, toolResult } from "./access";
 import { CHANGED_DEFINITIONS, definitionDrift, executeGates } from "./gateExec";
 import { integrationStatus, runIntegrationGates } from "./integrationTools";
-import { clip, type FactoryRun, type GateRecord, type WorktreeMeta } from "./run";
+import {
+	clipDiff,
+	type FactoryRun,
+	type GateRecord,
+	MAX_TEXT,
+	MIN_DIFF_SHARE,
+	type WorktreeMeta,
+} from "./run";
 import { contentTree, snapshotCommit, snapshotFiles, treeFiles, treeStat } from "./snapshot";
 import { FACTORY_TOOL, isProtectedBasename } from "./spec";
 
@@ -123,12 +130,25 @@ export function registerGateTools(pi: ExtensionAPI, run: FactoryRun): void {
 		async execute(_id, args, _signal, _update, ctx) {
 			const bound = boundFor(run, ctx, FACTORY_TOOL.diff);
 			const ids = args.source ? [args.source] : sourcesOf(bound);
+			// Each source gets its own share, so one large change set can never hide the others, and every cut
+			// says so in the text itself; the cut sources are recorded for the release and review reports.
+			const share = Math.max(MIN_DIFF_SHARE, Math.floor(MAX_TEXT / ids.length));
 			const parts: string[] = [];
+			const coverage: { node: string; shown: number; total: number; truncated: boolean }[] = [];
 			for (const nodeId of ids) {
 				const meta = sourceWorktree(run, bound, nodeId);
-				parts.push(`### ${nodeId}\n${(await run.diff(meta)).patch}`);
+				const cut = clipDiff(nodeId, (await run.diff(meta)).patch, share);
+				parts.push(`### ${nodeId}\n${cut.text}`);
+				coverage.push({
+					node: nodeId,
+					shown: cut.shown,
+					total: cut.total,
+					truncated: cut.truncated,
+				});
 			}
-			return toolResult(clip(parts.join("\n")));
+			const partial = coverage.filter((entry) => entry.truncated).map((entry) => entry.node);
+			run.notePartialDiffs(partial);
+			return toolResult({ text: parts.join("\n"), truncated: partial.length > 0, coverage });
 		},
 	});
 
@@ -194,8 +214,10 @@ export function registerGateTools(pi: ExtensionAPI, run: FactoryRun): void {
 				}),
 			);
 			const integration = integrationOf(bound);
+			const partialDiffs = run.readPartialDiffs().filter((id) => sourcesOf(bound).includes(id));
 			return toolResult({
 				sources,
+				...(partialDiffs.length ? { reviewSawPartialDiffs: partialDiffs } : {}),
 				...(integration
 					? { integration: await integrationStatus(run, integration, sourcesOf(bound)) }
 					: {}),
