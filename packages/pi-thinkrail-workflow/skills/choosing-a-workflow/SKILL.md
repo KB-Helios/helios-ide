@@ -1,6 +1,6 @@
 ---
 name: choosing-a-workflow
-description: "Use at the start of new project onboarding, PR lifecycle work including PR checks, or any change to what the product does — a feature, a behavior change, or a bug fix. Not for continuing work already routed to a workflow, non-PR questions, checks, explanations, or edits that change no behavior."
+description: "Use at the start of new project onboarding, PR lifecycle work including PR checks, or any change to what the product does — a feature, a behavior change, or a bug fix — and when choosing how to split large work across agents. Not for continuing work already routed to a workflow, non-PR questions, checks, explanations, or edits that change no behavior."
 ---
 
 # Choosing a Workflow
@@ -42,6 +42,21 @@ If the route is genuinely ambiguous from the request alone, ask one short clarif
 One route per piece of work. If a request bundles unfinished implementation with PR work, route the
 implementation first and return to **shipping-a-pr** only after it lands.
 
+## Fan out — large work that splits into independent parts
+
+Not a fourth classification: it applies once the design of a behavior change is settled (**brainstorming**
+runs first) or when the user asks how to split work across agents. Pick by what the parts do:
+
+| The parts are | Use |
+|---|---|
+| Read-only: surveys, searches, reviews, analyses | Subagents (the `Agent` tool), one per independent question; no workflow |
+| Implementation the user wants to steer in chat, with members coordinating on a shared board | Suggest `/swarm <task>`, which the user types; a remote agent from `a2a.json` can join (`a2a_agents`, `a2a_send`) |
+| Implementation that must be gated, reviewed independently and released by a person | Read and follow **running-a-factory** |
+| Not independent: shared files, one part needs another's output | None: build serially |
+
+A factory run is started and released by a person in the app, never by you. Never split work across
+mechanisms to avoid its review or release step.
+
 ## Red flags — stop and re-route
 
 - You started implementing a feature, behavior change, or bug fix without going through
@@ -50,10 +65,12 @@ implementation first and return to **shipping-a-pr** only after it lands.
   scales down, it does not switch off.
 - You loaded **brainstorming** for work that changes no behavior (a rename, a typo, a question).
 - You re-entered this router while continuing work already assigned to a workflow.
+- You fanned work out before its design was settled, or built a factory DAG yourself instead of handing
+  a plan to the person.
 - You are following a routed skill's steps from memory instead of reading that skill.
 
 ## Handoff
 
 This skill ends by naming exactly one of: **setting-up-a-project**, **shipping-a-pr**,
-**brainstorming**, or **no matching workflow** (proceed directly). Adding a workflow to the family
+**brainstorming**, **running-a-factory** (fan-out only), or **no matching workflow** (proceed directly). Adding a workflow to the family
 adds a row to the table above — see the **writing-workflow-skills** skill.
