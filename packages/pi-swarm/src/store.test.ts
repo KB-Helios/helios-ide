@@ -460,6 +460,36 @@ test("a member removed while its resume creates the child stays removed", async 
 	await swarm.dispose();
 });
 
+test("a swarm that finishes while a resume creates the child closes that child", async () => {
+	const stored = stateOf(
+		[member("scout", { kind: "scout", brief: { task: "Look", owns: [], avoid: [] } })],
+		{ config: { ...config, isolation: "shared" } },
+	);
+	const swarm = Swarm.restore(stored, deps());
+	const resuming = swarm.resume("scout");
+	const disposing = swarm.dispose();
+	await expect(resuming).rejects.toThrow("This swarm has finished.");
+	await disposing;
+	// No child is left behind for the finished swarm.
+	expect((swarm as unknown as { handles: Map<string, unknown> }).handles.size).toBe(0);
+});
+
+test("a post to a restored A2A member waits for swarm_resume instead of starting remote work", async () => {
+	const stored = stateOf([
+		member("remote", { kind: "a2a", a2a: { agent: "x" }, status: "paused" }),
+	]);
+	// resolveA2A throws in these deps: a dispatch would replace the restore message with its own error.
+	const swarm = Swarm.restore(stored, deps());
+	swarm.post("coordinator", "hello", "message", ["remote"]);
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	const remote = swarm.board.require("remote");
+	expect(remote.error).toContain("swarm_resume starts a fresh one");
+	expect(remote.status).toBe("paused");
+	expect(remote.restored).toBe(true);
+	expect(remote.readCursor).toBe(0);
+	await swarm.dispose();
+});
+
 test("a restored shared-tree member is re-attached without a worktree", async () => {
 	mkdirSync(join(repo, "src"), { recursive: true });
 	const stored = stateOf(

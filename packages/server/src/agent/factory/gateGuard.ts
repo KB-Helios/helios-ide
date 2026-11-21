@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { CHANGED_DEFINITIONS } from "./gateExec";
 import { runFactoryGates } from "./gateTools";
-import { integrationStatus, runIntegrationGates } from "./integrationTools";
+import { integrationStatus, runIntegrationGates, targetTipOf } from "./integrationTools";
 import type { FactoryRun, GateRecord, IntegrationRecord } from "./run";
 import { contentTree } from "./snapshot";
 import { GATE_OUTPUT } from "./template";
@@ -83,7 +83,13 @@ export function registerGateGuard(pi: ExtensionAPI, run: FactoryRun): void {
 			try {
 				const { sources } = bound.node;
 				let record = run.readIntegrationRecord(bound.nodeId);
-				if (!record || !(await integrationStatus(run, bound.nodeId, sources)).fresh)
+				// Fresh means it still covers the same sources on the same target tip it was built on.
+				const tip = await targetTipOf(run, bound.node.target);
+				if (
+					!record ||
+					record.targetTip !== tip ||
+					!(await integrationStatus(run, bound.nodeId, sources)).fresh
+				)
 					record = await runIntegrationGates(run, bound.nodeId, bound.node, ctx.signal);
 				verdict = formatIntegrationVerdict(record);
 			} catch (error) {

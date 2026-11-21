@@ -1775,15 +1775,15 @@ beyond small host files next to the worktrees.
   sources already landed in this release (a resumed landing) the target must be exactly at the last recorded
   `landedTip` (which must descend from `targetTip`), so a commit from anywhere else is refused, and every remaining
   source must match. A landing whose host stopped after the ref update but before its record finds the target at
-  `landing.to`: it finishes that source without a second merge (bringing the checkout along when its index still
-  holds the old tip) and continues; at `landing.from` the intent is dropped and the source lands normally; anywhere
+  `landing.to`: it finishes that source without a second merge (bringing the checkout along as a normal landing
+  does; staged changes to other files are kept, and a landed file the person changed refuses) and continues; at `landing.from` the intent is dropped and the source lands normally; anywhere
   else it is refused. Each merge is made on the tip the previous one produced (the first on `targetTip`): the ref
   compare-and-swap protects the tested base, and a tip that is not the expected one refuses before any merge.
   A source's snapshot re-checked at landing must be the one the combined record holds. A refusal says to retry the
   integrate node. The reviewer takes the integration report as its only input instead of each gate report, since
   `integrate` already waits for every gate; its inspector marker names the node, so its `factory_report` carries
   both verdicts. The integrate node's own output is the host's verdict: the guard on `dag_submit_result` makes
-  sure a fresh record exists (running the combined gates if the node did not) and replaces the submitted outputs
+  sure a fresh record exists (same sources on the same target tip; the combined gates run if the node did not or if either moved) and replaces the submitted outputs
   with it, so text the model wrote can never reach the release.
 - **Gate retries (bounded, host-enforced).** `gateGuard.ts` registers a `tool_call` guard on the factory worker
   extension. When a coder tries `dag_submit_result`, the host runs the project's declared gates in the coder's

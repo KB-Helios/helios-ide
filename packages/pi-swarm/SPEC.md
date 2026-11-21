@@ -115,8 +115,9 @@ The embedder injects a `SwarmStore` per parent session; pi-swarm never chooses a
   worktree (never a new one) with its definition, kind and model, told that the host restarted, to inspect its
   worktree and carry on, plus the posts it had not read. Its earlier conversation is gone; its files and the
   board are not. A2A members resume by sending the stored task/context ids to the remote agent. A post to a
-  restored member waits unread until it is resumed (`swarm_post` says so). A member removed while its resume is
-  still creating the child stays removed: the resume refuses and closes the late child. The coordinator chat's own history is
+  restored member waits unread until it is resumed (`swarm_post` says so). A member whose removal has started, or that was removed, while its resume is
+  still creating the child stays removed, and a swarm that finishes meanwhile is finished: the resume refuses
+  and closes the late child. A post to a restored member never starts it (A2A included): only `swarm_resume` does. The coordinator chat's own history is
   pi's session and needs nothing here.
 
 ## Boundary

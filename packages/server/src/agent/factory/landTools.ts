@@ -386,8 +386,8 @@ async function assertIntegrated(
 
 /**
  * Brings the person's checkout along for a target update that completed without its sync (the host stopped
- * between the ref update and the sync): only when HEAD is on the target and the index still holds the old
- * tip, and with the same refusal to overwrite as the normal sync.
+ * between the ref update and the sync): only when HEAD is on the target, and with the same refusal to
+ * overwrite as the normal sync. Staged changes to other files are kept.
  */
 async function resyncCheckout(
 	repo: string,
@@ -399,8 +399,9 @@ async function resyncCheckout(
 		const env = { GIT_INDEX_FILE: index };
 		const head = (await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim();
 		if (head !== ref) return false;
-		// An index that already holds the landed commit, or that the person changed since, is left alone.
-		if ((await git(repo, ["diff", "--cached", "--quiet", move.from], env)).code !== 0) return false;
+		// No check of the index against the old tip: a two-way read-tree keeps staged changes to files the landing
+		// does not touch, accepts an index that already holds the landed commit, and refuses (below) rather than
+		// overwrite anything the person changed in a landed file.
 		const synced = await git(repo, ["read-tree", "-m", "-u", move.from, move.to], env);
 		if (synced.code !== 0)
 			throw new Error(

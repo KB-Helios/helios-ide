@@ -132,6 +132,16 @@ export function runIntegrationGates(
 	});
 }
 
+/** The target branch's current tip, or "" when it does not exist. */
+export async function targetTipOf(run: FactoryRun, target: string): Promise<string> {
+	const resolved = await runCommand(
+		"git",
+		["rev-parse", "--verify", "-q", `refs/heads/${target}^{commit}`],
+		{ cwd: await run.repo() },
+	);
+	return resolved.code === 0 ? resolved.stdout.trim() : "";
+}
+
 /** What the host's report says about the combined gate record: its verdict and whether it still covers the sources. */
 export async function integrationStatus(run: FactoryRun, nodeId: string, sources: string[]) {
 	const record = run.readIntegrationRecord(nodeId);

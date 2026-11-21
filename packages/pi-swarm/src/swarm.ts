@@ -141,6 +141,8 @@ export class Swarm {
 	private disposed = false;
 	private persistQueued = false;
 	private readonly resuming = new Set<string>();
+	/** Members whose remove() is under way: a resume that is creating its child must not outlive it. */
+	private readonly removing = new Set<string>();
 
 	readonly config: SwarmConfig;
 	private readonly deps: SwarmDeps;
@@ -295,6 +297,9 @@ export class Swarm {
 		for (const name of names) {
 			const member = this.board.get(name);
 			if (!member || member.status === "killed" || this.disposed) continue;
+			// A restored member waits for swarm_resume, which consumes its posts and starts it; a post alone
+			// must never start remote work after a host restart.
+			if (member.restored) continue;
 			if (member.kind === "a2a" ? member.status === "active" : !this.handles.has(name)) continue;
 			const unread = this.board.takeUnread(name);
 			if (unread.length === 0) continue;
@@ -702,6 +707,9 @@ export class Swarm {
 			if (isTask(result)) {
 				state.taskId = result.id;
 				state.contextId = result.contextId;
+				// Persist the accepted task before waiting: a host stop during the wait must not lose it, or a
+				// resume would start separate remote work instead of addressing this task.
+				this.changed();
 				if (!settled(result)) result = await client.waitForTask(result);
 				if (settled(result) && result.status.state !== "input-required") delete state.taskId;
 			} else if (result.contextId) state.contextId = result.contextId;
@@ -761,6 +769,15 @@ export class Swarm {
 	async remove(name: string, force = false): Promise<string> {
 		const member = this.board.require(name);
 		if (member.status === "killed") return `@${member.name} was already removed.`;
+		this.removing.add(member.name);
+		try {
+			return await this.removeMember(member, force);
+		} finally {
+			this.removing.delete(member.name);
+		}
+	}
+
+	private async removeMember(member: Member, force: boolean): Promise<string> {
 		const child = this.handles.get(member.name);
 		await child?.abort("removed").catch(() => {});
 		await this.runs.get(member.name);
@@ -799,7 +816,8 @@ export class Swarm {
 	async resume(name: string): Promise<string> {
 		this.assertRunning();
 		const member = this.board.require(name);
-		if (member.status === "killed") throw new Error(`@${member.name} was removed.`);
+		if (member.status === "killed" || this.removing.has(member.name))
+			throw new Error(`@${member.name} was removed.`);
 		if (member.status === "active" || this.resuming.has(member.name))
 			return `@${member.name} is already working.`;
 		if (member.worktreeMissing)
@@ -819,18 +837,20 @@ export class Swarm {
 					...(member.model ? { model: member.model } : {}),
 					isolation: member.worktree ? "worktree" : "shared",
 				});
-			if (this.disposed || this.status !== "running") throw new Error("This swarm has finished.");
-			// Read through the board: remove() may have changed the status during the awaits above.
-			if (this.board.require(member.name).status === "killed") {
-				// remove() ran while the child was being created and found no child to stop: close the late one
-				// here, and never let startRun() bring a removed member back to life.
+			// The swarm may have finished, or the member may have been removed (remove() sets `removing` first and
+			// `killed` later), while the child was being created: close that late child here, and never let
+			// startRun() bring a removed member back to life.
+			const finished = this.disposed || this.status !== "running";
+			const removed =
+				this.removing.has(member.name) || this.board.require(member.name).status === "killed";
+			if (finished || removed) {
 				const late = this.handles.get(member.name);
 				this.handles.delete(member.name);
 				if (late) {
 					forgetMember(late.sessionId);
 					await late.dispose().catch(() => {});
 				}
-				throw new Error(`@${member.name} was removed.`);
+				throw new Error(finished ? "This swarm has finished." : `@${member.name} was removed.`);
 			}
 			const wasRestored = member.restored === true;
 			delete member.restored;

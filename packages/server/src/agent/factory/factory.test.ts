@@ -1366,6 +1366,50 @@ test("a landing that stopped right after its target update finishes on retry", a
 	expect(git(repo, "status", "--porcelain").trim()).toBe("");
 });
 
+test("recovering a stopped landing keeps unrelated staged changes and still syncs the landed files", async () => {
+	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	await runIntegrationGates(run, "integrate", INTEGRATE);
+	await expect(
+		landFactory(run, LAND, {
+			afterRefUpdate: async () => {
+				throw new Error("host stopped");
+			},
+		}),
+	).rejects.toThrow("host stopped");
+	// The person staged an unrelated file before the retry.
+	writeFileSync(join(repo, "mine.txt"), "mine\n");
+	git(repo, "add", "mine.txt");
+
+	await landFactory(run, LAND);
+	expect(lf(readFileSync(join(repo, "a.txt"), "utf8"))).toBe("a\n");
+	expect(lf(readFileSync(join(repo, "b.txt"), "utf8"))).toBe("b\n");
+	// Only their own staged file differs from HEAD: the landed files are not shown as reversed.
+	expect(git(repo, "diff", "--cached", "--name-status").trim()).toBe("A\tmine.txt");
+	expect(readFileSync(join(repo, "mine.txt"), "utf8")).toBe("mine\n");
+});
+
+test("the integration guard reruns the combined gates when the target moved since the record", async () => {
+	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
+	const first = await runIntegrationGates(run, "integrate", INTEGRATE);
+	run.bind("integ", { nodeId: "integrate", node: { role: "integration", ...INTEGRATE } });
+	const submit = async () => {
+		const input = { outputs: { report: { kind: "text", text: "ok" } } };
+		await guardHandler(run)("dag_submit_result", "integ", input);
+		return input.outputs.report as { text: string };
+	};
+	// Still fresh: the record is reused as it is.
+	await submit();
+	expect(run.readIntegrationRecord("integrate")?.ranAt).toBe(first.ranAt);
+
+	writeFileSync(join(repo, "other.txt"), "other\n");
+	git(repo, "add", "-A");
+	git(repo, "commit", "-qm", "moved");
+	await submit();
+	const rerun = run.readIntegrationRecord("integrate");
+	expect(rerun?.targetTip).toBe(git(repo, "rev-parse", "main").trim());
+	expect(rerun?.targetTip).not.toBe(first.targetTip);
+});
+
 test("a merge is made only on the tip the combined gates tested", async () => {
 	const repo = makeRepo();
 	const sha = featureCommit(repo, "f.txt", "feature\n");
