@@ -7,7 +7,7 @@ import {
 import { useT } from "@thinkrail/locales/react";
 import { Button } from "@thinkrail/ui/button";
 import { useRef, useState } from "react";
-import { historyTarget } from "./factoryModel";
+import { artifactImageSrc, historyTarget } from "./factoryModel";
 
 type T = ReturnType<typeof useT>;
 
@@ -101,7 +101,7 @@ export function FactoryHistory({ load }: { load: (cursor?: string) => Promise<Da
 
 /**
  * One step's named outputs: pick a name to read it from the host. The text is bounded by the host, which
- * says when it cut it; a file output is only described, never opened here.
+ * says when it cut it; a file output shows the host's preview (text, a small image, or name and size).
  */
 export function NodeOutput({
 	nodeId,
@@ -160,9 +160,7 @@ export function NodeOutput({
 			{shown && !failed && view ? (
 				<>
 					{view.kind === "artifact" ? (
-						<span className="tr-text-metadata text-text-muted" data-testid="factory-output-text">
-							{t("factory.output.artifact", { size: view.sizeBytes })}
-						</span>
+						<ArtifactOutput view={view} />
 					) : (
 						<pre
 							className="max-h-[24vh] overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border-default bg-container-header-bg px-8 py-4 tr-code-text-small text-text-default"
@@ -182,5 +180,52 @@ export function NodeOutput({
 				</>
 			) : null}
 		</span>
+	);
+}
+
+/**
+ * An artifact output: a host older than v137 sends the size only, a newer one adds the file name, its
+ * media type and, when small enough, the text (the same bounded block as a text output) or an inline
+ * image. Anything else is described by name and size.
+ */
+function ArtifactOutput({ view }: { view: DagOutputView }) {
+	const t = useT();
+	const artifact = view.artifact;
+	if (!artifact)
+		return (
+			<span className="tr-text-metadata text-text-muted" data-testid="factory-output-text">
+				{t("factory.output.artifact", { size: view.sizeBytes })}
+			</span>
+		);
+	const src = artifactImageSrc(view);
+	return (
+		<>
+			<span className="tr-text-metadata text-text-muted" data-testid="factory-output-file">
+				{t("factory.output.file", {
+					name: artifact.name,
+					type: artifact.mediaType,
+					size: view.sizeBytes,
+				})}
+			</span>
+			{src ? (
+				<img
+					src={src}
+					alt={t("factory.output.imageAlt", { name: artifact.name })}
+					className="max-h-[24vh] max-w-full self-start rounded-sm border border-border-default object-contain"
+					data-testid="factory-output-image"
+				/>
+			) : view.text === undefined ? (
+				<span className="tr-text-metadata text-text-muted" data-testid="factory-output-text">
+					{t("factory.output.noPreview")}
+				</span>
+			) : (
+				<pre
+					className="max-h-[24vh] overflow-auto whitespace-pre-wrap break-words rounded-sm border border-border-default bg-container-header-bg px-8 py-4 tr-code-text-small text-text-default"
+					data-testid="factory-output-text"
+				>
+					{view.text}
+				</pre>
+			)}
+		</>
 	);
 }

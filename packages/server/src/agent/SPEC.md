@@ -1568,9 +1568,20 @@ execution context as `dag.execute`, and always create the DAG **paused**.
 and projects each row to a manifest: kind, version, time, the caller **kind** (never an id) and target. The event
 content and its captured files stay in storage. `dag.output` (`readWorkspaceOutput`) reads one declared output of
 the node's current proposal through `getOutput`: the name must be in the node's declared outputs, the file is read
-head-only up to `DAG_OUTPUT_MAX_BYTES` (a larger one is cut and flagged `truncated`), an `artifact` output reports
-only its size, and no path is ever returned. `toDagView` adds `outputs` for nodes that already submitted. Tests:
-`dagWire.test.ts`.
+head-only up to `DAG_OUTPUT_MAX_BYTES` (a larger one is cut and flagged `truncated`), and no path is ever returned.
+`toDagView` adds `outputs` for nodes that already submitted. An `artifact` output is a **preview** built by
+`dagArtifact.ts` (`previewArtifact`) from pi-dag's captured payload, the file `getOutput` issues, never a path a model
+supplied: the whole payload (at most pi-dag's 16 MiB value quota) is streamed once and its size and SHA-256 are
+checked against the stored identity, so a missing, resized or altered payload fails `RESOURCE_UNAVAILABLE` and shows
+nothing. `artifact.name` is only the base name of the path the worker submitted (pi-dag keeps it as the value
+preview; control characters stripped, at most 255 characters), a label that is never opened. The media type is decided
+here: a png, jpeg, gif or webp **signature** wins, then the extension for text-like types (unknown extensions with
+no NUL byte in the first 8 KiB are `text/plain`), else `application/octet-stream`. Content: text-like files return up
+to `DAG_OUTPUT_MAX_BYTES` as `text` (`truncated` when cut); an image of at most `DAG_OUTPUT_IMAGE_MAX_BYTES`
+(2 MiB) returns `artifact.imageBase64`; a larger image, a binary file and SVG (never inlined as an image, shown as
+text) return metadata or text only. There is no separate download read: a whole-file transfer does not fit the
+bounded-JSON wire (it would need the binary-route pattern the image store uses) and is left out. Tests:
+`dagWire.test.ts` (text, image, image over the cap, text over the bound, binary, hash mismatch, no path in the wire).
 
 ### Live progress push
 

@@ -882,6 +882,21 @@ export interface DagOutputView {
 	sizeBytes: number;
 	text?: string;
 	truncated: boolean;
+	/** Present for an `artifact` output on a host that serves artifact previews (v137). */
+	artifact?: DagArtifactView;
+}
+
+/**
+ * What a person sees of an `artifact` output: its file name (a base name, never a host path), a media
+ * type the host decided, and the content when it is small enough to show. Text-like content is in
+ * `DagOutputView.text` (at most `DAG_OUTPUT_MAX_BYTES`, `truncated` says so); an image of at most
+ * `DAG_OUTPUT_IMAGE_MAX_BYTES` is `imageBase64`; anything else is described only.
+ */
+export interface DagArtifactView {
+	name: string;
+	mediaType: string;
+	/** Base64 of the whole file; only for png, jpeg, gif and webp within `DAG_OUTPUT_IMAGE_MAX_BYTES`. */
+	imageBase64?: string;
 }
 
 /** The model roles of a factory run. */
@@ -950,6 +965,8 @@ export interface DagStartResult {
 
 /** The most output text `dag.output` returns. */
 export const DAG_OUTPUT_MAX_BYTES = 64 * 1024;
+/** The largest image `dag.output` inlines as base64 (larger images are described only). */
+export const DAG_OUTPUT_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 /** The most history items one `dag.history` page returns. */
 export const DAG_HISTORY_MAX_PAGE = 50;
 

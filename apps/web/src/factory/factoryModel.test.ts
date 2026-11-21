@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { DagReviewView } from "@thinkrail/contracts";
 import {
+	artifactImageSrc,
 	bySeverity,
 	dagActions,
 	dependsOn,
@@ -257,4 +258,30 @@ test("a release gate shows the findings of the reviewer that feeds it", () => {
 	expect(reviewForGate(target("release"), dag, { review })).toBe(review);
 	expect(reviewForGate(target("land"), dag, { review })).toBeUndefined();
 	expect(reviewForGate(target("release"), { edges: [] }, { review })).toBeUndefined();
+});
+
+test("an artifact image is inlined only for the host's raster types and plain base64", () => {
+	const view = (artifact: { name: string; mediaType: string; imageBase64?: string }) => ({
+		nodeId: "n",
+		name: "result",
+		proposalId: "p",
+		disposition: "pending" as const,
+		kind: "artifact" as const,
+		sizeBytes: 4,
+		truncated: false,
+		artifact,
+	});
+	expect(
+		artifactImageSrc(view({ name: "a.png", mediaType: "image/png", imageBase64: "AAAA" })),
+	).toBe("data:image/png;base64,AAAA");
+	expect(artifactImageSrc(view({ name: "a.png", mediaType: "image/png" }))).toBeNull();
+	expect(
+		artifactImageSrc(view({ name: "a.svg", mediaType: "image/svg+xml", imageBase64: "AAAA" })),
+	).toBeNull();
+	expect(
+		artifactImageSrc(view({ name: "a.png", mediaType: "image/png", imageBase64: '"><script>' })),
+	).toBeNull();
+	expect(
+		artifactImageSrc({ ...view({ name: "a", mediaType: "text/plain" }), kind: "text" }),
+	).toBeNull();
 });

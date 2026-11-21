@@ -2,6 +2,7 @@ import type {
 	DagGateView,
 	DagHistoryItem,
 	DagNodeStatus,
+	DagOutputView,
 	DagQueueView,
 	DagReviewSeverity,
 	DagReviewView,
@@ -256,4 +257,25 @@ export function reviewForGate(
 		if (upstream) return upstream;
 	}
 	return undefined;
+}
+
+const INLINE_IMAGE_TYPES: ReadonlySet<string> = new Set([
+	"image/png",
+	"image/jpeg",
+	"image/gif",
+	"image/webp",
+]);
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * The `src` for an artifact output's inline image, or `null` when there is none to show. Only the four
+ * raster types the host inlines are accepted and the payload must be plain base64, so nothing else
+ * (SVG, a script-bearing type, a malformed value) is ever turned into a data URL.
+ */
+export function artifactImageSrc(view: DagOutputView): string | null {
+	const artifact = view.artifact;
+	if (view.kind !== "artifact" || !artifact?.imageBase64) return null;
+	if (!INLINE_IMAGE_TYPES.has(artifact.mediaType) || !BASE64.test(artifact.imageBase64))
+		return null;
+	return `data:${artifact.mediaType};base64,${artifact.imageBase64}`;
 }
