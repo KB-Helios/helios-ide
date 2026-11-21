@@ -1489,7 +1489,20 @@ owner, over the same workspace `DelegationService`, with worktrees under
 `canDeliverCompletion`. Members are ordinary delegation children (they count against the per-chat
 subagent limit and appear in the roster); `swarmMemberExtension` is in the curated child set so only
 members get board tools. `onChange` publishes the full snapshot on `swarm.changed`; `swarm.get` and
-`swarm.diff` read it. The owner is disposed with the session's resources. Board state is in memory.
+`swarm.diff` read it. The owner is disposed with the session's resources.
+
+The board is durable (pi-swarm "Durability"). `swarmFor` injects a file store at
+`<dataDir>/swarms/<workspaceId>/<sessionId>.json` (written atomically; an id that is not a plain workspace or
+pi session id gets no store). A stored board is restored **paused** when its chat's session starts again
+(`session_start`, so `swarm.get` and the pane show it once the chat is open): no member turn and no
+coordinator turn is started by the restore, members whose worktree vanished are marked, and the person resumes
+members through the coordinator chat (`swarm_resume`, which starts fresh children in the existing worktrees). The
+pane stays read-only. Store failures are logged (`swarm` scope), never fatal. `removeWorkspaceSwarm` (archive,
+after `removeWorkspaceDag`, before `removeWorkspaceDelegation`) deletes the workspace's boards and
+`trashWorkspaceSwarm` (deleting a chat without a project, after `trashWorkspaceDag`, before
+`trashWorkspaceDelegation`) trashes them. Both run inside `closeWorkspaceSessions`' teardown, after every owner
+was disposed (its last write), so no owner writes a board back. Worktrees and branches under
+`swarm-worktrees` are not touched by either.
 
 ## DAG owner
 

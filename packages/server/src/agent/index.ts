@@ -159,6 +159,7 @@ export {
 	readSwarmMemberDiff,
 	setSwarmPublisher,
 	swarmFor,
+	trashWorkspaceSwarm,
 } from "./swarm";
 export {
 	SET_TITLE_TOOL_NAME,

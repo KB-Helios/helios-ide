@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import {
 	A2AClient,
 	type A2AEndpoint,
@@ -32,8 +33,16 @@ import {
 	run,
 	worktreeDiff,
 } from "./git.ts";
-import { MEMBER_TOOLS, memberBridge, reviewTask, reviewVerdict, wakePrompt } from "./prompts.ts";
+import {
+	MEMBER_TOOLS,
+	memberBridge,
+	resumePrompt,
+	reviewTask,
+	reviewVerdict,
+	wakePrompt,
+} from "./prompts.ts";
 import { forgetMember, rememberMember } from "./registry.ts";
+import { SWARM_STATE_VERSION, type SwarmState, type SwarmStore } from "./store.ts";
 
 export type Isolation = "worktree" | "shared";
 
@@ -75,6 +84,10 @@ export interface SwarmDeps {
 	onChange: (snapshot: SwarmSnapshot) => void;
 	monitorDelayMs?: number;
 	fetch?: typeof fetch;
+	/** Where the board is kept so it survives a host restart; without one it lives in memory only. */
+	store?: SwarmStore;
+	/** A board write failed; the swarm keeps running and retries on its next change. */
+	onStoreError?: (error: unknown) => void;
 }
 
 export interface AddMemberInput {
@@ -102,14 +115,18 @@ run the project's tests, typecheck and linters against the landed result, and co
 were not weakened or deleted. Report each problem to the member that wrote the code with @name and
 the exact failing command and output. Never fix other members' code yourself.`;
 
+function formatPostsOrEmpty(posts: readonly Post[]): string {
+	return posts.length ? formatPosts(posts) : "";
+}
+
 function isKilled(member: Member): boolean {
 	return member.status === "killed";
 }
 
 export class Swarm {
-	readonly id = crypto.randomUUID();
+	readonly id: string;
 	readonly board = new Board();
-	readonly createdAt = new Date().toISOString();
+	readonly createdAt: string;
 	status: "running" | "finished" = "running";
 	summary?: string;
 	private readonly handles = new Map<string, ChildHandle>();
@@ -122,16 +139,101 @@ export class Swarm {
 	private readonly runs = new Map<string, Promise<void>>();
 	private readonly maxTurns = new Map<string, number>();
 	private disposed = false;
+	private persistQueued = false;
+	private readonly resuming = new Set<string>();
 
 	readonly config: SwarmConfig;
 	private readonly deps: SwarmDeps;
 
-	constructor(config: SwarmConfig, deps: SwarmDeps) {
+	/** With `restored`, rebuilds a stored board paused: no member runs until it is resumed. */
+	constructor(config: SwarmConfig, deps: SwarmDeps, restored?: SwarmState) {
 		this.config = config;
 		this.deps = deps;
+		this.id = restored?.id ?? crypto.randomUUID();
+		this.createdAt = restored?.createdAt ?? new Date().toISOString();
 		if (config.isolation === "worktree" && !deps.repo)
 			throw new Error('Worktree isolation needs a git repository; use isolation "shared".');
-		this.post("system", `Swarm "${config.title}" started.`, "system", []);
+		if (restored) this.restoreFrom(restored);
+		else this.post("system", `Swarm "${config.title}" started.`, "system", []);
+	}
+
+	/** Rebuilds a swarm from its stored board; see {@link SwarmState}. */
+	static restore(state: SwarmState, deps: SwarmDeps): Swarm {
+		return new Swarm({ ...state.config }, deps, state);
+	}
+
+	private restoreFrom(state: SwarmState): void {
+		this.status = state.status;
+		if (state.summary !== undefined) this.summary = state.summary;
+		this.board.posts.push(...state.posts.map((p) => ({ ...p, to: [...p.to] })));
+		this.board.coordinatorCursor = state.coordinatorCursor;
+		let paused = 0;
+		for (const stored of state.members) {
+			const member: Member = { ...stored };
+			this.board.members.set(member.name, member);
+			if (isKilled(member)) continue;
+			// A live session cannot be restored: nobody is running, whatever the stored status says.
+			delete member.activity;
+			delete member.doneClaim;
+			member.status = "paused";
+			member.restored = true;
+			if (member.phase === "gating" || member.phase === "reviewing") member.phase = "working";
+			if (member.worktree && !existsSync(member.worktree.path)) {
+				member.worktreeMissing = true;
+				member.error = `Its worktree ${member.worktree.path} no longer exists, so it cannot be resumed; swarm_remove it and add it again.`;
+			} else if (member.phase !== "done")
+				member.error =
+					"Restored after a host restart; no live session. swarm_resume starts a fresh one.";
+			paused++;
+		}
+		this.post(
+			"system",
+			`Restored after a host restart: ${paused} member(s) are paused and nothing resumes by itself. Use swarm_resume to start a fresh session for a member in its worktree; its earlier conversation is gone.`,
+			"system",
+			[],
+		);
+		// The quiet-swarm monitor must not wake the coordinator on its own because of the restart.
+		this.monitorFiredAt = this.board.posts.length;
+	}
+
+	/** The durable form of the board. */
+	state(): SwarmState {
+		return {
+			version: SWARM_STATE_VERSION,
+			id: this.id,
+			parentSessionId: this.deps.parentSessionId,
+			title: this.config.title,
+			status: this.status,
+			...(this.summary !== undefined ? { summary: this.summary } : {}),
+			createdAt: this.createdAt,
+			savedAt: new Date().toISOString(),
+			config: { ...this.config },
+			members: [...this.board.members.values()].map((m) => {
+				const { activity: _activity, ...rest } = m;
+				return { ...rest };
+			}),
+			posts: [...this.board.posts],
+			coordinatorCursor: this.board.coordinatorCursor,
+		};
+	}
+
+	/** Writes the board now. Changes are otherwise coalesced into one write per tick. */
+	save(): void {
+		this.persistQueued = false;
+		if (!this.deps.store) return;
+		try {
+			this.deps.store.save(this.state());
+		} catch (error) {
+			this.deps.onStoreError?.(error);
+		}
+	}
+
+	private persist(): void {
+		if (!this.deps.store || this.persistQueued) return;
+		this.persistQueued = true;
+		queueMicrotask(() => {
+			if (this.persistQueued && !this.disposed) this.save();
+		});
 	}
 
 	get title(): string {
@@ -155,6 +257,7 @@ export class Swarm {
 
 	private changed(): void {
 		if (this.disposed) return;
+		this.persist();
 		this.deps.onChange(this.snapshot());
 		this.scheduleMonitor();
 	}
@@ -296,7 +399,7 @@ export class Swarm {
 			(member.kind === "verifier" || member.kind === "scout" || member.kind === "reviewer"
 				? "shared"
 				: this.config.isolation);
-		if (isolation === "worktree") {
+		if (isolation === "worktree" && !member.worktree) {
 			if (!this.deps.repo) throw new Error("Worktree isolation needs a git repository.");
 			const worktree = await createWorktree({
 				repo: this.deps.repo,
@@ -661,7 +764,8 @@ export class Swarm {
 		const child = this.handles.get(member.name);
 		await child?.abort("removed").catch(() => {});
 		await this.runs.get(member.name);
-		const files = member.worktree ? await changedFiles(member.worktree.path) : [];
+		const treeExists = !!member.worktree && existsSync(member.worktree.path);
+		const files = treeExists && member.worktree ? await changedFiles(member.worktree.path) : [];
 		if (files.length && !member.landed && !force)
 			throw new Error(
 				`Stopped @${member.name}, but it has ${files.length} unlanded changed file(s). swarm_land it first, or pass force to discard them.`,
@@ -673,13 +777,76 @@ export class Swarm {
 			forgetMember(child.sessionId);
 			await child.dispose().catch(() => {});
 		}
-		if (member.worktree && this.deps.repo)
+		if (member.worktree && this.deps.repo) {
 			await removeWorktree(
 				{ ...member.worktree, repo: this.deps.repo },
-				{ deleteBranch: files.length === 0 || !!member.landed },
+				// With the directory gone nothing proves the branch holds no work: keep it unless forced.
+				{ deleteBranch: treeExists ? files.length === 0 || !!member.landed : force },
 			);
+			if (!treeExists) await run("git", ["worktree", "prune"], { cwd: this.deps.repo });
+		}
+		delete member.restored;
+		delete member.worktreeMissing;
 		this.post(COORDINATOR, `Removed @${member.name}.`, "system", []);
 		return `Removed @${member.name}.`;
+	}
+
+	/**
+	 * Starts a fresh session for a member that is paused: one restored after a host restart (a new child in
+	 * its own worktree; its earlier conversation is gone) or one paused by an error. Nothing calls this by
+	 * itself, so a restart never resumes a turn on its own.
+	 */
+	async resume(name: string): Promise<string> {
+		this.assertRunning();
+		const member = this.board.require(name);
+		if (member.status === "killed") throw new Error(`@${member.name} was removed.`);
+		if (member.status === "active" || this.resuming.has(member.name))
+			return `@${member.name} is already working.`;
+		if (member.worktreeMissing)
+			throw new Error(
+				`@${member.name}'s worktree ${member.worktree?.path ?? ""} no longer exists: swarm_remove it and add it again.`,
+			);
+		if (member.status !== "paused" && !member.restored)
+			return `@${member.name} is waiting, not paused; post to it to give it work.`;
+		this.resuming.add(member.name);
+		try {
+			if (member.kind !== "a2a" && !this.handles.has(member.name))
+				await this.spawn(member, {
+					name: member.name,
+					brief: member.brief,
+					kind: member.kind as Exclude<MemberKind, "a2a">,
+					...(member.definition ? { definition: member.definition } : {}),
+					...(member.model ? { model: member.model } : {}),
+					isolation: member.worktree ? "worktree" : "shared",
+				});
+			if (this.disposed || this.status !== "running") throw new Error("This swarm has finished.");
+			const wasRestored = member.restored === true;
+			delete member.restored;
+			const unread = formatPostsOrEmpty(this.board.takeUnread(member.name));
+			if (member.kind === "a2a")
+				void this.sendA2A(
+					member,
+					unread ? `${member.brief.task}\n\n${wakePrompt(unread)}` : member.brief.task,
+				);
+			else
+				this.startRun(
+					member,
+					wasRestored
+						? resumePrompt({ task: member.brief.task, unread, hasWorktree: !!member.worktree })
+						: unread
+							? wakePrompt(unread)
+							: "Continue on your brief; your last run ended in an error.",
+				);
+		} finally {
+			this.resuming.delete(member.name);
+		}
+		this.post(COORDINATOR, `Resumed @${member.name}.`, "system", []);
+		return `Resumed @${member.name}.`;
+	}
+
+	/** Members that still wait for a person (or the coordinator) to resume them after a restart. */
+	restoredMembers(): Member[] {
+		return [...this.board.members.values()].filter((m) => m.restored && m.status !== "killed");
 	}
 
 	finish(summary: string): void {
@@ -699,6 +866,7 @@ export class Swarm {
 		const live = [...this.board.members.values()].filter((m) => m.status !== "killed");
 		if (live.length === 0) return false;
 		if (this.busy.size || this.pendingWake.size) return false;
+		if (live.some((m) => m.restored)) return false;
 		if (live.some((m) => m.status === "active" || m.phase === "gating" || m.phase === "reviewing"))
 			return false;
 		return !live.every((m) => m.phase === "done");
@@ -734,11 +902,15 @@ export class Swarm {
 	/** The coordinator's unread posts; advances its cursor. */
 	takeCoordinatorPosts(): Post[] {
 		const posts = this.board.takeUnread(COORDINATOR);
-		if (posts.length) this.scheduleMonitor();
+		if (posts.length) {
+			this.persist();
+			this.scheduleMonitor();
+		}
 		return posts;
 	}
 
 	async dispose(): Promise<void> {
+		if (!this.disposed) this.save();
 		this.disposed = true;
 		if (this.monitorTimer) clearTimeout(this.monitorTimer);
 		await Promise.allSettled(

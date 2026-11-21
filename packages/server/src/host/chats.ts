@@ -11,6 +11,7 @@ import {
 	listSessions,
 	trashWorkspaceDag,
 	trashWorkspaceDelegation,
+	trashWorkspaceSwarm,
 } from "../agent";
 import { removeWorkspaceArtifacts } from "../artifacts";
 import { forgetWorkspaceChanges } from "../changes";
@@ -186,6 +187,7 @@ async function runChatDeletion(workspace: Workspace): Promise<void> {
 			await deleteSession(summary.sessionId, id, cwd);
 		}
 		await trashWorkspaceDag(id);
+		await trashWorkspaceSwarm(id);
 		await trashWorkspaceDelegation(id);
 	});
 	closeWorkspaceTerminals(id);
