@@ -13,7 +13,12 @@ import { LoadingRegion } from "@thinkrail/ui/skeleton";
 import { Suspense, useMemo } from "react";
 import { isPhoneViewport } from "../lib";
 import type { FileTab } from "../store";
-import { selectWorkspaceAgentRunning, selectWorkspaceById, useAppStore } from "../store";
+import {
+	selectFollowToolbarVisible,
+	selectWorkspaceAgentRunning,
+	selectWorkspaceById,
+	useAppStore,
+} from "../store";
 import { getTransport } from "../transport";
 import { FollowAgentControls } from "./FollowAgentControls";
 import { OpenInBrowserButton, useOpensInBrowser } from "./OpenInBrowserButton";
@@ -65,10 +70,7 @@ export function FilePane({ tab }: { tab: FileTab }) {
 	const reviews = reviewable ? [review.worktree] : [];
 	const opensInBrowser = useOpensInBrowser(tab.path);
 	const followVisible = useAppStore(
-		(state) =>
-			reviewable &&
-			(selectWorkspaceAgentRunning(state, tab.workspaceId) ||
-				(state.followAgent && state.followPausedByWorkspace[tab.workspaceId] === true)),
+		(state) => reviewable && selectFollowToolbarVisible(state, tab.workspaceId),
 	);
 	const showToolbar = candidates.length >= 2 || fileHasDraft || opensInBrowser || followVisible;
 	const saveViewState = (state: unknown) => {

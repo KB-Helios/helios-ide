@@ -630,6 +630,24 @@ export function selectWorkspaceAgentRunning(
 	);
 }
 
+/**
+ * Whether the file toolbar carries the Follow Agent controls: while an agent runs, or once a pause needs its
+ * Resume pill. A manual navigation only pauses while an agent runs, so the click that pauses never makes the
+ * toolbar appear under the pointer.
+ */
+export function selectFollowToolbarVisible(
+	state: WorkspaceRunProjection & {
+		followAgent: boolean;
+		followPausedByWorkspace: Record<string, true>;
+	},
+	workspaceId: string,
+): boolean {
+	return (
+		selectWorkspaceAgentRunning(state, workspaceId) ||
+		(state.followAgent && state.followPausedByWorkspace[workspaceId] === true)
+	);
+}
+
 export function selectWorkspaceSettleBlocked(
 	state: SessionStateProjection,
 	workspaceId: string,
