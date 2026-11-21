@@ -21,12 +21,16 @@ a session-scoped delegation service; ThinkRail injects its workspace service.
 
 - default export — zero-config extension (`createSwarm().extension`).
 - `createSwarm(options)` → `{ extension, current(), flush(), dispose() }` — the per-parent owner.
-  `options.service` (embedder's delegation service), `worktreeRoot`, `canDeliver`, `onChange(snapshot)`.
+  `options.service` (embedder's delegation service), `worktreeRoot`, `canDeliver`, `onChange(snapshot)`,
+  `store` (a `SwarmStore`, see Durability) and `onStoreError`.
 - `swarmMemberExtension` — the curated-child extension giving members their board tools; inert in any
   child that is not a member. The embedder adds it to its child set; the fallback service adds it itself.
 - `Swarm`, `Board`, snapshot/member/post types, `detectGates` / `runGates`, the git helpers
   (`createWorktree`, `worktreeDiff`, `applyPatch`, `commitWorktree`, `removeWorktree`, ownership globs)
   reused by the host's inbound A2A endpoint.
+- `SwarmStore` (`load()` → `missing | ok | corrupt`, `save(state)`, `clear()`), `SwarmState` (the durable board),
+  `createFileSwarmStore(file)` (atomic file implementation), `parseSwarmState`, `Swarm.restore(state, deps)`,
+  `Swarm.resume(name)`.
 - `runGates(commands, cwd, { signal, timeoutMs, runner })`: `runner` (`GateRunner`, with `ExecResult`) replaces the
   default `shell: true` child, so a host can confine gate processes (the factory's OS sandbox) without pi-swarm
   importing one; a runner that throws fails that gate with the error text. `dependencyTargets(worktree)` lists the
@@ -37,7 +41,7 @@ a session-scoped delegation service; ThinkRail injects its workspace service.
 Coordinator (parent session): `swarm_start` (title, gates, review, isolation, setup), `swarm_add` (name,
 brief = task/owns/avoid/done, kind worker|verifier|scout|reviewer or a named `definition`, `model`,
 `count` for a numbered pool `@name-1..n` addressable as `@name`, `a2a_agent`), `swarm_post`,
-`swarm_board`, `swarm_status`, `swarm_diff`, `swarm_land`, `swarm_remove`, `swarm_finish`; plus the
+`swarm_board`, `swarm_status`, `swarm_diff`, `swarm_land`, `swarm_remove`, `swarm_resume`, `swarm_finish`; plus the
 `/swarm` command, which sends the coordinator playbook as a user message.
 Member (child session): `swarm_post`, `swarm_board`, `swarm_done`, registered at the member's first
 `before_agent_start` and added to its active set.
@@ -81,6 +85,38 @@ Member (child session): `swarm_post`, `swarm_board`, `swarm_done`, registered at
 - **Git hygiene.** Every git call runs with `core.fsmonitor=false` and a process resolves on exit, not
   pipe close: a detached fsmonitor daemon inherits pipes and would otherwise hang the host forever.
 
+## Durability
+
+The embedder injects a `SwarmStore` per parent session; pi-swarm never chooses a path or a data dir
+(ThinkRail's store is `<dataDir>/swarms/<workspaceId>/<sessionId>.json`, see the server agent spec).
+
+- **What is stored.** One `SwarmState` (version 1): swarm id, title, status, config, every member (brief,
+  ownership globs, kind, model, worktree path/branch/base, phase, gate/ownership/review results, changed
+  files, landed, fix rounds, A2A task/context ids, read cursor), every post, and the coordinator's read cursor.
+  Live sessions, timers, in-flight runs, `activity` and an unprocessed `swarm_done` claim are not.
+- **When it is written.** Every board change schedules one write per tick; `dispose()` writes it once more.
+  `createFileSwarmStore` writes a temp file and renames it over the board, so a host stop leaves the previous
+  board whole, never a half-written one. A failed write goes to `onStoreError`, never stops the swarm, and is
+  retried by the next change. A finished swarm stays stored until a new `swarm_start` replaces it.
+- **Reading it back.** `load()` validates the whole file (version, member and post shapes, contiguous post
+  numbers, cursors); a file that fails is moved to `<file>.corrupt` (evidence, not deleted) and reads as
+  `corrupt`. The owner restores a stored board at `session_start` when the swarm tools are enabled and the
+  board's parent session id matches; a missing, corrupt, foreign or unrestorable board starts no swarm and is
+  reported through `onStoreError`.
+- **Restored means paused.** `Swarm.restore` runs nothing: no child is created, no model is called, no member or
+  coordinator is woken, and the quiet-swarm monitor stays silent while any member is restored. Every live member
+  becomes `paused` with `restored: true`; a member caught mid-pipeline (`gating`/`reviewing`) returns to
+  `working` (its claim is gone); a member whose worktree directory vanished also gets `worktreeMissing: true`
+  and cannot be resumed, only removed (its branch is kept unless `force` is passed). Removed members stay
+  `killed`. A system post on the board says what was restored.
+- **Re-attaching.** A live session cannot be restored, so a restored member is started again by
+  `swarm_resume [name]` (no name = every restorable member): a **fresh** child in the member's own existing
+  worktree (never a new one) with its definition, kind and model, told that the host restarted, to inspect its
+  worktree and carry on, plus the posts it had not read. Its earlier conversation is gone; its files and the
+  board are not. A2A members resume by sending the stored task/context ids to the remote agent. A post to a
+  restored member waits unread until it is resumed (`swarm_post` says so). The coordinator chat's own history is
+  pi's session and needs nothing here.
+
 ## Boundary
 
 Allowed: `pi-delegation`, `pi-subagents` (definitions, mapping) and `@thinkrail/pi-a2a` through their
@@ -89,12 +125,13 @@ web pane lives in `apps/web/src/swarm` ([[submodule-web-swarm]]), fed by the hos
 
 ## Not yet
 
-State is in memory: a host restart loses the board (worktrees and branches survive on disk). Moving a
-waiting member to another model, per-member conversations in the pane, and streaming board updates to
+Moving a waiting member to another model, per-member conversations in the pane, and streaming board updates to
 A2A members are later phases.
 
 ## Verification
 
 `bun test` in-package: board addressing/groups/unread cursors, ownership globs, and an end-to-end run on
 pi's faux provider in a temp git repo — worktree creation, a worker writing a file, `swarm_done`,
-ownership + gates + reviewer, coordinator wake, landing and worktree removal.
+ownership + gates + reviewer, coordinator wake, landing and worktree removal. `store.test.ts`: store round
+trip, the write cut off before the rename, a failing store, corrupt/partial/unsupported files, and restore
+semantics (paused, nothing started, missing worktree, resume into the same worktree with the unread posts).

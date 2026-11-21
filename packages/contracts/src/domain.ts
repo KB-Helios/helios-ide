@@ -710,6 +710,10 @@ export interface SwarmMember {
 	doneClaim?: string;
 	fixRounds: number;
 	error?: string;
+	/** Restored from the stored board after a host restart; no live session until resumed. */
+	restored?: boolean;
+	/** Restored, but its worktree directory no longer exists. */
+	worktreeMissing?: boolean;
 	createdAt: string;
 }
 

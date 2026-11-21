@@ -54,6 +54,25 @@ export function wakePrompt(text: string): string {
 	return `New posts for you on the swarm board:\n\n${text}\n\nAct on them. Your final message is posted to the board.`;
 }
 
+/** First message of a fresh session that takes over a member restored after a host restart. */
+export function resumePrompt(options: {
+	task: string;
+	unread: string;
+	hasWorktree: boolean;
+}): string {
+	return [
+		"The host restarted and your previous conversation is gone: you are a fresh session taking over your own brief.",
+		options.hasWorktree
+			? "Your worktree still holds the files you changed before the restart. Inspect it (git status, git diff) and continue from there; do not redo finished work."
+			: "You work in the shared tree; inspect what is already there before continuing.",
+		`Your brief:\n${options.task}`,
+		options.unread
+			? `Board posts you have not read yet:\n\n${options.unread}`
+			: "No board posts are waiting for you.",
+		"Your final message is posted to the board. Call swarm_done when the brief is done.",
+	].join("\n\n");
+}
+
 const REVIEW_VERDICT = /VERDICT:\s*(APPROVE|CHANGES_REQUESTED)\b/gi;
 
 /** The last verdict a reviewer wrote, if any. */
@@ -107,5 +126,7 @@ Run it with the swarm_* tools. You coordinate; you do not do the technical work 
 4. End your turn. You wake automatically when a post mentions you; idle members cost nothing.
 5. When a worker passes its gates and review, swarm_land it, then mention the verifier. Steer with
    swarm_post, answer questions, and remove members that have nothing left to do.
-6. When the work is verified, swarm_finish and report the result to the user.`;
+6. When the work is verified, swarm_finish and report the result to the user.
+7. After a host restart the board comes back with every member paused (swarm_status says restored):
+   read the board, then swarm_resume the members that should continue, or swarm_remove the rest.`;
 }

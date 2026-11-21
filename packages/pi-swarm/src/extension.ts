@@ -20,7 +20,8 @@ import { detectGates } from "./gates.ts";
 import { repoRoot } from "./git.ts";
 import { swarmMemberExtension } from "./memberExtension.ts";
 import { coordinatorPrompt } from "./prompts.ts";
-import { type Isolation, Swarm, type SwarmSnapshot } from "./swarm.ts";
+import type { SwarmStore } from "./store.ts";
+import { type Isolation, Swarm, type SwarmDeps, type SwarmSnapshot } from "./swarm.ts";
 
 export const SWARM_BOARD_MESSAGE = "swarm-board";
 export const SWARM_TOOLS = [
@@ -32,6 +33,7 @@ export const SWARM_TOOLS = [
 	"swarm_diff",
 	"swarm_land",
 	"swarm_remove",
+	"swarm_resume",
 	"swarm_finish",
 ] as const;
 
@@ -44,6 +46,13 @@ export interface SwarmOptions {
 	onChange?: (snapshot: SwarmSnapshot) => void;
 	monitorDelayMs?: number;
 	fetch?: typeof fetch;
+	/**
+	 * Where this parent's board is kept. With one, the board is saved on every change and a stored board
+	 * is restored paused when the parent session starts; without one it lives in memory only.
+	 */
+	store?: SwarmStore;
+	/** A board could not be read or written; the swarm keeps running without it. */
+	onStoreError?: (error: unknown) => void;
 }
 
 export interface SwarmOwner {
@@ -61,7 +70,12 @@ function memberLine(member: Member): string {
 		: member.activity
 			? ` · ${member.activity}`
 			: "";
-	return `@${member.name} [${member.kind}] ${member.status}/${member.phase}${member.model ? ` · ${member.model}` : ""}${where}${member.landed ? " · landed" : ""}${extra}`;
+	const restored = member.worktreeMissing
+		? " · restored, worktree missing"
+		: member.restored
+			? " · restored, not running (swarm_resume)"
+			: "";
+	return `@${member.name} [${member.kind}] ${member.status}/${member.phase}${member.model ? ` · ${member.model}` : ""}${where}${member.landed ? " · landed" : ""}${restored}${extra}`;
 }
 
 export function describeSwarm(snapshot: SwarmSnapshot): string {
@@ -136,6 +150,51 @@ export function createSwarm(options: SwarmOptions = {}): SwarmOwner {
 		return { url: agent };
 	}
 
+	function swarmDeps(ctx: ExtensionContext, repo: string | undefined): SwarmDeps {
+		return {
+			service: service(ctx),
+			parentSessionId: ctx.sessionManager.getSessionId(),
+			cwd: ctx.cwd,
+			...(repo ? { repo } : {}),
+			worktreeRoot: options.worktreeRoot ?? join(homedir(), ".pi", "swarm-worktrees"),
+			definitions: () =>
+				discoverAgentDefinitions({
+					cwd: ctx.cwd,
+					agentDir: getAgentDir(),
+					includeProject: ctx.isProjectTrusted(),
+				}),
+			availableModels: () => ctx.modelRegistry.getAvailable(),
+			resolveA2A: (agent) => resolveA2A(ctx, agent),
+			notifyCoordinator: () => {
+				held = true;
+				flush();
+			},
+			isCoordinatorIdle: idle,
+			onChange: (snapshot) => options.onChange?.(snapshot),
+			...(options.monitorDelayMs !== undefined ? { monitorDelayMs: options.monitorDelayMs } : {}),
+			...(options.fetch ? { fetch: options.fetch } : {}),
+			...(options.store ? { store: options.store } : {}),
+			...(options.onStoreError ? { onStoreError: options.onStoreError } : {}),
+		};
+	}
+
+	/** Loads this parent's stored board, paused. A missing, foreign or unreadable board starts nothing. */
+	async function restore(ctx: ExtensionContext): Promise<void> {
+		if (!options.store || swarm) return;
+		try {
+			const loaded = options.store.load();
+			if (loaded.kind === "corrupt")
+				throw new Error(`The stored swarm board is unreadable (${loaded.reason}).`);
+			if (loaded.kind !== "ok") return;
+			if (loaded.state.parentSessionId !== ctx.sessionManager.getSessionId()) return;
+			const repo = await repoRoot(ctx.cwd);
+			if (closed || swarm) return;
+			swarm = Swarm.restore(loaded.state, swarmDeps(ctx, repo));
+		} catch (error) {
+			options.onStoreError?.(error);
+		}
+	}
+
 	function requireSwarm(): Swarm {
 		if (!swarm) throw new Error("No swarm in this conversation. Start one with swarm_start.");
 		return swarm;
@@ -143,7 +202,7 @@ export function createSwarm(options: SwarmOptions = {}): SwarmOwner {
 
 	const extension: ExtensionFactory = (pi) => {
 		api = pi;
-		pi.on("session_start", (_event, ctx) => {
+		pi.on("session_start", async (_event, ctx) => {
 			const id = ctx.sessionManager.getSessionId();
 			if (parentSessionId !== undefined && parentSessionId !== id)
 				throw new Error("This swarm owner belongs to another session");
@@ -153,6 +212,7 @@ export function createSwarm(options: SwarmOptions = {}): SwarmOwner {
 				pi.setActiveTools(
 					pi.getActiveTools().filter((tool) => !(SWARM_TOOLS as readonly string[]).includes(tool)),
 				);
+			else await restore(ctx);
 		});
 		pi.on("agent_settled", () => {
 			setTimeout(flush, 0);
@@ -200,11 +260,9 @@ export function createSwarm(options: SwarmOptions = {}): SwarmOwner {
 			async execute(_id, params, _signal, _onUpdate, ctx) {
 				if (swarm?.status === "running")
 					throw new Error(`Swarm "${swarm.title}" is still running; swarm_finish it first.`);
-				const svc = service(ctx);
 				const repo = await repoRoot(ctx.cwd);
 				const isolation: Isolation = params.isolation ?? (repo ? "worktree" : "shared");
 				await swarm?.dispose();
-				const sessionId = ctx.sessionManager.getSessionId();
 				swarm = new Swarm(
 					{
 						title: params.title,
@@ -214,31 +272,7 @@ export function createSwarm(options: SwarmOptions = {}): SwarmOwner {
 						setup: params.setup ?? [],
 						maxFixRounds: 3,
 					},
-					{
-						service: svc,
-						parentSessionId: sessionId,
-						cwd: ctx.cwd,
-						...(repo ? { repo } : {}),
-						worktreeRoot: options.worktreeRoot ?? join(homedir(), ".pi", "swarm-worktrees"),
-						definitions: () =>
-							discoverAgentDefinitions({
-								cwd: ctx.cwd,
-								agentDir: getAgentDir(),
-								includeProject: ctx.isProjectTrusted(),
-							}),
-						availableModels: () => ctx.modelRegistry.getAvailable(),
-						resolveA2A: (agent) => resolveA2A(ctx, agent),
-						notifyCoordinator: () => {
-							held = true;
-							flush();
-						},
-						isCoordinatorIdle: idle,
-						onChange: (snapshot) => options.onChange?.(snapshot),
-						...(options.monitorDelayMs !== undefined
-							? { monitorDelayMs: options.monitorDelayMs }
-							: {}),
-						...(options.fetch ? { fetch: options.fetch } : {}),
-					},
+					swarmDeps(ctx, repo),
 				);
 				const snapshot = swarm.snapshot();
 				return {
@@ -324,11 +358,15 @@ export function createSwarm(options: SwarmOptions = {}): SwarmOwner {
 				const post = active.post("coordinator", params.text, "message", params.to ?? []);
 				if (post.to.length === 0)
 					throw new Error("The post mentions no live member; nobody would read it.");
+				const stopped = post.to.filter((n) => active.board.get(n)?.restored);
+				const note = stopped.length
+					? ` ${stopped.map((n) => `@${n}`).join(" ")} ${stopped.length === 1 ? "is" : "are"} restored and not running; they read it once swarm_resume starts them.`
+					: "";
 				return {
 					content: [
 						{
 							type: "text",
-							text: `Posted #${post.seq} to ${post.to.map((n) => `@${n}`).join(" ")}.`,
+							text: `Posted #${post.seq} to ${post.to.map((n) => `@${n}`).join(" ")}.${note}`,
 						},
 					],
 					details: active.snapshot(),
@@ -412,6 +450,36 @@ export function createSwarm(options: SwarmOptions = {}): SwarmOwner {
 					content: [
 						{ type: "text", text: await active.remove(params.name, params.force ?? false) },
 					],
+					details: active.snapshot(),
+				};
+			},
+		});
+
+		pi.registerTool({
+			name: "swarm_resume",
+			label: "Resume swarm member",
+			description:
+				"After a host restart the board is restored with every member paused: no member runs until you resume it. Starts a fresh session for the member in its existing worktree (its earlier conversation is gone; it gets its brief, the unread posts and a note to inspect its worktree). Omit name to resume every restored member. Also restarts a member paused by an error.",
+			parameters: Type.Object({ name: Type.Optional(Type.String()) }),
+			async execute(_id, params) {
+				const active = requireSwarm();
+				const names = params.name
+					? [params.name]
+					: active.restoredMembers().flatMap((m) => (m.worktreeMissing ? [] : [m.name]));
+				if (names.length === 0)
+					return {
+						content: [{ type: "text", text: "No restored member is waiting to be resumed." }],
+						details: active.snapshot(),
+					};
+				const lines: string[] = [];
+				for (const name of names)
+					try {
+						lines.push(await active.resume(name));
+					} catch (error) {
+						lines.push(error instanceof Error ? error.message : String(error));
+					}
+				return {
+					content: [{ type: "text", text: lines.join("\n") }],
 					details: active.snapshot(),
 				};
 			},
