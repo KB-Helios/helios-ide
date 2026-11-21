@@ -33,6 +33,7 @@ import {
 	disableAnthropicExtraUsageWarning,
 	ensureManagedAgentDefinition,
 	ensureSessionAttached,
+	executeWorkspaceDag,
 	followUpSession,
 	getResourceHistoryPage,
 	getSessionCommands,
@@ -52,6 +53,7 @@ import {
 	listSessions,
 	listSkillCatalog,
 	listSkillCommands,
+	listWorkspaceDags,
 	markWorkspaceRead,
 	markWorkspaceUnread,
 	notifyExtUi,
@@ -62,8 +64,14 @@ import {
 	readBackgroundCommandOutput,
 	readCacheWarmingSetting,
 	readChildTranscript,
+	readFactoryRoles,
 	readSessionSwarm,
 	readSwarmMemberDiff,
+	readWorkspaceDag,
+	readWorkspaceHistory,
+	readWorkspaceOutput,
+	readWorkspaceQueue,
+	readWorkspaceReview,
 	refreshAvailableModels,
 	refreshSubagentConcurrency,
 	refreshSubagentTools,
@@ -81,6 +89,8 @@ import {
 	setModelContextWindow,
 	setSessionModel,
 	setSessionThinkingLevel,
+	startWorkspaceFactory,
+	startWorkspaceFactoryFromPlan,
 	steerSession,
 	stopAllSubagents,
 	stopBackgroundCommand,
@@ -1526,6 +1536,49 @@ const handlers: WsHandlers = {
 		const p = resourceParams(ids, ["workspaceId", "sessionId"]);
 		resourceCwd(p.workspaceId);
 		return readSwarmMemberDiff(p.workspaceId, p.sessionId, member);
+	},
+	"dag.list": (params) => {
+		const p = resourceParams(params, ["workspaceId"]);
+		return listWorkspaceDags(p.workspaceId);
+	},
+	"dag.get": (params) => {
+		const { dagId, ...ids } = (params ?? {}) as { dagId?: unknown };
+		const p = resourceParams(ids, ["workspaceId"]);
+		return readWorkspaceDag(p.workspaceId, dagId as string);
+	},
+	"dag.execute": (params) => executeWorkspaceDag(params),
+	"dag.queue": (params) => {
+		const p = resourceParams(params, ["workspaceId"]);
+		return readWorkspaceQueue(p.workspaceId);
+	},
+	"dag.roles": (params) => {
+		const p = resourceParams(params, ["workspaceId"]);
+		return readFactoryRoles(p.workspaceId);
+	},
+	"dag.start": (params) => startWorkspaceFactory(params),
+	"dag.startFromPlan": (params) => startWorkspaceFactoryFromPlan(params),
+	"dag.history": (params) => {
+		const { dagId, cursor, limit, ...ids } = (params ?? {}) as {
+			dagId?: unknown;
+			cursor?: unknown;
+			limit?: unknown;
+		};
+		const p = resourceParams(ids, ["workspaceId"]);
+		return readWorkspaceHistory(p.workspaceId, dagId as string, cursor, limit);
+	},
+	"dag.output": (params) => {
+		const { dagId, nodeId, name, ...ids } = (params ?? {}) as {
+			dagId?: unknown;
+			nodeId?: unknown;
+			name?: unknown;
+		};
+		const p = resourceParams(ids, ["workspaceId"]);
+		return readWorkspaceOutput(p.workspaceId, dagId as string, nodeId as string, name as string);
+	},
+	"dag.review": (params) => {
+		const { dagId, nodeId, ...ids } = (params ?? {}) as { dagId?: unknown; nodeId?: unknown };
+		const p = resourceParams(ids, ["workspaceId"]);
+		return readWorkspaceReview(p.workspaceId, dagId as string, nodeId as string);
 	},
 	"subagent.stop": async (params) => {
 		const p = resourceParams(params, ["workspaceId", "parentSessionId", "childSessionId"]);

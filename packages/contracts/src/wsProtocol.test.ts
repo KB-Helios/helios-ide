@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+	DAG_HISTORY_MAX_PAGE,
+	DAG_OUTPUT_MAX_BYTES,
 	DEFAULT_CONFIG,
+	FACTORY_MAX_CONCURRENT,
+	isFactoryMaxConcurrent,
 	isSettleIdleDays,
 	isSubagentMaxConcurrent,
 	RECENT_MODELS_LIMIT,
@@ -33,10 +37,17 @@ import {
 	CUSTOM_MODEL_CONTEXT_WINDOW_LIMITS,
 	completionDelivery,
 	customMessageText,
+	DAG_DETAILS_PROTOCOL_VERSION,
+	DAG_PROTOCOL_VERSION,
+	DAG_PUSH_PROTOCOL_VERSION,
+	DAG_QUEUE_PROTOCOL_VERSION,
+	DAG_REVIEW_PROTOCOL_VERSION,
+	DAG_START_PROTOCOL_VERSION,
 	DEFAULT_MODEL_PROTOCOL_VERSION,
 	EXTENSION_CATALOG_PROTOCOL_VERSION,
 	EXTENSION_EDITOR_TEXT_PROTOCOL_VERSION,
 	EXTENSION_SETTINGS_PROTOCOL_VERSION,
+	FACTORY_CAP_PROTOCOL_VERSION,
 	FEEDBACK_SURVEY_PROTOCOL_VERSION,
 	FONTS_PROTOCOL_VERSION,
 	FS_MUTATIONS_PROTOCOL_VERSION,
@@ -776,4 +787,58 @@ test("commit analysis methods and channel are pinned to v129", () => {
 	expect(WS_METHODS.commitAnalysis).toBe("commit.analysis");
 	expect(WS_METHODS.commitAnalysisList).toBe("commit.analysisList");
 	expect(WS_CHANNELS.commitAnalyzed).toBe("commit.analyzed");
+});
+
+test("DAG methods and channel are pinned to v130", () => {
+	expect(DAG_PROTOCOL_VERSION).toBe(130);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagList).toBe("dag.list");
+	expect(WS_METHODS.dagGet).toBe("dag.get");
+	expect(WS_METHODS.dagExecute).toBe("dag.execute");
+	expect(WS_CHANNELS.dagChanged).toBe("dag.changed");
+});
+
+test("the DAG review method is pinned to v131", () => {
+	expect(DAG_REVIEW_PROTOCOL_VERSION).toBe(131);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_REVIEW_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagReview).toBe("dag.review");
+});
+
+test("the DAG queue method is pinned to v132", () => {
+	expect(DAG_QUEUE_PROTOCOL_VERSION).toBe(132);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_QUEUE_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagQueue).toBe("dag.queue");
+});
+
+test("dag.changed progress push is pinned to v133", () => {
+	expect(DAG_PUSH_PROTOCOL_VERSION).toBe(133);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_PUSH_PROTOCOL_VERSION);
+	expect(WS_CHANNELS.dagChanged).toBe("dag.changed");
+});
+
+test("the DAG details reads are pinned to v134", () => {
+	expect(DAG_DETAILS_PROTOCOL_VERSION).toBe(134);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_DETAILS_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagHistory).toBe("dag.history");
+	expect(WS_METHODS.dagOutput).toBe("dag.output");
+	expect(DAG_OUTPUT_MAX_BYTES).toBe(64 * 1024);
+	expect(DAG_HISTORY_MAX_PAGE).toBe(50);
+});
+
+test("starting a factory run is pinned to v135", () => {
+	expect(DAG_START_PROTOCOL_VERSION).toBe(135);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(DAG_START_PROTOCOL_VERSION);
+	expect(WS_METHODS.dagRoles).toBe("dag.roles");
+	expect(WS_METHODS.dagStart).toBe("dag.start");
+	expect(WS_METHODS.dagStartFromPlan).toBe("dag.startFromPlan");
+});
+
+test("the machine-wide factory cap is pinned to v136 with bounded whole-number values", () => {
+	expect(FACTORY_CAP_PROTOCOL_VERSION).toBe(136);
+	expect(PROTOCOL_VERSION).toBeGreaterThanOrEqual(FACTORY_CAP_PROTOCOL_VERSION);
+	expect(FACTORY_MAX_CONCURRENT).toEqual({ min: 1, max: 64, default: 8 });
+	expect(DEFAULT_CONFIG.factoryMaxConcurrent).toBe(8);
+	for (const good of [1, 8, 64]) expect(isFactoryMaxConcurrent(good)).toBe(true);
+	for (const bad of [0, 65, 1.5, "8", null, undefined, Number.NaN])
+		expect(isFactoryMaxConcurrent(bad)).toBe(false);
 });

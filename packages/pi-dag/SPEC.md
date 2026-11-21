@@ -12,8 +12,9 @@ tags: [dag, pi-extension, backend]
 
 A portable backend DAG service and pi extension over [[module-pi-delegation]], independent of
 `pi-subagents` and ThinkRail. Pi owns every model invocation, session, compaction and usage record;
-this package owns graph scheduling, durable evidence, gates, commands and recovery. It is not
-bundled into ThinkRail and exposes no UI or wire implementation.
+this package owns graph scheduling, durable evidence, gates, commands and recovery. ThinkRail's
+server composes it per workspace ([[submodule-server-agent]] DAG owner); the package itself exposes
+no UI or wire implementation.
 
 ## Boundary
 
@@ -151,7 +152,9 @@ and capture boundaries, never enforced by silently truncating a read.
 
 Notices are durable milestones, delivered passively to attached idle conversations, with readiness
 wakeup and revocation/relevance rechecks. Pi submission is not durable transcript ACK; DAG history
-remains authoritative. No notice starts a model turn.
+remains authoritative. No notice starts a model turn. A host that needs every committed version (a UI push, a
+wait on a DAG's mode) passes `DagServiceOptions.onChange`: a synchronous, failure-swallowing observer called
+after each durable save outside the state queue, so it never needs a notice attachment and cannot affect scheduling.
 
 ## Portable pi adapter
 

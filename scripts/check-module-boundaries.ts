@@ -39,6 +39,7 @@ const MODULE_RULES: readonly ModuleRule[] = [
 			"packages/locales",
 			"packages/shared",
 			"packages/spec-graph",
+			"packages/pi-dag",
 			"packages/pi-delegation",
 			"packages/pi-background-commands",
 			"packages/pi-subagents",

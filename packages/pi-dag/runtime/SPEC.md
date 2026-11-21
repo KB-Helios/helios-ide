@@ -61,7 +61,9 @@ configured authority. Large submitted bodies and error details are files;
 current snapshots and history carry bounded summaries and metadata. History/notice entries record
 admission decisions, rejected execution, uncertainty, interventions and releases, without provider
 credentials or a second telemetry database. Notices carry bounded target/gate/proposal identities so
-delivery can recheck current relevance, not merely attachment membership. Binding/readiness scans may
+delivery can recheck current relevance, not merely attachment membership. `DagServiceOptions.onChange` is a host observer of committed versions: it fires after each durable save
+(and creation), outside the state queue, never for streaming deltas, and its errors are swallowed, so a host
+can learn about worker progress without a notice attachment. Binding/readiness scans may
 read saved notices without acquiring ownership or execution dependencies; live commits use the same
 delivery predicate. Controller and explicit human conversation bindings share one attachment identity
 without sharing authority. Revocation and close remove readiness observers.
@@ -75,7 +77,9 @@ resent. Reconciliation confirms quiescence and resolves uncertain interventions 
 submitted proposals and input/approval gates. It may establish a missing release gate, but never
 invents a successful outcome; manual acceptance still needs an explicit reason and satisfied gates.
 A storage failure stops local admission and exposes an explicit error; it never publishes the
-uncommitted candidate state. Close rejects successful completion if live work or durable cleanup fails.
+uncommitted candidate state. Close rejects successful completion if live work or durable cleanup fails. A failed close is retryable: owners whose release failed stay registered and the rejected attempt is
+not cached, so the next `close()` retries exactly those. A failed shutdown save halts its owner, which is
+reported once and still released; recovery restores its last snapshot paused.
 
 ## Authority
 

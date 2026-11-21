@@ -40,6 +40,7 @@ const NON_REPLAYABLE_CHANNELS: ReadonlySet<string> = new Set([
 	WS_CHANNELS.sessionResourcesChanged,
 	WS_CHANNELS.subagentRosterChanged,
 	WS_CHANNELS.swarmChanged,
+	WS_CHANNELS.dagChanged,
 	WS_CHANNELS.mcpStatus,
 	WS_CHANNELS.providerChanged,
 	WS_CHANNELS.feedbackInterview,

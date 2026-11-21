@@ -321,11 +321,15 @@ dependency. This keeps test process drivers outside both launchers and the serve
     scoped portable consumer of [[module-pi-delegation]], not a dependency of subagents or the
     workflow skill system. Delegation owns canonical history capture/forking, retained resource
     execution contexts, child assembly/reopen and the existing run loop; DAG owns persistence,
-    scheduling, gates and recovery. ThinkRail's selected future composition is workspace-owned,
-    with an explicit host runtime, so no heading session is required. Embedders may apply different
-    lifetime policies through trusted lifecycle controls without another scheduler or human-gate
-    bypass. Restore paused; one process controls each DAG. ThinkRail neither bundles it nor exposes it
-    over the wire or in the UI.
+    scheduling, gates and recovery. ThinkRail composes it workspace-owned in the server, with each
+    controlling session's exact retained runtime, so no heading session is required
+    ([[submodule-server-agent]] DAG owner; [[ai-factory]] for the factory built on it). Embedders may
+    apply different lifetime policies through trusted lifecycle controls without another scheduler or
+    human-gate bypass. Restore paused; one process controls each DAG. The host exposes it to the web UI
+    as a Factory pane over `dag.*` ([[submodule-web-factory]]), always acting as the local human, so
+    gates are decided without a chat. A person also starts runs there (`dag.start`, optionally through a
+    planner whose plan a person approves first); the host observes pi-dag's committed versions
+    (`DagServiceOptions.onChange`) to push `dag.changed` instead of polling.
 
 18. **Chat Resources projects capability owners; it is not a generic resource runtime.**
     [[module-pi-background-commands]] supplies explicit, session-owned log-only commands over Pi's

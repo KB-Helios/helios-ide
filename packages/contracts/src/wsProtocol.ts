@@ -9,12 +9,23 @@ import type {
 	BranchStatus,
 	ChangeReceipt,
 	CompletionDelivery,
+	DagExecuteRequest,
+	DagHistoryPage,
+	DagListItem,
+	DagOutputView,
+	DagQueueView,
+	DagReviewView,
+	DagStartFromPlanRequest,
+	DagStartRequest,
+	DagStartResult,
+	DagView,
 	DelegationRunStatus,
 	DetectedAccount,
 	DiffStats,
 	EditorInfo,
 	ExistingWorktreeCandidate,
 	ExtensionCatalogEntry,
+	FactoryRolesView,
 	FileNode,
 	GitCommit,
 	GitDiffScope,
@@ -152,7 +163,21 @@ export type TemplateReadLocation =
 	| { projectId: string; workspaceId?: never }
 	| { workspaceId?: never; projectId?: never };
 
-export const PROTOCOL_VERSION = 129;
+export const PROTOCOL_VERSION = 136;
+/** `dag.list` / `dag.get` / `dag.execute` and the `dag.changed` channel: the workspace factory view. */
+export const DAG_PROTOCOL_VERSION = 130;
+/** `dag.review` plus per-node model, thinking level, usage and outcome on `DagView` nodes. */
+export const DAG_REVIEW_PROTOCOL_VERSION = 131;
+/** `dag.queue`: running and queued DAG worker turns against the workspace cap. */
+export const DAG_QUEUE_PROTOCOL_VERSION = 132;
+/** `dag.changed` is pushed for worker progress, settlement and chat-controller changes too, not only wire commands. */
+export const DAG_PUSH_PROTOCOL_VERSION = 133;
+/** `dag.history` (paged event manifest), `dag.output` (a node's named output) and `DagNodeView.outputs`. */
+export const DAG_DETAILS_PROTOCOL_VERSION = 134;
+/** `dag.roles`, `dag.start` and `dag.startFromPlan`: start a factory run (optionally planned) with per-role models. */
+export const DAG_START_PROTOCOL_VERSION = 135;
+/** `AppConfig.factoryMaxConcurrent` (the machine-wide worker cap) and `DagQueueView.global`. */
+export const FACTORY_CAP_PROTOCOL_VERSION = 136;
 /** `commit.*` methods and the `commit.analyzed` channel. */
 export const COMMIT_ANALYSIS_PROTOCOL_VERSION = 129;
 /** `swarm.get` / `swarm.diff` and the `swarm.changed` channel: a chat's swarm board. */
@@ -575,6 +600,16 @@ export const WS_METHODS = {
 	subagentRoster: "subagent.roster",
 	swarmGet: "swarm.get",
 	swarmDiff: "swarm.diff",
+	dagList: "dag.list",
+	dagGet: "dag.get",
+	dagExecute: "dag.execute",
+	dagReview: "dag.review",
+	dagQueue: "dag.queue",
+	dagHistory: "dag.history",
+	dagOutput: "dag.output",
+	dagRoles: "dag.roles",
+	dagStart: "dag.start",
+	dagStartFromPlan: "dag.startFromPlan",
 	subagentStop: "subagent.stop",
 	subagentStopAll: "subagent.stopAll",
 	modelList: "model.list",
@@ -653,6 +688,7 @@ export const WS_CHANNELS = {
 	sessionResourcesChanged: "session.resourcesChanged",
 	subagentRosterChanged: "subagent.rosterChanged",
 	swarmChanged: "swarm.changed",
+	dagChanged: "dag.changed",
 	sessionState: "session.state",
 	providerLogin: "provider.login",
 	providerChanged: "provider.changed",
@@ -1436,6 +1472,49 @@ export interface WsMethodMap {
 		params: { workspaceId: string; sessionId: string; member: string };
 		result: SwarmDiff;
 	};
+	"dag.list": {
+		params: { workspaceId: string };
+		result: DagListItem[];
+	};
+	"dag.get": {
+		params: { workspaceId: string; dagId: string };
+		result: DagView;
+	};
+	"dag.execute": {
+		params: DagExecuteRequest;
+		/** The DAG as it stands after the command was durably accepted. */
+		result: { dag: DagView };
+	};
+	"dag.review": {
+		params: { workspaceId: string; dagId: string; nodeId: string };
+		/** The reviewer node's current findings, or `null` while it has submitted none. */
+		result: DagReviewView | null;
+	};
+	"dag.queue": {
+		params: { workspaceId: string };
+		result: DagQueueView;
+	};
+	"dag.history": {
+		params: { workspaceId: string; dagId: string; cursor?: string; limit?: number };
+		result: DagHistoryPage;
+	};
+	"dag.roles": {
+		params: { workspaceId: string };
+		result: FactoryRolesView;
+	};
+	"dag.start": {
+		params: DagStartRequest;
+		result: DagStartResult;
+	};
+	"dag.startFromPlan": {
+		params: DagStartFromPlanRequest;
+		result: DagStartResult;
+	};
+	"dag.output": {
+		params: { workspaceId: string; dagId: string; nodeId: string; name: string };
+		/** `null` until the node submitted anything. */
+		result: DagOutputView | null;
+	};
 	"subagent.stop": {
 		params: { workspaceId: string; parentSessionId: string; childSessionId: string };
 		result: Ack;
@@ -1711,6 +1790,8 @@ export type WsErrorCode =
 	| "PROJECT_CLONE_CLEANUP_FAILED"
 	| "SUBAGENT_TRANSCRIPT_NOT_FOUND"
 	| "RESOURCE_UNAVAILABLE"
+	| "DAG_STALE"
+	| "DAG_REJECTED"
 	| "STALE_VIEW"
 	| "SCOPE_IMMUTABLE"
 	| "RANGE_INVALID"

@@ -1538,6 +1538,61 @@ range) or `COMMIT_ANALYSIS_NO_SESSION` (no live chat to parent the run); `commit
 is immutable per sha. The workspace-scoped `commit.analyzed` channel carries `CommitAnalyzedPayload`
 (`completed` or `failed` with a code) once a run settles.
 
+From **`DAG_PROTOCOL_VERSION`** (v130): the workspace factory ([[module-pi-dag]]). `dag.list` `{ workspaceId }`
+returns `DagListItem[]` (title, mode, version, pending-gate count); `dag.get` `{ workspaceId, dagId }` returns
+a `DagView` (nodes with status and task preview, dependency edges and only the gates still pending);
+`dag.execute` `{ workspaceId, dagId, commandId, expectedVersion, command }` takes a `DagWireCommand`
+(`pause`/`resume`/`interrupt`, `cancel`, `retry`, `continue`, `approve`/`reject` with a reason, `answer`) and returns
+`{ dag }`. The wire names no caller: the host always acts as the local human. A stale `expectedVersion`
+fails with `DAG_STALE`, any other refusal with `DAG_REJECTED`. The workspace-scoped `dag.changed` channel
+(`DagChanged` `{ workspaceId, dagId }`) follows commands accepted through this wire. The views are a UI
+projection, never pi-dag's snapshot format.
+
+From **`DAG_REVIEW_PROTOCOL_VERSION`** (v131, additive over v130): `DagView` nodes also carry what their
+latest run used, read from pi-dag's durable outcome (`model`, `thinkingLevel`, `usage` tokens and cost,
+`durationMs`, `outcome`) and `reviewer: true` on a node whose only output is the json `findings` port.
+`dag.review` `{ workspaceId, dagId, nodeId }` returns that node's `DagReviewView` (`valid`, `total`, at
+most 50 `findings` of `severity`/`file`/`summary`, `disposition`, `model`) or `null` before it submitted;
+a node that is not a reviewer fails with `DAG_REJECTED`. A host older than v131 simply omits these fields.
+
+From **`DAG_QUEUE_PROTOCOL_VERSION`** (v132, additive): `dag.queue` `{ workspaceId }` returns `DagQueueView`
+`{ limit, running, queued }`, the workspace's DAG worker turns against its cap (`running` hold a slot,
+`queued` wait for one; the waiting nodes read `queued` in `DagView`). An unknown or invalid workspace fails
+like the other `dag.*` reads. A host older than v132 has no such method and the pane omits the line.
+
+From **`DAG_DETAILS_PROTOCOL_VERSION`** (v134, additive): `dag.history` `{ workspaceId, dagId, cursor?, limit? }`
+returns a `DagHistoryPage` (`items` oldest first, at most `DAG_HISTORY_MAX_PAGE` = 50 per page, default 20, and
+`nextCursor`): each `DagHistoryItem` is a manifest (`id`, `version`, `at`, `kind`, the caller **kind** only, `target`)
+with no event body, captured-file reference or path. `dag.output` `{ workspaceId, dagId, nodeId, name }` returns a
+`DagOutputView` for a name the node declares (an undeclared one fails `RESOURCE_UNAVAILABLE`) or `null` before it
+submitted: `text` at most `DAG_OUTPUT_MAX_BYTES` (64 KiB) with `truncated`, and `sizeBytes`; an `artifact` output is
+reported without content. `DagNodeView.outputs` lists the readable names of nodes that submitted. Both reads are
+human-only like the rest of `dag.*`. Older hosts have neither method and the pane omits history and output.
+
+From **`DAG_START_PROTOCOL_VERSION`** (v135, additive): starting a factory run. `dag.roles` `{ workspaceId }` returns
+`FactoryRolesView` (the models the host can serve with their vendor `family` and `reasoning`, at most 500, the host's
+`defaults` per role `planner`/`coder`/`reviewer`/`scout`, and `sameFamilyOnly` when no model outside the coder's
+family exists). `dag.start` `DagStartRequest` (`workspaceId`, an idempotency `commandId`, `task`, optional `coders`
+(`FactoryCoderPlanWire`: id, task, owns, avoid), `roles` (a person's pick per role), `allowSameFamilyReviewer`,
+`gateRetries`) creates a **paused** DAG and returns `DagStartResult { dagId, kind, notes }`: `kind: "factory"` when
+`coders` were given, `"plan"` (a planning DAG) otherwise; a reviewer in the coder's family is refused with
+`DAG_REJECTED` unless `allowSameFamilyReviewer` is true, and then `notes` carries the recorded departure.
+`dag.startFromPlan` `{ workspaceId, planDagId }` creates the factory DAG from a planning DAG whose planner completed
+under a **human** approval (checked on the host, not on the wire) and returns the same `DagStartResult`; repeating
+it returns the same DAG. `DagNodeView.planner` marks the planning DAG's node. Validation failures are
+`DAG_REJECTED` with the host's plain reason; no field names a caller. Older hosts have none of these methods.
+
+From **`FACTORY_CAP_PROTOCOL_VERSION`** (v136, additive): `AppConfig.factoryMaxConcurrent` (**`FACTORY_MAX_CONCURRENT`**
+= 1-64, default 8, validated by `isFactoryMaxConcurrent`; a bad stored value falls back to the default and a bad
+update rejects the whole mutation) is the machine-wide cap on factory DAG worker turns across every workspace, on top of
+each workspace's own cap (`subagentMaxConcurrent`). It changes live. `DagQueueView.global` (optional) carries the
+same `{ limit, running, queued }` for that cap, which the pane shows only when it is what holds work back.
+
+From **`DAG_PUSH_PROTOCOL_VERSION`** (v133, behavioural): the workspace-scoped `dag.changed` push is no longer limited
+to accepted wire commands. The host publishes it (debounced per DAG) for every durable change pi-dag commits:
+worker admission and settlement, gate decisions and chat-controller commands. No new method or field; a pane
+only stops polling when the host is at least v133.
+
 ## Get right
 
 - **Mirrors are not version-pinned in comments.** A shape re-declared here because its real home is

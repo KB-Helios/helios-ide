@@ -474,7 +474,8 @@ channel fan-out, and the process-boot wrapper both launchers share.
   workspace fails closed), the settings
   publisher asks `refreshSubagentTools()` to reevaluate all live sessions after a global update that
   carries `subagentsEnabled` (likewise `refreshAgentReviewTool()` for `agentReviewEnabled`,
-  `refreshSubagentConcurrency()` for `subagentMaxConcurrent`, `refreshExtensionTools()` for
+  `refreshSubagentConcurrency()` for `subagentMaxConcurrent`, `setGlobalFactorySlotLimit()` for
+  `factoryMaxConcurrent` (also applied once at boot), `refreshExtensionTools()` for
   `disabledExtensions` or `extensionSettings`, and `refreshSkillAdmission()` for `otherAgentSkills`) — not after
   every publish, since `recentModels` now publishes on each model switch and a tool-set rebuild per idle
   session would be pure churn — and

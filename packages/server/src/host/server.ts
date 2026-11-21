@@ -15,6 +15,8 @@ import {
 	ARTIFACTS_PROTOCOL_VERSION,
 	COMMIT_ANALYSIS_PROTOCOL_VERSION,
 	CONTINUATION_PROTOCOL_VERSION,
+	DAG_PROTOCOL_VERSION,
+	FACTORY_MAX_CONCURRENT,
 	FEEDBACK_SURVEY_PROTOCOL_VERSION,
 	FONTS_PROTOCOL_VERSION,
 	GITHUB_STAR_PROTOCOL_VERSION,
@@ -66,10 +68,12 @@ import {
 	sessionImageSource,
 	setAgentReviewEnabledResolver,
 	setContinueToolHost,
+	setDagPublisher,
 	setDisabledExtensionsResolver,
 	setDisabledPackagesResolver,
 	setExtensionSettingsResolver,
 	setExtUiPublisher,
+	setGlobalFactorySlotLimit,
 	setMcpLoginPublisher,
 	setMcpPolicyResolver,
 	setMcpStatusPublisher,
@@ -95,6 +99,7 @@ import {
 	settleCredentialWritesForShutdown,
 	settleSessionsForShutdown,
 	setWorkspaceToolsHost,
+	stopDagWire,
 	watchUserMcpConfig,
 } from "../agent";
 import {
@@ -548,6 +553,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 					ws.subscribe(WS_CHANNELS.subagentRosterChanged);
 				if (ws.data.protocolVersion >= SWARM_PROTOCOL_VERSION)
 					ws.subscribe(WS_CHANNELS.swarmChanged);
+				if (ws.data.protocolVersion >= DAG_PROTOCOL_VERSION) ws.subscribe(WS_CHANNELS.dagChanged);
 				ws.subscribe(WS_CHANNELS.sessionState);
 				ws.subscribe(WS_CHANNELS.providerLogin);
 				ws.subscribe(WS_CHANNELS.providerChanged);
@@ -943,6 +949,7 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 		}
 	});
 
+	setGlobalFactorySlotLimit(getConfig().factoryMaxConcurrent);
 	setSubagentConcurrencyResolver((workspaceId) => {
 		const globalDefault = getConfig().subagentMaxConcurrent;
 		try {
@@ -1118,6 +1125,8 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 		}
 		if (appliedUpdate.subagentsEnabled !== undefined) refreshSubagentTools();
 		if (appliedUpdate.subagentMaxConcurrent !== undefined) refreshSubagentConcurrency();
+		if (appliedUpdate.factoryMaxConcurrent !== undefined)
+			setGlobalFactorySlotLimit(config.factoryMaxConcurrent);
 		if (appliedUpdate.agentReviewEnabled !== undefined) refreshAgentReviewTool();
 		if (appliedUpdate.disabledPackages !== undefined) bumpPackageSwitchGeneration();
 		if (
@@ -1180,6 +1189,9 @@ export async function createServer(options: CreateServerOptions = {}): Promise<R
 	});
 	setSwarmPublisher((payload) => {
 		publishScoped(WS_CHANNELS.swarmChanged, payload, { workspaceId: payload.workspaceId });
+	});
+	setDagPublisher((payload) => {
+		publishScoped(WS_CHANNELS.dagChanged, payload, { workspaceId: payload.workspaceId });
 	});
 
 	const turnTracker = new TurnTracker((sessionId) => {
@@ -1377,6 +1389,7 @@ function restoreSeamDefaults(): void {
 	setMcpToolGrantWriter(() => {});
 	setSubagentsEnabledResolver(null);
 	setSubagentConcurrencyResolver(null);
+	setGlobalFactorySlotLimit(FACTORY_MAX_CONCURRENT.default);
 	setAgentReviewEnabledResolver(null);
 	setDisabledExtensionsResolver(null);
 	setExtensionSettingsResolver(null);
@@ -1410,6 +1423,8 @@ function restoreSeamDefaults(): void {
 	setSessionResourcesPublisher(() => {});
 	setSubagentRosterPublisher(() => {});
 	setSwarmPublisher(null);
+	setDagPublisher(null);
+	stopDagWire();
 	setTurnPublisher(() => {});
 	setArtifactsPublisher(null);
 	setSessionPublisher(() => {});

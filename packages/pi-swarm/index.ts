@@ -21,7 +21,21 @@ export {
 	type SwarmOwner,
 } from "./src/extension.ts";
 export { describeGates, detectGates, runGates, runProjectGates } from "./src/gates.ts";
-export { commitWorktree, run as runCommand, worktreeDiff } from "./src/git.ts";
+export {
+	applyPatch,
+	changedFiles,
+	commitWorktree,
+	createWorktree,
+	linkDependencies,
+	matchesAny,
+	ownershipViolations,
+	removeWorktree,
+	repoRoot,
+	run as runCommand,
+	unlinkDependencies,
+	type Worktree,
+	worktreeDiff,
+} from "./src/git.ts";
 export { swarmMemberExtension } from "./src/memberExtension.ts";
 export { reviewVerdict } from "./src/prompts.ts";
 export {

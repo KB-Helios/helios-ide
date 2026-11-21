@@ -100,7 +100,7 @@ test("accepts the declared package rings and thin launcher edges", () => {
 	expect(moduleBoundaryViolations(root)).toEqual([]);
 });
 
-test("keeps DAG orchestration portable and out of delegation and the unbundled host", () => {
+test("keeps DAG orchestration portable and out of delegation; the host composes it", () => {
 	const root = fixture();
 	write(root, "packages/pi-dag/index.ts", 'export * from "pi-delegation";');
 	expect(moduleBoundaryViolations(root)).toEqual([]);
@@ -111,7 +111,6 @@ test("keeps DAG orchestration portable and out of delegation and the unbundled h
 		'packages/pi-dag/leak.ts: import "@thinkrail/server" creates forbidden packages/pi-dag -> packages/server edge',
 		'packages/pi-dag/leak.ts: import "pi-subagents" creates forbidden packages/pi-dag -> packages/pi-subagents edge',
 		'packages/pi-delegation/leak.ts: import "pi-dag" creates forbidden packages/pi-delegation -> packages/pi-dag edge',
-		'packages/server/dag.ts: import "pi-dag" creates forbidden packages/server -> packages/pi-dag edge',
 	]);
 });
 

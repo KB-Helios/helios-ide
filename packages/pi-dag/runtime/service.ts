@@ -40,6 +40,13 @@ export interface DagServiceOptions {
 	storageRoot: string;
 	scope: string;
 	delegation: Core.DelegationService;
+	/**
+	 * Called after every durably committed state change of a DAG this service owns (creation, admission,
+	 * settlement, gates, commands) with the new storage version. It is an observer only: it runs outside
+	 * the state queue, its failure is swallowed and it can neither read nor change anything through it.
+	 * Streaming deltas do not advance versions, so they never call it.
+	 */
+	onChange?: (change: { dagId: string; version: number }) => void;
 }
 const uid = (prefix: string) => `${prefix}-${randomUUID()}`;
 const text = (bytes: Uint8Array) => new TextDecoder("utf8", { fatal: true }).decode(bytes);
@@ -277,6 +284,14 @@ class Engine implements D.DagService {
 		}
 		owned.state = state;
 		this.flushNotices();
+		this.changed(state);
+	}
+	private changed(state: D.DagState): void {
+		try {
+			this.options.onChange?.({ dagId: state.dagId, version: state.version });
+		} catch {
+			// An observer must never affect scheduling.
+		}
 	}
 	private halt(owned: Owned, error: unknown): void {
 		owned.fault = failure(error);
@@ -660,6 +675,7 @@ class Engine implements D.DagService {
 			this.guard(binding);
 			await lease.save(state, undefined, () => this.guard(binding));
 			this.owners.set(id, owned);
+			this.changed(state);
 			return structuredClone(receipt);
 		} catch (error) {
 			await owned?.resource?.release();
@@ -1641,17 +1657,24 @@ class Engine implements D.DagService {
 			await this.save(owned, state);
 		});
 	}
+	/**
+	 * Settles live work and releases every owner. A failed close is retryable: owners whose release failed stay
+	 * registered and the cached attempt is dropped, so the next `close()` retries exactly those instead of
+	 * returning the same rejection forever. A failed shutdown save halts its owner, which can never save again,
+	 * so it is reported once and the owner is still released; recovery restores its last snapshot paused.
+	 */
 	close(): Promise<void> {
 		if (this.closing) return this.closing;
 		this.closed = true;
-		this.closing = (async () => {
+		const attempt = (async () => {
 			for (const binding of this.bindings) binding.detach?.();
 			this.bindings.clear();
 			await Promise.all(this.queues.values());
-			const owners = [...this.owners.values()];
+			const owners = [...this.owners.entries()];
 			const errors: unknown[] = [];
+			const unfinished = new Set<string>();
 			await Promise.all(
-				owners.map(async (owned) => {
+				owners.map(async ([, owned]) => {
 					try {
 						await this.serial(owned.state.dagId, async () => {
 							const state = this.next(owned);
@@ -1667,28 +1690,42 @@ class Engine implements D.DagService {
 							await this.save(owned, state);
 						});
 					} catch (error) {
-						errors.push(error);
+						// A failed save halts the owner (its `fault`, reported below), and a halted owner can
+						// never save again, so the shutdown save is not retried: the last committed snapshot
+						// stays, recovery restores it paused, and the owner is still released.
+						if (!owned.fault) errors.push(error);
 					}
 				}),
 			);
-			for (const owned of owners) for (const job of owned.jobs.values()) job.controller.abort();
+			for (const [, owned] of owners) for (const job of owned.jobs.values()) job.controller.abort();
 			await Promise.all(
-				owners.map(async (owned) => {
+				owners.map(async ([id, owned]) => {
 					await Promise.all([...owned.jobs.values()].map((job) => job.promise));
 					await Promise.all(owned.effects);
 					try {
-						await owned.resource?.release();
+						if (owned.resource) {
+							await owned.resource.release();
+							delete owned.resource;
+						}
 						await owned.lease.release();
 					} catch (error) {
 						errors.push(error);
+						unfinished.add(id);
 					}
-					if (owned.fault) errors.push(owned.fault);
+					if (owned.fault) {
+						errors.push(owned.fault);
+						delete owned.fault;
+					}
 				}),
 			);
-			this.owners.clear();
+			for (const [id] of owners) if (!unfinished.has(id)) this.owners.delete(id);
 			if (errors.length) throw new AggregateError(errors, "DAG close did not complete cleanly");
 		})();
-		return this.closing;
+		this.closing = attempt;
+		attempt.catch(() => {
+			if (this.closing === attempt) delete this.closing;
+		});
+		return attempt;
 	}
 }
 

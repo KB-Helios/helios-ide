@@ -23,6 +23,21 @@ export {
 	removeCustomEndpoint,
 	saveCustomEndpoint,
 } from "./customEndpoints";
+export { trashWorkspaceDag } from "./dag";
+export { setDagPublisher } from "./dagChanges";
+export { readFactoryRoles } from "./dagStart";
+export {
+	executeWorkspaceDag,
+	listWorkspaceDags,
+	readWorkspaceDag,
+	readWorkspaceHistory,
+	readWorkspaceOutput,
+	readWorkspaceQueue,
+	readWorkspaceReview,
+	startWorkspaceFactory,
+	startWorkspaceFactoryFromPlan,
+	stopDagWire,
+} from "./dagWire";
 export {
 	type ReviewSubagentRun,
 	readChildTranscript,
@@ -45,6 +60,7 @@ export {
 	setExtensionSettingsResolver,
 	setSpecsEnabledResolver,
 } from "./extensions";
+export { setGlobalFactorySlotLimit } from "./factory";
 export {
 	effectiveMcpServerConfig,
 	mcpEntryFingerprint,

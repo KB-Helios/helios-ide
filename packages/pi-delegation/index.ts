@@ -1,4 +1,5 @@
 export { scanReplayTools } from "./src/replayTools";
+export { Semaphore } from "./src/semaphore";
 export { createDelegationService } from "./src/service";
 export {
 	DEFAULT_SCOPE,

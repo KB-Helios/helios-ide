@@ -29,6 +29,7 @@ import {
 import { useShallow } from "zustand/react/shallow";
 import { AgentsTrigger } from "@/agents";
 import { useNow } from "@/components/useNow";
+import { FactoryTrigger } from "@/factory";
 import { LspResourcesSection, useWorkspaceLsps } from "@/lsp";
 import {
 	CONTEXT_ARTIFACT_DIR,
@@ -946,6 +947,7 @@ export default function ChatView({
 							<span className="flex shrink-0 items-center gap-2">
 								<AgentsTrigger workspaceId={workspaceId} />
 								<SwarmTrigger workspaceId={workspaceId} sessionId={sessionId} />
+								<FactoryTrigger workspaceId={workspaceId} />
 								<ResourcesButton
 									ref={resourcesTrigger}
 									activeCount={

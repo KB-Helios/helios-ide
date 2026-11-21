@@ -755,6 +755,257 @@ export interface SwarmDiff {
 	truncated: boolean;
 }
 
+export type DagNodeStatus =
+	| "pending"
+	| "queued"
+	| "running"
+	| "waiting-input"
+	| "waiting-approval"
+	| "needs-attention"
+	| "interrupted"
+	| "uncertain"
+	| "stale"
+	| "completed"
+	| "cancelled"
+	| "skipped";
+
+/** One workspace DAG in the factory list (UI projection of pi-dag's summary). */
+export interface DagListItem {
+	dagId: string;
+	title: string;
+	version: number;
+	mode: "paused" | "running";
+	lifecycle: "active" | "disposing" | "disposed";
+	updatedAt: string;
+	/** Gates still waiting for a decision. */
+	pendingGates: number;
+}
+
+/**
+ * Worker turns of the workspace's DAGs against the workspace-wide cap: `running` hold a slot, `queued`
+ * were admitted by their DAG and wait for one (those nodes read `queued` in `DagView`).
+ */
+export interface DagQueueView {
+	limit: number;
+	running: number;
+	queued: number;
+	/** The same counts across every workspace against the machine-wide cap (`factoryMaxConcurrent`). */
+	global?: { limit: number; running: number; queued: number };
+}
+
+export interface DagNodeView {
+	id: string;
+	status: DagNodeStatus;
+	held: boolean;
+	/** Bounded preview of the node's task. */
+	task: string;
+	attempt?: number;
+	activation?: number;
+	/** The node's only output is a reviewer's `findings`; `dag.review` can read it. */
+	reviewer?: true;
+	/** What the node's latest run actually used (pi-dag outcome details), absent until it has run. */
+	model?: string;
+	thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+	usage?: DagUsageView;
+	durationMs?: number;
+	outcome?: "completed" | "error" | "aborted";
+	/** Declared output names that `dag.output` can read: only nodes that already submitted a proposal. */
+	outputs?: string[];
+	/** The node is a factory planner: its only output is the json `plan` of coders; see `dag.startFromPlan`. */
+	planner?: true;
+}
+
+/** Token and cost accounting of one node run, as pi-dag recorded it. */
+export interface DagUsageView {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+	cost: number;
+	turns: number;
+}
+
+export type DagReviewSeverity = "critical" | "high" | "medium" | "low" | "info";
+
+export interface DagReviewFinding {
+	severity: DagReviewSeverity;
+	file: string;
+	summary: string;
+}
+
+/**
+ * A reviewer node's `findings` output, read-only and bounded. `valid: false` means the node submitted
+ * something other than the findings shape: the count is then unknown, never zero.
+ */
+export interface DagReviewView {
+	nodeId: string;
+	proposalId: string;
+	disposition: "pending" | "accepted" | "rejected" | "superseded";
+	valid: boolean;
+	/** Findings the reviewer submitted; `findings` holds at most the first page of them. */
+	total: number;
+	findings: DagReviewFinding[];
+	truncated: boolean;
+	model?: string;
+}
+
+/** One durable DAG event, as a manifest: no content body, no captured-file reference, no storage path. */
+export interface DagHistoryItem {
+	id: string;
+	/** The storage version the event was committed at. */
+	version: number;
+	at: string;
+	/** pi-dag's event kind, e.g. `created`, `resumed`, `attempt-settled`. */
+	kind: string;
+	/** Which kind of caller caused it; never an id. Absent for events the engine itself recorded. */
+	actor?: "human" | "controller" | "owner";
+	target?: { nodeId: string; attempt: number; activation: number };
+}
+
+/** A page of a DAG's history, oldest first; pass `nextCursor` back for the next page. */
+export interface DagHistoryPage {
+	items: DagHistoryItem[];
+	nextCursor?: string;
+}
+
+/**
+ * One named output of a node's current proposal, read-only. `text` holds at most `DAG_OUTPUT_MAX_BYTES`
+ * bytes of a text or json output (`truncated` says so); an `artifact` output is a file reference in
+ * pi-dag and is reported without content.
+ */
+export interface DagOutputView {
+	nodeId: string;
+	name: string;
+	proposalId: string;
+	disposition: "pending" | "accepted" | "rejected" | "superseded";
+	kind: "text" | "json" | "artifact";
+	sizeBytes: number;
+	text?: string;
+	truncated: boolean;
+}
+
+/** The model roles of a factory run. */
+export type FactoryRoleName = "planner" | "coder" | "reviewer" | "scout";
+
+export interface FactoryModelChoice {
+	provider: string;
+	id: string;
+}
+
+/** A model the host can serve right now, with the vendor family the reviewer rule is judged on. */
+export interface FactoryRoleModel extends FactoryModelChoice {
+	name: string;
+	family: string;
+	reasoning: boolean;
+}
+
+/** What `dag.roles` offers a person starting a run: the available models and the host's default pick per role. */
+export interface FactoryRolesView {
+	models: FactoryRoleModel[];
+	defaults: Record<FactoryRoleName, FactoryModelChoice>;
+	/** No model of another family than the coder's exists: a reviewer then needs `allowSameFamilyReviewer`. */
+	sameFamilyOnly: boolean;
+}
+
+export interface FactoryCoderPlanWire {
+	/** Lower-case letters, digits and dashes; also the coder's worktree and branch name. */
+	id: string;
+	task: string;
+	/** Globs the coder may change; required when several coders run, and disjoint between them. */
+	owns?: string[];
+	avoid?: string[];
+}
+
+/**
+ * Starts a factory run. With `coders` the factory DAG is created straight away; without them a planning
+ * DAG is created whose planner proposes the coders and a person approves that plan first. Either DAG is
+ * created paused: starting work, like every later decision, is the person's `resume`.
+ */
+export interface DagStartRequest {
+	workspaceId: string;
+	/** Caller-supplied idempotency key; replaying it returns the DAG the first call created. */
+	commandId: string;
+	task: string;
+	coders?: FactoryCoderPlanWire[];
+	/** A person's model pick per role; a role left out gets the host's default. */
+	roles?: Partial<Record<FactoryRoleName, FactoryModelChoice>>;
+	/** The reviewer must be another family than the coder unless this is set; the DAG then records a note. */
+	allowSameFamilyReviewer?: boolean;
+	/** Gate corrections per coder attempt, 0 to 5; the host default when absent. */
+	gateRetries?: number;
+}
+
+/** Creates the factory DAG from a planning DAG whose plan a person approved. */
+export interface DagStartFromPlanRequest {
+	workspaceId: string;
+	planDagId: string;
+}
+
+export interface DagStartResult {
+	dagId: string;
+	kind: "plan" | "factory";
+	/** Departures from the ideal setup, recorded in the DAG (for example a same-family reviewer). */
+	notes: string[];
+}
+
+/** The most output text `dag.output` returns. */
+export const DAG_OUTPUT_MAX_BYTES = 64 * 1024;
+/** The most history items one `dag.history` page returns. */
+export const DAG_HISTORY_MAX_PAGE = 50;
+
+/** A gate still waiting for a human; decided gates are not projected. */
+export interface DagGateView {
+	id: string;
+	kind: "approval" | "input";
+	authority: "human" | "human-or-controller";
+	/** Bounded preview of the question. */
+	question: string;
+	target: { nodeId: string; attempt: number; activation: number };
+}
+
+/** UI projection of a pi-dag snapshot: no storage paths, captured-file references or consumed values. */
+export interface DagView {
+	dagId: string;
+	title: string;
+	version: number;
+	mode: "paused" | "running";
+	lifecycle: "active" | "disposing" | "disposed";
+	executionOwner: "local" | "other" | "none";
+	createdAt: string;
+	updatedAt: string;
+	nodes: DagNodeView[];
+	/** Dependency edges between nodes (`from` must finish before `to`). */
+	edges: Array<{ from: string; to: string }>;
+	gates: DagGateView[];
+}
+
+/**
+ * The commands the UI may issue. Authority is never part of the wire: the host always acts as the
+ * local human operator. Graph edits, dispose, skip, steer, reconcile and manual result acceptance
+ * stay with the chat controller.
+ */
+export type DagWireCommand =
+	| { kind: "pause" | "resume" | "interrupt" }
+	| { kind: "cancel"; nodeId?: string }
+	| { kind: "retry"; nodeId: string; attempt: number }
+	| { kind: "continue"; nodeId: string; attempt: number; activation: number }
+	| { kind: "approve" | "reject"; gateId: string; reason: string }
+	| { kind: "answer"; gateId: string; text: string };
+
+export interface DagExecuteRequest {
+	workspaceId: string;
+	dagId: string;
+	/** Caller-supplied idempotency key; replaying it with the same command returns the original receipt. */
+	commandId: string;
+	expectedVersion: number;
+	command: DagWireCommand;
+}
+
+export interface DagChanged {
+	workspaceId: string;
+	dagId: string;
+}
+
 export type ResourceRecord =
 	| { kind: "command"; summary: BackgroundCommandSummary }
 	| { kind: "subagent"; summary: SubagentResourceSummary };
@@ -1719,6 +1970,11 @@ export interface AppConfig extends ThemePreference {
 	subagentsEnabled: boolean;
 	/** How many subagents one chat may run at once; more spawns queue FIFO. */
 	subagentMaxConcurrent: number;
+	/**
+	 * How many DAG worker turns of the factory may run at once across every workspace (on top of each
+	 * workspace's own cap, which is `subagentMaxConcurrent`); more wait FIFO. Adjustable while running.
+	 */
+	factoryMaxConcurrent: number;
 	jbcentralQuotaEnabled: boolean;
 	jbcentralQuotaRefreshSeconds: number;
 	/** Which shell new workspace terminals start on Windows; ignored on other platforms. */
@@ -2063,6 +2319,17 @@ export function isSubagentMaxConcurrent(value: unknown): value is number {
 	);
 }
 
+export const FACTORY_MAX_CONCURRENT = { min: 1, max: 64, default: 8 } as const;
+
+export function isFactoryMaxConcurrent(value: unknown): value is number {
+	return (
+		typeof value === "number" &&
+		Number.isInteger(value) &&
+		value >= FACTORY_MAX_CONCURRENT.min &&
+		value <= FACTORY_MAX_CONCURRENT.max
+	);
+}
+
 export const JBCENTRAL_QUOTA_REFRESH_SECONDS = { min: 1, max: 3600, default: 30 } as const;
 
 export function isJbcentralQuotaRefreshSeconds(value: unknown): value is number {
@@ -2097,6 +2364,7 @@ export const DEFAULT_CONFIG: AppConfig = {
 	agentReviewEnabled: false,
 	subagentsEnabled: true,
 	subagentMaxConcurrent: SUBAGENT_MAX_CONCURRENT.default,
+	factoryMaxConcurrent: FACTORY_MAX_CONCURRENT.default,
 	jbcentralQuotaEnabled: true,
 	jbcentralQuotaRefreshSeconds: JBCENTRAL_QUOTA_REFRESH_SECONDS.default,
 	settleIdleDays: SETTLE_IDLE_DAYS.default,
