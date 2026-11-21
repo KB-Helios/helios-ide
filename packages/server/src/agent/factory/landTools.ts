@@ -36,11 +36,14 @@ async function git(cwd: string, args: string[], env?: Record<string, string>) {
 /**
  * Runs `use` while holding the checkout's `index.lock` on a private copy of the index; when `use` returns
  * true the copy becomes the index (git's lock-and-rename protocol). It blocks index writes, not every HEAD
- * change (`withHeadLock` covers those). A lock someone else holds means git is busy there: nothing is done.
+ * change (`acquireHeadLock` covers those). A lock someone else holds means git is busy there: nothing is done.
+ * `use` may hand over locks to release only after the copy is installed (`holdUntilInstalled`), so a HEAD lock
+ * it took covers the installation too. `beforeInstall` is a test seam for exactly that interval.
  */
 async function withIndexLock(
 	repo: string,
-	use: (index: string) => Promise<boolean>,
+	use: (index: string, holdUntilInstalled: (release: () => void) => void) => Promise<boolean>,
+	beforeInstall?: () => Promise<void>,
 ): Promise<void> {
 	const gitDir = (await git(repo, ["rev-parse", "--absolute-git-dir"])).stdout.trim();
 	const index = join(gitDir, "index");
@@ -54,10 +57,12 @@ async function withIndexLock(
 		);
 	}
 	const copy = join(gitDir, `factory-index-${randomUUID()}`);
+	const releases: (() => void)[] = [];
 	let committed = false;
 	try {
 		if (existsSync(index)) copyFileSync(index, copy);
-		if (await use(copy)) {
+		if (await use(copy, (release) => releases.push(release))) {
+			await beforeInstall?.();
 			writeSync(fd, readFileSync(copy));
 			closeSync(fd);
 			renameSync(lock, index);
@@ -71,20 +76,20 @@ async function withIndexLock(
 			rmSync(lock, { force: true });
 		}
 		rmSync(copy, { force: true });
+		for (const release of releases.reverse()) release();
 	}
 }
 
 /**
- * Runs `use` while holding git's `HEAD.lock`, so no branch switch can complete meanwhile. The lock is only
- * held, never committed: HEAD itself is not changed. Someone else's commit or switch may hold it for a
- * moment, so this retries briefly before giving up.
+ * Takes git's `HEAD.lock` and returns the function that releases it, so no branch switch can complete while it
+ * is held. The lock is only held, never committed: HEAD itself is not changed. Someone else's commit or switch
+ * may hold it for a moment, so this retries briefly before giving up.
  */
-async function withHeadLock<T>(
+async function acquireHeadLock(
 	repo: string,
 	target: string,
 	tips: { from: string; to: string },
-	use: () => Promise<T>,
-): Promise<T> {
+): Promise<() => void> {
 	const gitDir = (await git(repo, ["rev-parse", "--absolute-git-dir"])).stdout.trim();
 	const lock = join(gitDir, "HEAD.lock");
 	let fd: number | undefined;
@@ -99,12 +104,11 @@ async function withHeadLock<T>(
 			await new Promise((resolve) => setTimeout(resolve, 50));
 		}
 	}
-	try {
-		return await use();
-	} finally {
-		closeSync(fd);
+	const held = fd;
+	return () => {
+		closeSync(held);
 		rmSync(lock, { force: true });
-	}
+	};
 }
 
 async function mergeIdentity(cwd: string): Promise<string[]> {
@@ -162,7 +166,12 @@ export async function landOnTarget(
 	sha: string,
 	message: string,
 	/** Test seams: right after the ref update, and inside the HEAD lock right after the target check. */
-	hooks?: { afterRefUpdate?: () => Promise<void>; insideCheckoutLock?: () => Promise<void> },
+	hooks?: {
+		afterRefUpdate?: () => Promise<void>;
+		insideCheckoutLock?: () => Promise<void>;
+		/** After the sync, with the HEAD lock still held, right before the private index is installed. */
+		beforeIndexInstall?: () => Promise<void>;
+	},
 	/**
 	 * `expectedTip`: the commit the target must be at (the one a gate run validated); anything else refuses
 	 * before a merge is made, so the ref compare-and-swap protects the tested base, not whatever the tip is
@@ -210,42 +219,46 @@ export async function landOnTarget(
 
 	// Git's own index lock is held across the target check, the ref update and the sync: a branch switch in
 	// the person's checkout needs the same lock, so it can neither slip in between nor receive the sync.
-	await withIndexLock(repo, async (index) => {
-		const env = { GIT_INDEX_FILE: index };
-		const headIs = async (name: string) =>
-			(await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim() === name;
-		// Refuse before any change when the person's edits touch a landed file.
-		if (await headIs(ref)) {
-			const landed = new Set(
-				(await git(repo, ["diff", "--name-only", "-z", tip, merged])).stdout
-					.split("\0")
-					.filter(Boolean),
-			);
-			const status = await git(
-				repo,
-				["--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"],
-				env,
-			);
-			const local = statusPaths(status.stdout).filter((file) => landed.has(file));
-			if (local.length)
-				throw new Error(
-					`Your uncommitted changes touch files this landing changes (${local.join(", ")}); commit or stash them first. Nothing was changed.`,
+	await withIndexLock(
+		repo,
+		async (index, holdUntilInstalled) => {
+			const env = { GIT_INDEX_FILE: index };
+			const headIs = async (name: string) =>
+				(await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim() === name;
+			// Refuse before any change when the person's edits touch a landed file.
+			if (await headIs(ref)) {
+				const landed = new Set(
+					(await git(repo, ["diff", "--name-only", "-z", tip, merged])).stdout
+						.split("\0")
+						.filter(Boolean),
 				);
-		}
-		// The ref update needs git's HEAD lock itself (HEAD's reflog), so it runs before this host takes that
-		// lock. Then HEAD is locked too: a branch switch must write HEAD under that lock, so one that already
-		// finished is seen below, and one still in flight (even one that read the old tip) fails instead of
-		// landing between the HEAD check and the sync. HEAD cannot change while the sync runs.
-		options?.intent?.({ from: tip, to: merged });
-		const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
-		if (updated.code !== 0)
-			throw new Error(
-				/cannot lock ref|\.lock/i.test(updated.stderr)
-					? `Git is busy in your checkout (${target} is locked); nothing was changed. Land again when it is done.`
-					: `${target} moved while landing; nothing was changed. Land again.`,
-			);
-		await hooks?.afterRefUpdate?.();
-		return withHeadLock(repo, target, { from: tip, to: merged }, async () => {
+				const status = await git(
+					repo,
+					["--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all"],
+					env,
+				);
+				const local = statusPaths(status.stdout).filter((file) => landed.has(file));
+				if (local.length)
+					throw new Error(
+						`Your uncommitted changes touch files this landing changes (${local.join(", ")}); commit or stash them first. Nothing was changed.`,
+					);
+			}
+			// The ref update needs git's HEAD lock itself (HEAD's reflog), so it runs before this host takes that
+			// lock. Then HEAD is locked too: a branch switch must write HEAD under that lock, so one that already
+			// finished is seen below, and one still in flight (even one that read the old tip) fails instead of
+			// landing between the HEAD check and the sync. HEAD cannot change while the sync runs.
+			options?.intent?.({ from: tip, to: merged });
+			const updated = await git(repo, ["update-ref", "-m", message, ref, merged, tip]);
+			if (updated.code !== 0)
+				throw new Error(
+					/cannot lock ref|\.lock/i.test(updated.stderr)
+						? `Git is busy in your checkout (${target} is locked); nothing was changed. Land again when it is done.`
+						: `${target} moved while landing; nothing was changed. Land again.`,
+				);
+			await hooks?.afterRefUpdate?.();
+			// Held until the private index is installed too: releasing it earlier leaves a gap in which a switch
+			// could write HEAD while the synced index is still about to become the checkout's index.
+			holdUntilInstalled(await acquireHeadLock(repo, target, { from: tip, to: merged }));
 			const onTarget = await headIs(ref);
 			await hooks?.insideCheckoutLock?.();
 			if (!onTarget) return false;
@@ -255,8 +268,9 @@ export async function landOnTarget(
 					`Landed on ${target} (${tip} -> ${merged}), but your checkout could not be brought along: ${(synced.stderr || synced.stdout).trim()}. Move the files it names aside, then run "git read-tree -m -u ${tip} ${merged}" in your checkout to bring it to the landed commit without touching your other edits.`,
 				);
 			return true;
-		});
-	});
+		},
+		hooks?.beforeIndexInstall,
+	);
 	return merged;
 }
 
@@ -397,14 +411,16 @@ async function resyncCheckout(
 	repo: string,
 	target: string,
 	move: { from: string; to: string },
-	hooks?: { insideCheckoutLock?: () => Promise<void> },
+	hooks?: { insideCheckoutLock?: () => Promise<void>; beforeIndexInstall?: () => Promise<void> },
 ): Promise<void> {
 	const ref = `refs/heads/${target}`;
-	await withIndexLock(repo, (index) =>
-		// HEAD is locked too, like in a normal landing: a branch switch must write HEAD under that lock, so
-		// one that already finished is seen by the check below and one still in flight fails instead of
-		// landing between the check and the sync.
-		withHeadLock(repo, target, move, async () => {
+	await withIndexLock(
+		repo,
+		async (index, holdUntilInstalled) => {
+			// HEAD is locked too, like in a normal landing and through the installation of the index: a branch
+			// switch must write HEAD under that lock, so one that already finished is seen by the check below
+			// and one still in flight fails instead of landing between the check and the installation.
+			holdUntilInstalled(await acquireHeadLock(repo, target, move));
 			const env = { GIT_INDEX_FILE: index };
 			const head = (await git(repo, ["symbolic-ref", "-q", "HEAD"])).stdout.trim();
 			if (head !== ref) return false;
@@ -418,7 +434,8 @@ async function resyncCheckout(
 					`Landed on ${target} (${move.from} -> ${move.to}), but your checkout could not be brought along: ${(synced.stderr || synced.stdout).trim()}. Move the files it names aside, then run "git read-tree -m -u ${move.from} ${move.to}" in your checkout.`,
 				);
 			return true;
-		}),
+		},
+		hooks?.beforeIndexInstall,
 	);
 }
 
@@ -480,6 +497,8 @@ export function landFactory(
 		afterRefUpdate?: () => Promise<void>;
 		/** Inside the checkout's HEAD lock, before the checkout sync (a normal landing and a recovery alike). */
 		insideCheckoutLock?: () => Promise<void>;
+		/** After the sync, with the HEAD lock still held, right before the private index is installed. */
+		beforeIndexInstall?: () => Promise<void>;
 	},
 ): Promise<LandedSource[]> {
 	return run.serial("land", async () => {
@@ -579,6 +598,7 @@ export function landFactory(
 		const checkoutHooks = {
 			...(hooks?.afterRefUpdate ? { afterRefUpdate: hooks.afterRefUpdate } : {}),
 			...(hooks?.insideCheckoutLock ? { insideCheckoutLock: hooks.insideCheckoutLock } : {}),
+			...(hooks?.beforeIndexInstall ? { beforeIndexInstall: hooks.beforeIndexInstall } : {}),
 		};
 		const landed: LandedSource[] = land.sources
 			.filter((nodeId) => run.readMeta(nodeId)?.landed)

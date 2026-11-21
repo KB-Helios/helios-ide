@@ -1776,7 +1776,7 @@ beyond small host files next to the worktrees.
   `landedTip` (which must descend from `targetTip`), so a commit from anywhere else is refused, and every remaining
   source must match. A landing whose host stopped after the ref update but before its record finds the target at
   `landing.to`: it finishes that source without a second merge (bringing the checkout along as a normal landing
-  does, under the same index and HEAD locks, so a branch switch cannot slip in; staged changes to other files are
+  does, under the same index and HEAD locks (the HEAD lock is held until the synced index is installed), so a branch switch cannot slip in; staged changes to other files are
   kept, and a landed file the person changed refuses) and continues; at `landing.from` the intent is dropped and the source lands normally; anywhere
   else it is refused. Each merge is made on the tip the previous one produced (the first on `targetTip`): the ref
   compare-and-swap protects the tested base, and a tip that is not the expected one refuses before any merge.

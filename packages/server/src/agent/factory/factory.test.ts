@@ -1390,6 +1390,35 @@ test("recovering a stopped landing keeps unrelated staged changes and still sync
 	expect(readFileSync(join(repo, "mine.txt"), "utf8")).toBe("mine\n");
 });
 
+test("a branch switch cannot slip in while the synced index is being installed", async () => {
+	const repo = makeRepo();
+	const sha = featureCommit(repo, "f.txt", "feature\n");
+	const switches: number[] = [];
+	const tip = await landOnTarget(
+		repo,
+		join(root, "landing-install"),
+		"main",
+		sha,
+		"factory: land f",
+		{
+			// After the sync, right before the private index becomes the checkout's index.
+			beforeIndexInstall: async () => {
+				for (const args of [
+					["checkout", "-b", "elsewhere"],
+					["checkout", "-q", "-b", "elsewhere2"],
+					["symbolic-ref", "HEAD", "refs/heads/elsewhere3"],
+				])
+					switches.push(Bun.spawnSync(["git", ...args], { cwd: repo }).exitCode);
+			},
+		},
+	);
+	expect(switches).toHaveLength(3);
+	expect(switches.every((code) => code !== 0)).toBe(true);
+	expect(git(repo, "rev-parse", "--abbrev-ref", "HEAD").trim()).toBe("main");
+	expect(git(repo, "rev-parse", "HEAD").trim()).toBe(tip);
+	expect(git(repo, "status", "--porcelain").trim()).toBe("");
+});
+
 test("a branch switch cannot slip into a recovery's checkout sync either", async () => {
 	const { repo, run } = await twoGatedCoders({ a: "a\n", b: "b\n" });
 	await runIntegrationGates(run, "integrate", INTEGRATE);
@@ -1402,6 +1431,14 @@ test("a branch switch cannot slip into a recovery's checkout sync either", async
 	).rejects.toThrow("host stopped");
 	const switches: number[] = [];
 	await landFactory(run, LAND, {
+		// The same attempts in the interval between the sync and the installation of the index.
+		beforeIndexInstall: async () => {
+			switches.push(
+				Bun.spawnSync(["git", "symbolic-ref", "HEAD", "refs/heads/elsewhere-install"], {
+					cwd: repo,
+				}).exitCode,
+			);
+		},
 		insideCheckoutLock: async () => {
 			// The person switches branches inside the recovery's sync interval, quiet or not: neither form can
 			// write HEAD while the recovery holds its lock, so both fail instead of being synced into.
