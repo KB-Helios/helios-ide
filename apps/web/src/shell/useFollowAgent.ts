@@ -4,6 +4,7 @@ import { selectFollowActive, useAppStore } from "../store";
 import { getTransport } from "../transport";
 import {
 	changedLine,
+	createFollowQueue,
 	type FileMutation,
 	followTargetGroupId,
 	newFileMutations,
@@ -24,16 +25,16 @@ async function follow(
 	workspaceId: string,
 	chatTabId: string,
 	mutation: FileMutation,
+	isStale: () => boolean,
 ): Promise<void> {
 	try {
-		const navigated = userNavigationEpoch(workspaceId);
 		const { content } = await getTransport().request("fs.readFile", {
 			workspaceId,
 			path: mutation.path,
 		});
 		const state = useAppStore.getState();
 		if (state.activeWorkspaceId !== workspaceId || !selectFollowActive(state, workspaceId)) return;
-		if (userNavigationEpoch(workspaceId) !== navigated) return;
+		if (isStale()) return;
 		const document = state.layoutDocumentsByWorkspace[workspaceId];
 		const groups = document ? collectCenterGroups(document.center) : [];
 		await followFileAtLine(
@@ -47,7 +48,7 @@ async function follow(
 				return (
 					current.activeWorkspaceId === workspaceId &&
 					selectFollowActive(current, workspaceId) &&
-					userNavigationEpoch(workspaceId) === navigated
+					!isStale()
 				);
 			},
 		);
@@ -65,7 +66,7 @@ export function useFollowAgent(): void {
 		const seen = new Set<string>();
 		const primed = new Set<string>();
 		// Reads finish in any order; chaining them keeps the editor on the newest mutation.
-		let followQueue: Promise<void> = Promise.resolve();
+		const enqueue = createFollowQueue(userNavigationEpoch);
 		const scan = (
 			state: ReturnType<typeof useAppStore.getState>,
 			previous: typeof state | null,
@@ -93,7 +94,7 @@ export function useFollowAgent(): void {
 				for (const mutation of fresh) {
 					seen.add(mutation.toolCallId);
 					if (following) {
-						followQueue = followQueue.then(() => follow(workspaceId, tab.id, mutation));
+						enqueue(workspaceId, (isStale) => follow(workspaceId, tab.id, mutation, isStale));
 					}
 				}
 			}

@@ -18,6 +18,7 @@ import {
 	layoutOpenOptionsForNavigation,
 	selectDiffTabTargetRef,
 	selectWorkspaceById,
+	selectWorkspaceIsRunning,
 	selectWorkspaceNavTick,
 	selectWorkspaceTick,
 	type TabIntent,
@@ -333,6 +334,17 @@ export function noteUserNavigation(workspaceId: string): void {
 
 export function userNavigationEpoch(workspaceId: string): number {
 	return userNavigationEpochs.get(workspaceId) ?? 0;
+}
+
+/** Hosts without session-state records report a run only through each chat's own streaming flag. */
+export function workspaceAgentRunning(workspaceId: string): boolean {
+	const state = useAppStore.getState();
+	return (
+		selectWorkspaceIsRunning(state, workspaceId) ||
+		(state.tabsByWorkspace[workspaceId] ?? []).some(
+			(tab) => tab.kind === "chat" && state.sessions[tab.sessionId]?.isStreaming === true,
+		)
+	);
 }
 
 export async function followFileAtLine(
