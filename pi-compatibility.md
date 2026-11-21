@@ -17,54 +17,63 @@ The installed version comes only from the root dependency catalog, not a second 
 
 ## Last re-check
 
-Pi 1.5.2 was checked against the installed dist (1.5.0 → 1.5.1 → 1.5.2; every private symbol re-grepped,
-`agent-session.js`, `sdk.js`, `settings-defaults.js`, the extension loader/runner, `mcp-servers.js`, the
-MCP extension, `package-manager.js`, `model-resolver.js` and pi-ai's providers diffed). **One gate is
-met**: pi now clears a delivered image-only queued message itself (#8612), so the host's
-`stuckEmptyDeliveries` override is gone; the text-only queue API still needs the queued-image copy, whose
-entry below now stands alone. **Two adaptations were added**: the
-cache-warming default and the shutdown wait for credential writes (both below). Everything else stays,
-with this evidence:
+Pi 1.6.0 was checked against the installed dist (1.5.2 → 1.6.0; every private symbol re-grepped,
+the package-root `index.d.ts` of pi-coding-agent, pi-ai, pi-agent-core and pi-mcp compared, and
+`agent-session.js`, `agent-session-runtime.js`, `sdk.js`, `settings-defaults.js`, the extension loader/runner,
+`mcp-servers.js`, the MCP extension, `package-manager.js`, `model-resolver.js`, `resource-loader.js`,
+`session-manager.js`, pi-agent-core's `agent-loop.js` and pi-ai's providers diffed against 1.5.2). **No gate
+is met and no adaptation was added or removed.** Every entry below stays, with this evidence:
 
 - The Anthropic SSE framing defect is unchanged upstream (`consumeLine` is byte-identical; #10390 still
-  open): the unpatched 1.5.1 dist fails all three "defects the patch fixes" cases. The message-threads
-  code moved the hunks by ~175 lines, so the patch was regenerated from a clean dist, not renamed.
-- MCP: pi moved the *entry* validator into `@earendil-works/pi-mcp` as public `validateMcpServerConfig`
-  (with `isMcpServerOverride`, `mcpNamespace`, `createMcpToolName`, `limitMcpContent`,
-  `normalizeMcpInputSchema`), but pi's own fields (`exposure`, `toolExposure`, `auth`), the file loader
-  and the writers remain private in `core/mcp-servers.js` / `extensions/mcp/config.js`; the loader parity
-  fixture passes unchanged. `/mcp` status and sign-in wording did not change; sign-in moved onto pi-mcp's
-  `startMcpSignIn` / `completeMcpSignIn` behind the same `openUrl` seam. `AgentSession.dispose()` still
-  emits no shutdown; `AgentSession.reload()` now throws while streaming or compacting, which the host's
-  reload gate already refuses earlier. Codemode is still unpackaged; raw `structuredContent` is still
-  ephemeral.
-- `_isActivatedOnRegistration`, the provider-registration queues with `extensionPath`,
+  open): the unpatched 1.6.0 dist fails the same three "defects the patch fixes" cases. `anthropic-messages.js`
+  lost one line above the parser (the message-thread default, below), so the hunks moved by one: the patch
+  was regenerated from a clean 1.6.0 dist and renamed, and the patched dist passes all six framing tests.
+- The private symbols the host reaches for are unchanged:
+  `_isActivatedOnRegistration`, the provider-registration queues with `extensionPath`,
   `getAllRegisteredTools`, the `sk-ant-oat` predicate, `getPackageIdentity`, `clearExtensionCache`,
-  `defaultModelPerProvider`, `"pi-virtual"`, `formatSkillsForPrompt`, `findCutPoint` / `generateSummary`
-  and the single-`appendFileSync` session append are all still private and unchanged in shape.
-  `isOfflineModeEnabled` is now exported from `core/package-manager.js` but not from the package root, so
-  the port stays. `defaultModelPerProvider` moved 17 providers (Anthropic/Bedrock → Claude Opus 5.5,
-  Azure → GPT-6.1 Sol, Google/Vertex → Gemini 4 Argon, …) and added `qwen-token-plan-individual-cn`; the
-  mirror follows. The Jiti loader now imports extensions by `realpath`; the bundled seams are unaffected,
-  only `check:seams`' allowlist text changed with pi's rewritten opaque imports.
-- `PackageManager` progress gains a `result` event the host does not consume; `GrepOperations.readFile`
-  is deprecated and `ReadOperations.createReadStream` added — the host has no custom operations.
-  OpenAI-compatible requests omit `tools: []` (vLLM/LiteLLM 400s); `compat.requiresToolsWithToolHistory`
-  is the opt-back-in for old LiteLLM→Anthropic proxies. Anthropic message threads are on by default for
-  `anthropic` on api.anthropic.com, keyed by pi's session id and cleaned in `dispose()`; host `context` /
-  `before_agent_start` handlers only cause pi's full-request fallback.
-- 1.5.2 on top of 1.5.1 touches no SDK surface the host uses: pi-ai bumps the Claude Code version it
-  reports for Anthropic OAuth, the interactive mode offers Continue / Fork / Cancel for a session whose cwd
-  is gone, and `/import` of such a session no longer leaves a stray copy. The SSE patch applies at the same
-  offsets. 1.5.2 adds four catalogue entries (`radius/claude-fable-5-2`, `meta/muse-ember-1.0`,
-  `opencode/minimax-m3.1-flash-free`, `openrouter/nex-agi/nex-n2.6`) on top of the 1.5.1 delta below.
-- The bundled chat catalogue changes from 1,592 to 1,639 provider/model pairs in 1.5.1: 66 added (Claude Fable 5.2
-  on Anthropic, Bedrock, OpenRouter, Vercel and OpenCode; Kimi K3.1 Pro; Gemini 4 Argon, GPT-6.1 Terra and
-  Mistral Large 4 on Radius; the `qwen-token-plan-individual-cn` provider) and 19 removed (older
-  OpenRouter MiniMax/Mercury/Llama aliases, Fireworks `gpt-oss-120b`, Vercel Gemini batch aliases). The
-  default `anthropic` model is now `claude-opus-5-5`. Release notes must say both and advise users to
-  check their default and restored-chat model; unavailable models follow the existing selection rules in
-  [[submodule-server-agent]], and the host still does not surface Pi's `modelFallbackMessage`.
+  `isOfflineModeEnabled` (still not a package-root export), `spawnCommand`, `"pi-virtual"`,
+  `projectContextEntry`, `getBranchSelection`, `formatSkillsForPrompt`, `findCutPoint` / `generateSummary`,
+  the single-`appendFileSync` session append and the interactive Anthropic warning check are all still
+  private and unchanged in shape; no package-root export list changed. `CacheWarmer`, `sdk.js` and the
+  settings defaults are byte-identical, so the cache-warming default and the credential-settle entries stand.
+- MCP: pi-mcp adds public `mcpServerSummary` (the first line of a server's description or instructions,
+  which the MCP extension now uses for the `mcp_servers` prompt section); the host keeps no copy of that
+  rule. The entry validator, pi's own fields and the loader and writers stay as in 1.5.2, so the loader
+  parity fixture is unchanged. `/mcp` status and sign-in wording did not change. `AgentSession.dispose()`
+  still emits no shutdown. `AgentSession.reload()` now restarts extensions whenever the host called
+  `bindExtensions` (it was keyed on UI/command/shutdown/error bindings; the host binds a UI context, so its
+  reload already emitted `session_start`), and a restored loadout that an extension partly deactivates at
+  `session_start` no longer drops its pending MCP tools (#11996). Neither changes the reconcile or the
+  shutdown/reload ordering. Codemode is still unpackaged; raw `structuredContent` is still ephemeral.
+- `defaultModelPerProvider` moved three providers: `openai`, `azure` and `openai-codex` now default to
+  GPT-6.2 Sol (`gpt-6.2-sol`); the mirror follows and its parity test is green. Pi removed its unused
+  `resolveModelScope` and `restoreModelFromSession` helpers from `model-resolver.js`; the host used neither.
+- `PackageManager` gains a `commandOutput: "capture"` mode (`DefaultResourceLoader` option
+  `packageCommandOutput`, with `onPackageProgress`) that pipes git/npm output, disables git prompts and
+  installs through a private `spawnProcess` that bypasses the `spawnCommand` seam. The host passes neither, so
+  `runCommand` still goes through the per-instance `spawnCommand` shadow and its timeout/kill, and the default
+  stays `"inherit"`; if the host ever adopts capture, the timeout adapter must be re-pointed first.
+  `AgentSessionRuntime.takeUnreportedDiagnostics()` is new; the host does not use that runtime.
+- Behavior that reaches the host without an adaptation: aborting a tool batch now records "Operation aborted"
+  results for calls that had not started (#9986), `pi.exec` reports 128 + signal for killed commands, `read`
+  no longer stores a non-vision-model note in the result (`details.imageUnsupportedByModel`), and the `find`
+  tool's path patterns are relative to the search directory. Extension `Component.render()` now returns
+  `readonly string[]` and `Container` returns a cached array: the published pi-extensions copy before
+  mutating, and only their test helpers needed the wider type. Anthropic message threads are now on by
+  default for any provider whose `baseUrl` is on api.anthropic.com, not only `anthropic`. pi-ai gains a
+  `./session-resources` export; the host does not use it.
+- 1.6.0 adds GPT-6.2 Astra / GPT-6.2 Sol on `openai`, `azure`, `openai-codex`, GitHub Copilot, Bedrock,
+  Radius, OpenCode, OpenRouter, Vercel and Cloudflare, and the Qwen Token Plan providers move to new gateways
+  with per-plan key variables. The bundled chat catalogue changes from 1,643 to 1,698 provider/model pairs:
+  103 added (also Gemini 4 Carbon / Hydrogen / Neon, Qwen 4 Max, Hy4 Flash, Inkling 2 Small, Kimi K3.1 Pro
+  batch aliases, MAI-Code 2, Claude Fable 5.2 on GitHub Copilot and Cloudflare AI Gateway) and 48 removed
+  (OpenCode GLM-5 / 5.1 / 5.2, OpenCode Gemini 3 and 3.1 aliases, OpenCode Inkling and MiniMax free tiers, NVIDIA
+  Kimi K2.6 and several older NVIDIA models, older OpenRouter and Vercel aliases such as Seed 1.6, Mercury 2
+  and MiniMax M2, and the DeepSeek V3.2 / V4 Flash entries on the two Qwen Token Plan team providers).
+  Release notes must say both and advise users on `openai`, `azure` or `openai-codex` to check their
+  default and restored-chat model (`gpt-6.1-sol` stays available; only the default moved); unavailable
+  models follow the existing selection rules in [[submodule-server-agent]], and the host still does not
+  surface Pi's `modelFallbackMessage`.
 
 ## Upgrade contract
 
@@ -211,8 +220,9 @@ restart and toggle-reload regressions on upgrades.
 
     minutes for the entire mutation batch, kills the live tree (`taskkill /T` on Windows; a `ps`
     parent-PID snapshot and descendant-first `SIGKILL` on POSIX), and reports `PACKAGE_OPERATION_TIMEOUT`.
-    The cancellation guard remains until the original task settles. pi 1.5.2 still supplies neither a
-    public cancellation hook nor detached process groups, so this adapter remains necessary. The install
+    The cancellation guard remains until the original task settles. pi 1.6.0 still supplies neither a
+    public cancellation hook nor detached process groups (its new `commandOutput: "capture"` mode pipes output
+    but has no timeout and bypasses `spawnCommand`), so this adapter remains necessary. The install
     probe suppresses expired results and is bounded separately at 60 s because pi's loader
 
 <!-- /coderabbit-ai-generated:v1 -->
@@ -226,7 +236,7 @@ restart and toggle-reload regressions on upgrades.
   carries no target version; pi skips pinned npm versions in update checks; pi classifies `git@host:…`
   and `github:…` sources as local paths.
 - **Anthropic SSE framing patch** — [[submodule-server-agent]] (Provider stream framing),
-  `patches/@earendil-works%2Fpi-ai@1.5.2.patch` on `dist/api/anthropic-messages.js`. Unpatched, two
+  `patches/@earendil-works%2Fpi-ai@1.6.0.patch` on `dist/api/anthropic-messages.js`. Unpatched, two
   streams fail with the non-retryable "Could not parse Anthropic SSE event": a valid CRLF stream whose
   `\r\n` is split across network chunks, and a stream cut off mid-event. Patched, the first succeeds and
   the second ends with a retryable truncation error such as "stream ended before message_stop".
@@ -236,7 +246,7 @@ restart and toggle-reload regressions on upgrades.
   unpatched release. Its "defects the patch fixes" group decides: when it passes, delete the patch and its
   `patchedDependencies` entry; when it fails, port the patch to the new version. Port by regenerating the
   file from a clean 1.x dist, not by renaming it: Bun applies hunks at their recorded lines and silently
-  produces a broken module when the context moved (1.5.0 shifted it by two lines), and only the framing
+  produces a broken module when the context moved (1.5.0 shifted it by two lines, 1.6.0 by one), and only the framing
   test catches that. If only the "behavior the patch keeps" group fails, pi changed that behavior: decide
   whether to follow it before porting anything.
 - **Registry tool precedence** — [[submodule-server-extensions]], `preferRegistryTools` in the session
