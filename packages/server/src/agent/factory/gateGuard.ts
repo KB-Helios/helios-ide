@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { CHANGED_DEFINITIONS, runFactoryGates } from "./gateTools";
+import { CHANGED_DEFINITIONS } from "./gateExec";
+import { runFactoryGates } from "./gateTools";
 import type { FactoryRun, GateRecord } from "./run";
 import { contentTree } from "./snapshot";
 

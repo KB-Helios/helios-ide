@@ -2,7 +2,13 @@ import type { DagDefinition } from "pi-dag";
 import { Type } from "typebox";
 import { Check } from "typebox/value";
 import type { ModelRef, RoleSelection, ThinkingLevel } from "../factoryReview/roles";
-import { type FactoryCoderPlan, LAND_NODE, mayOverlap, RELEASE_NODE } from "./template";
+import {
+	type FactoryCoderPlan,
+	INTEGRATE_NODE,
+	LAND_NODE,
+	mayOverlap,
+	RELEASE_NODE,
+} from "./template";
 
 /** The planning DAG's one node, and the one json output it must submit. */
 export const PLANNER_NODE_ID = "planner";
@@ -18,6 +24,7 @@ const CODER_ID = /^[a-z][a-z0-9-]{0,31}$/;
 /** Ids the template or the review hook already uses; a plan may not shadow them. */
 const RESERVED_IDS: ReadonlySet<string> = new Set([
 	RELEASE_NODE,
+	INTEGRATE_NODE,
 	LAND_NODE,
 	"review",
 	PLANNER_NODE_ID,
@@ -203,7 +210,7 @@ function plannerTask(task: string): string {
 		"",
 		"Explore the repository with your read-only tools, then submit exactly one output, `plan`, as {kind:'json'} with this shape:",
 		'{"coders":[{"id":"short-name","task":"what this coder must do, self-contained","owns":["src/area/**"],"avoid":["src/area/generated/**"]}]}',
-		`Rules: 1 to ${MAX_PLAN_CODERS} coders. id: lower-case letters, digits and dashes, starting with a letter, at most 32, unique, never "release", "land", "review", "planner" or starting with "gate-". task: at most ${MAX_TASK_CHARS} characters and understandable without the others.`,
+		`Rules: 1 to ${MAX_PLAN_CODERS} coders. id: lower-case letters, digits and dashes, starting with a letter, at most 32, unique, never "release", "land", "integrate", "review", "planner" or starting with "gate-". task: at most ${MAX_TASK_CHARS} characters and understandable without the others.`,
 		"owns: globs relative to the repository root that the coder may change. Required when you plan more than one coder, and the globs of different coders must not overlap (a coder may not own a folder another coder owns anything in). Use a single coder when the work cannot be split cleanly.",
 		"Do not plan package manifests, lockfiles or build configuration unless the task is about them. Do not add a reviewer, gate or release step: the factory adds those and a person approves the release.",
 	].join("\n");

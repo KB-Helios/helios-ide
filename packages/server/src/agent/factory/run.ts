@@ -73,6 +73,23 @@ export interface GateRecord {
 	ranAt: string;
 }
 
+/** The host's verdict on the combined change: the target's tip with every source's landable commit merged in. */
+export interface IntegrationRecord {
+	ok: boolean;
+	/** Why no gate ran or the combined change cannot be judged, when `results` is empty. */
+	reason?: string;
+	commands: string[];
+	results: GateResult[];
+	/** The target branch's tip the combined commit was built on; empty when it could not be resolved. */
+	targetTip: string;
+	/** The landable commit of every non-empty source that went into the combined change. */
+	sources: Record<string, string>;
+	/** The combined commit the gates ran on, and its tree; empty when none was built. */
+	combined: string;
+	tree: string;
+	ranAt: string;
+}
+
 export interface BoundNode {
 	nodeId: string;
 	node: FactoryNode;
@@ -171,6 +188,27 @@ export class FactoryRun {
 
 	private gateFile(nodeId: string): string {
 		return join(this.options.worktreeRoot, ".meta", this.options.dagId, `${nodeId}.gates.json`);
+	}
+
+	private integrationFile(nodeId: string): string {
+		return join(
+			this.options.worktreeRoot,
+			".meta",
+			this.options.dagId,
+			`${nodeId}.integration.json`,
+		);
+	}
+
+	readIntegrationRecord(nodeId: string): IntegrationRecord | undefined {
+		try {
+			return JSON.parse(readFileSync(this.integrationFile(nodeId), "utf8")) as IntegrationRecord;
+		} catch {
+			return undefined;
+		}
+	}
+
+	writeIntegrationRecord(nodeId: string, record: IntegrationRecord): void {
+		writeAtomically(this.integrationFile(nodeId), JSON.stringify(record, null, 2));
 	}
 
 	readMeta(nodeId: string): WorktreeMeta | undefined {

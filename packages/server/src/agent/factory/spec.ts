@@ -28,15 +28,38 @@ export const FactoryNodeSchema = Type.Union([
 		{ additionalProperties: false },
 	),
 	Type.Object({ role: Type.Literal("gate"), source: NodeId }, { additionalProperties: false }),
-	Type.Object({ role: Type.Literal("release"), sources: Sources }, { additionalProperties: false }),
 	Type.Object(
-		{ role: Type.Literal("inspector"), sources: Sources },
+		{
+			role: Type.Literal("integration"),
+			sources: Sources,
+			/** The branch whose tip the sources are merged onto for the combined gate run. */
+			target: Type.String({ minLength: 1, maxLength: 256 }),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			role: Type.Literal("release"),
+			sources: Sources,
+			/** The integration node whose verdict the report includes; absent in older definitions. */
+			integration: Type.Optional(NodeId),
+		},
+		{ additionalProperties: false },
+	),
+	Type.Object(
+		{
+			role: Type.Literal("inspector"),
+			sources: Sources,
+			integration: Type.Optional(NodeId),
+		},
 		{ additionalProperties: false },
 	),
 	Type.Object(
 		{
 			role: Type.Literal("land"),
 			sources: Sources,
+			/** The integration node whose passing record landing requires; absent in older definitions: not enforced. */
+			integration: Type.Optional(NodeId),
 			/** The node whose human approval releases this landing. */
 			release: NodeId,
 			/** The branch the main checkout must have checked out for anything to land. */
@@ -49,9 +72,10 @@ export const FactoryNodeSchema = Type.Union([
 export type FactoryNode =
 	| { role: "coder"; owns: string[]; avoid: string[]; retries?: number }
 	| { role: "gate"; source: string }
-	| { role: "release"; sources: string[] }
-	| { role: "inspector"; sources: string[] }
-	| { role: "land"; sources: string[]; release: string; target: string };
+	| { role: "integration"; sources: string[]; target: string }
+	| { role: "release"; sources: string[]; integration?: string }
+	| { role: "inspector"; sources: string[]; integration?: string }
+	| { role: "land"; sources: string[]; release: string; target: string; integration?: string };
 
 export type FactoryRole = FactoryNode["role"];
 
@@ -77,6 +101,7 @@ export const ROLE_TOOLS: Record<FactoryRole, readonly string[]> = {
 		FACTORY_TOOL.report,
 	],
 	gate: [FACTORY_TOOL.read, FACTORY_TOOL.list, FACTORY_TOOL.gates, FACTORY_TOOL.report],
+	integration: [FACTORY_TOOL.report, FACTORY_TOOL.gates, FACTORY_TOOL.diff],
 	release: [FACTORY_TOOL.read, FACTORY_TOOL.list, FACTORY_TOOL.report, FACTORY_TOOL.diff],
 	inspector: [FACTORY_TOOL.read, FACTORY_TOOL.list, FACTORY_TOOL.report, FACTORY_TOOL.diff],
 	land: [FACTORY_TOOL.report, FACTORY_TOOL.land],

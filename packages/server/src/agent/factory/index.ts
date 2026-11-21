@@ -61,6 +61,7 @@ export {
 	type FactoryPlan,
 	factoryInspector,
 	factoryNodeIds,
+	INTEGRATE_NODE,
 	RELEASE_NODE,
 	type RoleModel,
 	type TemplateRole,

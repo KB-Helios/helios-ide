@@ -14,7 +14,13 @@ export const MAX_GLOBS = 64;
 export const MAX_CODER_TASK = 8000;
 const MAX_GLOB_CHARS = 512;
 const CODER_ID = /^[a-z][a-z0-9-]{0,31}$/;
-const RESERVED_IDS: ReadonlySet<string> = new Set(["release", "land", "review", "planner"]);
+const RESERVED_IDS: ReadonlySet<string> = new Set([
+	"release",
+	"land",
+	"review",
+	"planner",
+	"integrate",
+]);
 
 export const newCoder = (key: string, id = ""): CoderDraft => ({
 	key,

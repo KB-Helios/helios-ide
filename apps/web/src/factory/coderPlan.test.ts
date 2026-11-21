@@ -50,7 +50,7 @@ test("ids must be plain, unique and not reserved", () => {
 	expect(codes([coder("a", { id: "Bad Id" })])).toEqual(["a:id-invalid"]);
 	expect(codes([coder("a", { id: "1st" })])).toEqual(["a:id-invalid"]);
 	expect(codes([coder("a", { id: "x".repeat(33) })])).toEqual(["a:id-invalid"]);
-	for (const id of ["release", "land", "review", "planner", "gate-a"])
+	for (const id of ["release", "land", "review", "planner", "integrate", "gate-a"])
 		expect(codes([coder("a", { id })])).toEqual(["a:id-reserved"]);
 	expect(codes([coder("a", { id: "same" }), coder("b", { id: "same" })])).toEqual([
 		"b:id-duplicate",

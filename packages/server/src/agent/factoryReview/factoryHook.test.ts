@@ -164,6 +164,8 @@ test("the template's reviewer runs on another family over the worktrees and hold
 			);
 		if (/"role\\":\\"gate\\"/.test(seen))
 			return turn === 0 ? call("factory_run_gates") : text("report", "gates ok");
+		if (/"role\\":\\"integration\\"/.test(seen))
+			return turn === 0 ? call("factory_run_gates") : text("report", "combined ok");
 		if (/"role\\":\\"release\\"/.test(seen))
 			return turn === 0 ? call("factory_report") : text("summary", "ready");
 		if (/"role\\":\\"land\\"/.test(seen))
@@ -221,6 +223,14 @@ test("the template's reviewer runs on another family over the worktrees and hold
 	});
 	const release = definition.nodes.find((node) => node.id === "release");
 	expect(release?.inputs?.[RELEASE_REVIEW_INPUT]).toEqual({ kind: "json" });
+	// The combined gate run is a mechanical node on the scout; the reviewer waits for it, not for each gate.
+	const integrate = definition.nodes.find((node) => node.id === "integrate");
+	expect(integrate?.session?.model).toEqual(roles.scout.model);
+	const reviewer = definition.nodes.find((node) => node.id === "review");
+	expect(Object.keys(reviewer?.inputs ?? {})).toEqual(["integrate"]);
+	expect(definition.connections.some((connection) => connection.id === "integrate-to-review")).toBe(
+		true,
+	);
 
 	const owner = bind(workspaceId, repo, "owner");
 	const human = bind(workspaceId, repo, "human");

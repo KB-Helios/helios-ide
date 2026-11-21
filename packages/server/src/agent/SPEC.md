@@ -1563,7 +1563,7 @@ execution context as `dag.execute`, and always create the DAG **paused**.
   running graph. `startFactoryFromPlan` checks on the host that the DAG carries a `<factory-plan>` marker, the
   `planner` node is `completed`, and its latest approval was decided by a **human** actor
   (`isReleaseApprovedByHuman`); it then reads the `plan` output (256 KiB) and validates it with `parseCoderPlans` as
-  if a person had typed it: 1..8 coders, ids `[a-z][a-z0-9-]{0,31}` and not `release`/`land`/`review`/`planner`/
+  if a person had typed it: 1..8 coders, ids `[a-z][a-z0-9-]{0,31}` and not `release`/`land`/`integrate`/`review`/`planner`/
   `gate-*`, unique, task at most 8000 characters, owns/avoid at most 64 globs that stay inside the repository (no
   absolute path, no `..`), owns required and disjoint (`mayOverlap`) when several coders run, no unknown field.
   Only then does `buildFactoryDefinition` create the factory DAG (idempotent: command id `factory-from-<plan>`).
@@ -1644,8 +1644,10 @@ beyond small host files next to the worktrees.
   block (`spec.ts`, schema-validated), which a controller or person wrote into the definition and a worker cannot
   edit. Every tool resolves the calling session to its node and role (`ROLE_TOOLS`) and refuses otherwise.
 - **Roles.** `coder` (owns/avoid; read, list, write, edit, run gates, report), `gate` (one source; runs gates),
-  `release` (the join: read-only, report, diff), `inspector` (read-only over named sources; the step-4 reviewer
-  uses `factoryInspector(sources)`), `land` (only `factory_land`). Nodes list only `factory_*` tools plus pi-dag's
+  `integration` (all sources plus the target; runs the combined gates, report, diff), `release` (the join:
+  read-only, report, diff), `inspector` (read-only over named sources; the step-4 reviewer uses
+  `factoryInspector(sources, integration?)`), `land` (only `factory_land`). `release`, `inspector` and `land`
+  may name an `integration` node; an older definition without the field behaves exactly as before. Nodes list only `factory_*` tools plus pi-dag's
   protocol tools, so no node has pi's `write`/`edit`/`bash`.
 - **Worktree and cwd.** pi-dag gives a node no cwd of its own (every child runs in the DAG's checkout, and a
   reopened child ignores any workspace provider), so confinement does not rest on cwd. The host creates a coder's
@@ -1706,7 +1708,7 @@ beyond small host files next to the worktrees.
   gate cannot write, create or delete in the snapshot or its dependencies, X→Y→X fails, no loopback or internet, no
   read outside the grants, no host secret, the profile and access entries are cleaned up).
 - **Landing enforcement.** pi-dag's `approval` gates the release of the node's output, not its start, so the flow
-  is `gate-* -> release (approval: human) -> land`, with the land node consuming the release output.
+  is `gate-* -> integrate -> release (approval: human) -> land`, with the land node consuming the release output.
   pi-dag therefore never starts `land` before a person approved `release` (only a `human` caller can; a chat
   controller or `owner` binding cannot). Because a model-driven node could still be wired wrongly, `factory_land`
   re-checks on the host that `release` is `completed` and its latest approval gate was `approved` by a `human`
@@ -1735,12 +1737,36 @@ beyond small host files next to the worktrees.
   already-landed sources stay marked so a rerun skips them. The checkout is the person's own and is never merged in. Merge replaces `applyPatch` here because it keeps each coder's commit and aborts cleanly; the user's
   uncommitted changes in the checkout stay untouched unless they overlap.
 - **Template and the step-4 hook.** `buildFactoryDefinition({ title, target, coders, maxConcurrent?, gateRetries?, beforeRelease? })`
-  builds `coder-*` -> `gate-<coder>` -> `release` (human approval) -> `land`. `beforeRelease(ctx)` is the single
+  builds `coder-*` -> `gate-<coder>` -> `integrate` -> `release` (human approval) -> `land`. `integrate` is
+  always added (its id is reserved, like `release`, `land` and `gate-*`; the planner may not use it), takes every
+  gate report as input, publishes `report` and feeds a new `integrate` input of `release`; the `land` node names it
+  (`integration: "integrate"`) and the `release` node reports its verdict. `beforeRelease(ctx)` is the single
   insertion point for review: it returns extra `nodes`, `connections` and the extra input ports
-  (`releaseInputs`) the `release` node needs, and receives `{ coders, gates, release, gateOutput }`. A node that
+  (`releaseInputs`) the `release` node needs, and receives `{ coders, gates, release, integration, gateOutput }`. A node that
   only has a control connection into `release` also holds it. Give a reviewer read access to the worktrees with
-  `factoryInspector(ctx.coders)` (tools plus system-prompt suffix); it then reads the host's diff via
+  `factoryInspector(ctx.coders, ctx.integration)` (tools plus system-prompt suffix); it then reads the host's diff via
   `factory_diff` instead of copying one through a model.
+- **Combined (integration) gate.** Gates per coder branch cannot see two branches that each pass but break the
+  target together. `factory_run_gates`, called by the `integrate` node (role `integration`: `sources`, `target`),
+  builds the combined change on the host (`integrationTools.ts`, `combineCommits` in `landTools.ts`): a throwaway
+  detached checkout of the target's tip, with each non-empty source's **landable** commit merged in source order.
+  Landable is what landing would merge, from one shared helper (`landableCommit`): the fresh passing gated
+  snapshot while the worktree holds an uncommitted change, else the commit a landing already recorded
+  (`meta.committed`); a source that already landed is part of the target and an empty one is skipped. The gates
+  then run on the combined commit through the same sandboxed snapshot checkout as a coder's (`executeGates`), so
+  the same fail-closed rules apply. The record (`<node>.integration.json`: `ok`, `reason?`, `commands`, `results`,
+  `targetTip`, `sources` as node id to sha, `combined`, `tree`, `ranAt`) is `ok: false` with a plain reason, and
+  nothing runs, for: a source without a fresh passing gate record or with an ownership violation, a merge
+  conflict, an untrusted project, no declared gates, a combined change that alters a build/gate definition,
+  drifted checkout definitions, a missing target, or an unavailable sandbox. A cancelled run is never recorded. With
+  no source change at all the record is `ok` with nothing to run (the target is unchanged).
+  `landFactory` enforces it only when the land node names an `integration` (older definitions are unaffected): the
+  record must be `ok`, its `sources` must equal exactly the shas this landing would merge (same set, same
+  commits), and the target's tip must equal `targetTip`. When some sources already landed in this release (a
+  resumed landing) the tip may have moved by those landings: `targetTip` must then be an ancestor of the current
+  tip and every remaining source must match. A refusal says to retry the integrate node. The reviewer takes the
+  integration report as its only input instead of each gate report, since `integrate` already waits for every
+  gate; its inspector marker names the node, so its `factory_report` carries both verdicts.
 - **Gate retries (bounded, host-enforced).** `gateGuard.ts` registers a `tool_call` guard on the factory worker
   extension. When a coder tries `dag_submit_result`, the host runs the project's declared gates in the coder's
   worktree (`runFactoryGates`, or reuses a record whose diff hash is still fresh). A passing record lets the
@@ -1792,10 +1818,10 @@ and returns node specs for a template to insert.
   256 KiB read, no paths.
 
 Plugging into the step-3 template (`factoryHook.ts`): resolve roles once, pass
-`models: factoryModels(roles)` (coders on the coder model; gate, release and land on the scout) and
+`models: factoryModels(roles)` (coders on the coder model; gate, integration, release and land on the scout) and
 `beforeRelease: factoryReviewHook({ roles })`. The hook's `review` node reads the coders' worktrees through
 `factoryInspector` (`factory_diff`/`factory_report`/`factory_read`/`factory_list`, nothing that writes or runs),
-takes every gate report as input so it starts after all gates, carries a human approval, and feeds its
+takes the integration report as input so it starts after all gates and the combined gate run, carries a human approval, and feeds its
 `findings` into the release node's `review` input — release cannot start until a person approved the review,
 and landing still needs the release approval. `buildReviewerPiece` remains for graphs that have a diff output
 port to feed it. Integration test: `factoryHook.test.ts`.
