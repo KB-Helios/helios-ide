@@ -30,8 +30,9 @@ const { useAppStore } = await import("../store");
 type WorkspaceLayoutDocument = ReturnType<
 	typeof useAppStore.getState
 >["layoutDocumentsByWorkspace"][string];
-const { followFileAtLine, openChangesTab, openDiffInTab, openFileAtLine, workspaceAgentRunning } =
-	await import("./openTabs");
+const { followFileAtLine, openChangesTab, openDiffInTab, openFileAtLine } = await import(
+	"./openTabs"
+);
 
 const workspace = (overrides: Partial<Workspace> = {}): Workspace => ({
 	id: "w1",
@@ -525,35 +526,4 @@ test("a follow that is still current installs its preview and reveals the line",
 
 	const [tab] = useAppStore.getState().tabsByWorkspace.w1 ?? [];
 	expect(tab?.kind === "file" && tab.reveal?.line).toBe(7);
-});
-
-test("a workspace the host reports idle is not running whatever a chat's streaming flag says", () => {
-	const idle = {
-		execution: "idle",
-		runId: null,
-		needsInput: null,
-		completion: null,
-		completionUnread: false,
-		queuedCount: 0,
-		backgroundWork: false,
-	};
-	const chat = { kind: "chat", id: "c1", workspaceId: "w1", sessionId: "s1" };
-	useAppStore.setState({
-		tabsByWorkspace: { w1: [chat] },
-		sessions: { s1: { isStreaming: true } },
-		sessionStateByWorkspace: {},
-	} as never);
-	expect(workspaceAgentRunning("w1")).toBe(true);
-
-	useAppStore.setState({
-		sessionStateByWorkspace: { w1: { s1: { sessionId: "s1", state: idle } } },
-	} as never);
-	expect(workspaceAgentRunning("w1")).toBe(false);
-
-	useAppStore.setState({
-		sessionStateByWorkspace: {
-			w1: { s1: { sessionId: "s1", state: { ...idle, execution: "running" } } },
-		},
-	} as never);
-	expect(workspaceAgentRunning("w1")).toBe(true);
 });

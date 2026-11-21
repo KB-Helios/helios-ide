@@ -13,11 +13,11 @@ import { LoadingRegion } from "@thinkrail/ui/skeleton";
 import { Suspense, useMemo } from "react";
 import { isPhoneViewport } from "../lib";
 import type { FileTab } from "../store";
-import { selectWorkspaceById, selectWorkspaceIsRunning, useAppStore } from "../store";
+import { selectWorkspaceAgentRunning, selectWorkspaceById, useAppStore } from "../store";
 import { getTransport } from "../transport";
 import { FollowAgentControls } from "./FollowAgentControls";
 import { OpenInBrowserButton, useOpensInBrowser } from "./OpenInBrowserButton";
-import { noteUserNavigation, workspaceAgentRunning } from "./openTabs";
+import { noteUserNavigation } from "./openTabs";
 import { resourceBytesUrl, useResetViewStateOnImplementationChange } from "./resourcePane";
 import { reviewFlagFor } from "./reviewModel";
 import { SendReviewButton } from "./SendReviewButton";
@@ -67,7 +67,7 @@ export function FilePane({ tab }: { tab: FileTab }) {
 	const followVisible = useAppStore(
 		(state) =>
 			reviewable &&
-			(selectWorkspaceIsRunning(state, tab.workspaceId) ||
+			(selectWorkspaceAgentRunning(state, tab.workspaceId) ||
 				(state.followAgent && state.followPausedByWorkspace[tab.workspaceId] === true)),
 	);
 	const showToolbar = candidates.length >= 2 || fileHasDraft || opensInBrowser || followVisible;
@@ -125,7 +125,7 @@ export function FilePane({ tab }: { tab: FileTab }) {
 						onViewState={saveViewState}
 						onUserNavigated={() => {
 							noteUserNavigation(tab.workspaceId);
-							if (workspaceAgentRunning(tab.workspaceId))
+							if (selectWorkspaceAgentRunning(useAppStore.getState(), tab.workspaceId))
 								useAppStore.getState().pauseFollow(tab.workspaceId);
 						}}
 						{...(tab.reveal

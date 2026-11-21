@@ -18,7 +18,6 @@ import {
 	layoutOpenOptionsForNavigation,
 	selectDiffTabTargetRef,
 	selectWorkspaceById,
-	selectWorkspaceIsRunning,
 	selectWorkspaceNavTick,
 	selectWorkspaceTick,
 	type TabIntent,
@@ -342,20 +341,6 @@ export function noteUserNavigation(workspaceId: string): void {
 
 export function userNavigationEpoch(workspaceId: string): number {
 	return userNavigationEpochs.get(workspaceId) ?? 0;
-}
-
-/**
- * Session-state records are the truth where the host sends them; only a workspace with none (an older host)
- * falls back to each chat's own streaming flag, so a host that says idle is never overruled by a stale flag.
- */
-export function workspaceAgentRunning(workspaceId: string): boolean {
-	const state = useAppStore.getState();
-	if (Object.keys(state.sessionStateByWorkspace[workspaceId] ?? {}).length > 0) {
-		return selectWorkspaceIsRunning(state, workspaceId);
-	}
-	return (state.tabsByWorkspace[workspaceId] ?? []).some(
-		(tab) => tab.kind === "chat" && state.sessions[tab.sessionId]?.isStreaming === true,
-	);
 }
 
 export async function followFileAtLine(
