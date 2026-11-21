@@ -490,6 +490,20 @@ test("a post to a restored A2A member waits for swarm_resume instead of starting
 	await swarm.dispose();
 });
 
+test("a member still being created is not stored, so it cannot restore into the shared tree", async () => {
+	const swarm = Swarm.restore(stateOf([]), deps());
+	const adding = swarm.addMember({
+		name: "isolated",
+		brief: { task: "Do isolated", owns: ["src/isolated/"], avoid: [] },
+	});
+	// addMember() is still creating the worktree: the board is saved without it.
+	expect(swarm.state().members.map((m) => m.name)).toEqual([]);
+	const added = await adding;
+	expect(added.worktree).toBeDefined();
+	expect(swarm.state().members.map((m) => m.name)).toEqual(["isolated"]);
+	await swarm.dispose();
+});
+
 test("a restored shared-tree member is re-attached without a worktree", async () => {
 	mkdirSync(join(repo, "src"), { recursive: true });
 	const stored = stateOf(

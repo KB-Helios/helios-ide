@@ -1334,7 +1334,9 @@ test("a resumed landing refuses a commit that is not one of its own landings", a
 	writeFileSync(join(repo, "other.txt"), "other\n");
 	git(repo, "add", "-A");
 	git(repo, "commit", "-qm", "someone else");
-	await expect(landFactory(run, LAND)).rejects.toThrow("main moved since the combined gate run");
+	await expect(landFactory(run, LAND)).rejects.toThrow(
+		"main moved after this release's last landing",
+	);
 	expect(existsSync(join(repo, "b.txt"))).toBe(false);
 });
 

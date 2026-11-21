@@ -143,6 +143,8 @@ export class Swarm {
 	private readonly resuming = new Set<string>();
 	/** Members whose remove() is under way: a resume that is creating its child must not outlive it. */
 	private readonly removing = new Set<string>();
+	/** Members still being created by addMember(): not durable until their worktree and child exist. */
+	private readonly starting = new Set<string>();
 
 	readonly config: SwarmConfig;
 	private readonly deps: SwarmDeps;
@@ -210,10 +212,13 @@ export class Swarm {
 			createdAt: this.createdAt,
 			savedAt: new Date().toISOString(),
 			config: { ...this.config },
-			members: [...this.board.members.values()].map((m) => {
-				const { activity: _activity, ...rest } = m;
-				return { ...rest };
-			}),
+			// A member still being created has no worktree yet: stored now, it would restore into the shared tree.
+			members: [...this.board.members.values()]
+				.filter((m) => !this.starting.has(m.name))
+				.map((m) => {
+					const { activity: _activity, ...rest } = m;
+					return { ...rest };
+				}),
 			posts: [...this.board.posts],
 			coordinatorCursor: this.board.coordinatorCursor,
 		};
@@ -350,15 +355,20 @@ export class Swarm {
 			...(input.a2aAgent ? { a2a: { agent: input.a2aAgent } } : {}),
 		};
 		this.board.add(member);
+		this.starting.add(member.name);
 		try {
-			if (kind !== "a2a") await this.spawn(member, input);
-		} catch (error) {
-			await this.discardUnstarted(member);
-			throw error;
-		}
-		if (this.disposed || this.status !== "running") {
-			await this.discardUnstarted(member);
-			throw new Error("This swarm has finished.");
+			try {
+				if (kind !== "a2a") await this.spawn(member, input);
+			} catch (error) {
+				await this.discardUnstarted(member);
+				throw error;
+			}
+			if (this.disposed || this.status !== "running") {
+				await this.discardUnstarted(member);
+				throw new Error("This swarm has finished.");
+			}
+		} finally {
+			this.starting.delete(member.name);
 		}
 		const brief = [
 			`@${member.name} joins as ${kind}${member.model ? ` on ${member.model}` : ""}.`,

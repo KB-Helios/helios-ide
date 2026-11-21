@@ -374,7 +374,11 @@ async function assertIntegrated(
 	// built the combined change. Otherwise it must be exactly where this release's last landing left it.
 	const expected = resumed && resumedTip ? resumedTip : record.targetTip;
 	if (!expected || !tip || tip !== expected)
-		throw new Error(`${land.target} moved since the combined gate run; ${retry}.`);
+		throw new Error(
+			resumedTip && resumed
+				? `${land.target} moved after this release's last landing; it must return to ${resumedTip} (the tip that landing left) before the landing can continue, then ${retry}.`
+				: `${land.target} moved since the combined gate run; ${retry}.`,
+		);
 	// This release's landings were made on the tip the gates tested: that tip must be behind where they left it.
 	if (
 		expected !== record.targetTip &&

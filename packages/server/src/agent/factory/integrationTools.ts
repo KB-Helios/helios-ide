@@ -143,8 +143,14 @@ export async function targetTipOf(run: FactoryRun, target: string): Promise<stri
 }
 
 /** What the host's report says about the combined gate record: its verdict and whether it still covers the sources. */
-export async function integrationStatus(run: FactoryRun, nodeId: string, sources: string[]) {
-	const record = run.readIntegrationRecord(nodeId);
+export async function integrationStatus(
+	run: FactoryRun,
+	nodeId: string,
+	sources: string[],
+	/** Judge this record instead of reading the file again, so a caller can decide and report from one record. */
+	given?: IntegrationRecord,
+) {
+	const record = given ?? run.readIntegrationRecord(nodeId);
 	if (!record) return { node: nodeId, record: null };
 	const current = await landableSources(run, sources).catch(() => undefined);
 	const fresh =

@@ -93,7 +93,8 @@ The embedder injects a `SwarmStore` per parent session; pi-swarm never chooses a
 - **What is stored.** One `SwarmState` (version 1): swarm id, title, status, config, every member (brief,
   ownership globs, kind, model, worktree path/branch/base, phase, gate/ownership/review results, changed
   files, landed, fix rounds, A2A task/context ids, read cursor), every post, and the coordinator's read cursor.
-  Live sessions, timers, in-flight runs, `activity` and an unprocessed `swarm_done` claim are not.
+  Live sessions, timers, in-flight runs, `activity` and an unprocessed `swarm_done` claim are not, and neither is a
+  member `swarm_add` is still creating (it has no worktree yet and would restore into the shared tree).
 - **When it is written.** Every board change schedules one write per tick; `dispose()` writes it once more.
   `createFileSwarmStore` writes a temp file and renames it over the board, so a host stop leaves the previous
   board whole, never a half-written one. A failed write goes to `onStoreError`, never stops the swarm, and is

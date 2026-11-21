@@ -82,13 +82,15 @@ export function registerGateGuard(pi: ExtensionAPI, run: FactoryRun): void {
 			let verdict: string;
 			try {
 				const { sources } = bound.node;
+				// One record both decides freshness and is the verdict reported: a concurrent run replacing the
+				// file in between can never pair one record's verdict with another's freshness.
 				let record = run.readIntegrationRecord(bound.nodeId);
 				// Fresh means it still covers the same sources on the same target tip it was built on.
 				const tip = await targetTipOf(run, bound.node.target);
 				if (
 					!record ||
 					record.targetTip !== tip ||
-					!(await integrationStatus(run, bound.nodeId, sources)).fresh
+					!(await integrationStatus(run, bound.nodeId, sources, record)).fresh
 				)
 					record = await runIntegrationGates(run, bound.nodeId, bound.node, ctx.signal);
 				verdict = formatIntegrationVerdict(record);
