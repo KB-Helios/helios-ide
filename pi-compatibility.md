@@ -144,7 +144,7 @@ barrel does not export, so `patches/@earendil-works%2Fpi-coding-agent@1.6.0.patc
 `registerBundledRuntime` hands it the wasm embedded by `agent/codemode/runtime.ts`; and the worker entry
 pi names in a Bun binary (`./src/extensions/codemode/worker.ts`), which both build scripts add as an
 entrypoint with `--root` at the app directory. **Removal gate:** pi exports the wasm seam (drop the patch)
-or accepts a host-supplied worker URL. Re-check on every pi bump: `config.js` `resolveCodemodeWorkerSpecifier`
+or accepts a host-supplied worker URL. Re-check on every pi bump: `config.js` `getCodemodeWorkerSpecifier()` (through `resolveCodemodeWorkerSpecifier("bun-binary")`)
 still names that path, and `codemode.test.ts` plus a compiled-binary codemode script still pass.
 
 ### Durable presentation details
