@@ -44,7 +44,7 @@ is met and no adaptation was added or removed.** Every entry below stays, with t
   `bindExtensions` (it was keyed on UI/command/shutdown/error bindings; the host binds a UI context, so its
   reload already emitted `session_start`), and a restored loadout that an extension partly deactivates at
   `session_start` no longer drops its pending MCP tools (#11996). Neither changes the reconcile or the
-  shutdown/reload ordering. Codemode is still unpackaged; raw `structuredContent` is still ephemeral.
+  shutdown/reload ordering. Raw `structuredContent` is still ephemeral (codemode now ships; see the codemode runtime seam below).
 - `defaultModelPerProvider` moved three providers: `openai`, `azure` and `openai-codex` now default to
   GPT-6.2 Sol (`gpt-6.2-sol`); the mirror follows and its parity test is green. Pi removed its unused
   `resolveModelScope` and `restoreModelFromSession` helpers from `model-resolver.js`; the host used neither.
@@ -134,13 +134,18 @@ and MCP delete/reload/process-lifetime regressions, including a stubborn old PID
 paused through closure with async `resources_discover`.
 `AgentSessionRuntime.dispose()` alone is not evidence that these host obligations disappeared.
 
-### Exposure while codemode is not packaged
+### Codemode runtime seam in compiled builds
 
-**Owner:** [[submodule-server-agent-mcp]], `normalizeExposureForHost` and tool-search activation.
-File-configured `codemode` exposure becomes `deferred`; registered servers stay reachable through
-`tool_search`. **Removal gate:** ship pi's codemode worker/WASM across CLI and desktop, then preserve
-native exposure without normalization. Run config/exposure tests and the shared artifact probes;
-public factory availability alone does not establish packaging support.
+**Owner:** [[submodule-server-agent-mcp]] (`engine.ts` codemode descriptor) and `agent/codemode/`.
+The host loads pi's `createCodemodeExtension` as a third replaceable built-in (`codemode`), activates the
+tool at `session_start`, and passes MCP exposure through unchanged (pi's default `codemode` included).
+Compiled builds need two seams pi's own Bun entry also uses: `setEmbeddedQuickJSWasmPath`, which pi's
+barrel does not export, so `patches/@earendil-works%2Fpi-coding-agent@1.6.0.patch` re-exports it and
+`registerBundledRuntime` hands it the wasm embedded by `agent/codemode/runtime.ts`; and the worker entry
+pi names in a Bun binary (`./src/extensions/codemode/worker.ts`), which both build scripts add as an
+entrypoint with `--root` at the app directory. **Removal gate:** pi exports the wasm seam (drop the patch)
+or accepts a host-supplied worker URL. Re-check on every pi bump: `config.js` `resolveCodemodeWorkerSpecifier`
+still names that path, and `codemode.test.ts` plus a compiled-binary codemode script still pass.
 
 ### Durable presentation details
 

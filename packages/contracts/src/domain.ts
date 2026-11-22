@@ -1170,14 +1170,14 @@ export interface SessionResources {
 
 export type McpServerScope = "user" | "project";
 
-/** Configured exposure; `codemode` is accepted from files and treated as `deferred` while codemode is not shipped. */
+/** Configured exposure. `codemode` (pi's default) makes the tools callable only from codemode scripts. */
 export type McpExposure = "deferred" | "direct" | "hidden" | "codemode";
 
 export type McpTransportKind = "stdio" | "http";
 
 export interface McpProjectOverride {
 	enabled?: boolean;
-	exposure?: Exclude<McpExposure, "codemode">;
+	exposure?: McpExposure;
 }
 
 /** The session-independent view of one configured server; secret literal values are masked. */
@@ -1192,7 +1192,7 @@ export interface McpServerSummary {
 	/** Command + args, or URL, with literal credential values masked. */
 	endpoint: string;
 	exposure: McpExposure;
-	effectiveExposure: Exclude<McpExposure, "codemode">;
+	effectiveExposure: McpExposure;
 	effective?: boolean;
 	enabled: boolean;
 	description?: string;

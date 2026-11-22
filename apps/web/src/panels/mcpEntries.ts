@@ -7,11 +7,17 @@ import type {
 import type { MessageKey } from "@thinkrail/locales";
 import { type Translator, t } from "@thinkrail/locales/react";
 
-export type McpEditableExposure = Exclude<McpExposure, "codemode">;
+export type McpEditableExposure = McpExposure;
 
-export const MCP_EXPOSURES: readonly McpEditableExposure[] = ["deferred", "direct", "hidden"];
+export const MCP_EXPOSURES: readonly McpEditableExposure[] = [
+	"codemode",
+	"deferred",
+	"direct",
+	"hidden",
+];
 
 export const MCP_EXPOSURE_HINT = {
+	codemode: "mcp.exposure.codemodeHint",
 	deferred: "mcp.exposure.deferredHint",
 	direct: "mcp.exposure.directHint",
 	hidden: "mcp.exposure.hiddenHint",
@@ -473,7 +479,7 @@ export function mcpEntryErrors(t: Translator, entry: unknown): string[] {
 	}
 	if (
 		entry.exposure !== undefined &&
-		!["codemode", "codemode-deferred", ...MCP_EXPOSURES].includes(String(entry.exposure))
+		!["codemode-deferred", ...MCP_EXPOSURES].includes(String(entry.exposure))
 	) {
 		errors.push(t("mcp.entries.exposureInvalid"));
 	}

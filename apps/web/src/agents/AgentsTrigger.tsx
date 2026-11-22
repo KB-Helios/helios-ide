@@ -3,6 +3,7 @@ import {
 	RiCheckLine,
 	RiLoader4Line,
 	RiRobot2Line,
+	RiStopCircleLine,
 	RiTimeLine,
 } from "@remixicon/react";
 import type { SubagentRosterRow } from "@thinkrail/contracts";
@@ -23,6 +24,7 @@ const GROUP_ICON = {
 	failed: RiAlertLine,
 	working: RiLoader4Line,
 	queued: RiTimeLine,
+	stopped: RiStopCircleLine,
 	done: RiCheckLine,
 } as const;
 
@@ -30,6 +32,7 @@ const GROUP_TONE: Record<AgentGroupId, string> = {
 	failed: "text-feedback-error",
 	working: "text-text-default",
 	queued: "text-text-muted",
+	stopped: "text-text-muted",
 	done: "text-text-muted",
 };
 
@@ -41,6 +44,8 @@ function groupLabel(t: ReturnType<typeof useT>, group: AgentGroupId): string {
 			return t("agents.group.working");
 		case "queued":
 			return t("agents.group.queued");
+		case "stopped":
+			return t("agents.group.stopped");
 		default:
 			return t("agents.group.done");
 	}

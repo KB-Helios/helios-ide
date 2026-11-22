@@ -20,8 +20,10 @@ test("failures lead; groups are state-first and empty groups are omitted", () =>
 		row("d", "queued"),
 		row("e", "aborted"),
 	]);
-	expect(groups.map((g) => g.id)).toEqual(["failed", "working", "queued", "done"]);
-	expect(groups[3]?.rows.map((r) => r.childSessionId)).toEqual(["a", "e"]);
+	expect(groups.map((g) => g.id)).toEqual(["failed", "working", "queued", "stopped", "done"]);
+	// A stopped run gets its own group and never reads as done.
+	expect(groups[3]?.rows.map((r) => r.childSessionId)).toEqual(["e"]);
+	expect(groups[4]?.rows.map((r) => r.childSessionId)).toEqual(["a"]);
 });
 
 test("only live rows are stoppable", () => {

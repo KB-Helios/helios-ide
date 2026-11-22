@@ -31,7 +31,7 @@ Both files use pi's format:
 - Never write a secret into either file. Reference it as `${ENV_VAR}` (from the host's environment) or
   `!command` (the command's output, for example `!gh auth token`), or let the user sign in.
 - `exposure`: `deferred` (the default here — load the server's tools with `tool_search` first),
-  `direct` (a few always-useful tools), or `hidden`. `codemode` is treated as `deferred`.
+  `direct` (a few always-useful tools), or `hidden`. `codemode` (pi's default when unset) makes the tools callable only from codemode scripts, which find them with `searchTools()`.
 - Prefer the user-level file for personal servers; only put a server in `.pi/mcp.json` when the user
   wants it shared with the repository.
 

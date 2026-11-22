@@ -43,6 +43,11 @@ function isLive(row: SubagentRosterRow): boolean {
 	return LIVE.has(row.status);
 }
 
+/** The host's own internal delegation children (commit analysis and the like), not user-facing agents. */
+function isHostHelper(createdBy: string): boolean {
+	return createdBy.startsWith("host:");
+}
+
 function isFailure(row: SubagentRosterRow): boolean {
 	return row.status === "error";
 }
@@ -112,7 +117,10 @@ export function createSubagentRoster(options: SubagentRosterOptions): SubagentRo
 		const existing = rows.get(sessionId);
 		if (existing) return existing;
 		const child = options.service.findChild(sessionId);
-		if (!child || child.record.visibility === "hidden") return undefined;
+		// Every delegation child is `visibility: "hidden"` (pi-delegation's only V1 value), so visibility
+		// cannot tell helpers apart; the host's own internal children (`createdBy: "host:…"`, such as
+		// commit analysis) are the ones the roster leaves out.
+		if (!child || isHostHelper(child.record.info.createdBy)) return undefined;
 		if (child.record.scope !== options.workspaceId) return undefined;
 		const snapshot = child.snapshot;
 		const row: SubagentRosterRow = {

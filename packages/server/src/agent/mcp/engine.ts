@@ -1,4 +1,5 @@
 import {
+	createCodemodeExtension,
 	createMcpExtension,
 	createToolSearchExtension,
 	type ExtensionAPI,
@@ -13,6 +14,7 @@ import {
 import { acquireMcpSignInLock } from "./signInLock";
 
 const TOOL_SEARCH = "tool_search";
+const CODEMODE = "codemode";
 
 type ShutdownHandler = ExtensionHandler<SessionShutdownEvent>;
 
@@ -27,6 +29,18 @@ function activateToolSearchForRegisteredServers(pi: ExtensionAPI): void {
 	if (active.includes(TOOL_SEARCH)) return;
 	if (!pi.getAllTools().some((tool) => tool.name === TOOL_SEARCH)) return;
 	pi.setActiveTools([...active, TOOL_SEARCH]);
+}
+
+/**
+ * pi registers `codemode` inactive (`defaultActive: false`); the host turns it on for every chat so
+ * the model can batch tool calls into one sandboxed script. A user opts out with `-builtin:codemode`
+ * in pi settings, which drops the descriptor and with it this activation.
+ */
+function activateCodemode(pi: ExtensionAPI): void {
+	const active = pi.getActiveTools();
+	if (active.includes(CODEMODE)) return;
+	if (!pi.getAllTools().some((tool) => tool.name === CODEMODE)) return;
+	pi.setActiveTools([...active, CODEMODE]);
 }
 
 function observingCommands(
@@ -103,7 +117,7 @@ function engineApi(
 }
 
 /** The pi built-in extensions the host supplies as its own replaceable inline factories. */
-export const HOST_BUILTIN_EXTENSION_NAMES = ["mcp", "tool-search"] as const;
+export const HOST_BUILTIN_EXTENSION_NAMES = ["mcp", "tool-search", "codemode"] as const;
 
 export function createMcpEngine(options: {
 	loadConfig: (ctx: ExtensionContext) => LoadedMcpConfig;
@@ -115,6 +129,7 @@ export function createMcpEngine(options: {
 		loadConfig: options.loadConfig,
 		openUrl: options.openUrl ?? (() => {}),
 	});
+	const codemode = createCodemodeExtension();
 	const lockSignIns = options.lockSignIns ?? true;
 	let shutdown: McpEngine["shutdown"] = async () => {};
 	return {
@@ -136,6 +151,15 @@ export function createMcpEngine(options: {
 				replaceable: true,
 				builtin: true,
 				factory: createToolSearchExtension(),
+			},
+			{
+				name: HOST_BUILTIN_EXTENSION_NAMES[2],
+				replaceable: true,
+				builtin: true,
+				factory: (pi) => {
+					codemode(pi);
+					pi.on("session_start", () => activateCodemode(pi));
+				},
 			},
 		],
 		shutdown: (event, ctx) => shutdown(event, ctx),

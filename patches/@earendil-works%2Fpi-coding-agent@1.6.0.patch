@@ -1,0 +1,24 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index bb8acdb1b034f89e8fcb86a5933fa513d49a8ef3..3731d9a38c450a911fb7bf14fa68df8eac15cf0c 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -42,4 +42,6 @@ export { convertToPng } from "./utils/image-convert.ts";
+ export { formatDimensionNote, type ResizedImage, resizeImage } from "./utils/image-resize.ts";
+ export { detectSupportedImageMimeTypeFromFile } from "./utils/mime.ts";
+ export { getPowerShellConfig, getShellConfig } from "./utils/shell.ts";
++// ThinkRail patch: the codemode wasm seam pi's own Bun entry uses, for hosts that compile pi into their binary.
++export { setEmbeddedQuickJSWasmPath } from "./config.ts";
+ //# sourceMappingURL=index.d.ts.map
+\ No newline at end of file
+diff --git a/dist/index.js b/dist/index.js
+index ab5cfccc3a90939e533b9118122189507a7af326..5ff6ed48ba1780fc8a49a4b4b9512c7aaecee123 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -51,4 +51,6 @@ export { formatDimensionNote, resizeImage } from "./utils/image-resize.js";
+ export { detectSupportedImageMimeTypeFromFile } from "./utils/mime.js";
+ // Shell utilities
+ export { getPowerShellConfig, getShellConfig } from "./utils/shell.js";
++// ThinkRail patch: the codemode wasm seam pi's own Bun entry uses, for hosts that compile pi into their binary.
++export { setEmbeddedQuickJSWasmPath } from "./config.js";
+ //# sourceMappingURL=index.js.map
+\ No newline at end of file

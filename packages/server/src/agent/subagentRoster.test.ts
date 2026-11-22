@@ -26,9 +26,7 @@ function details(
 	};
 }
 
-function fakeService(
-	children: Record<string, { visibility?: "hidden" | "listed"; noActivity?: boolean }>,
-) {
+function fakeService(children: Record<string, { createdBy?: string; noActivity?: boolean }>) {
 	return {
 		findChild: (id: string) => {
 			const spec = children[id];
@@ -38,8 +36,9 @@ function fakeService(
 					sessionId: id,
 					parentSessionId: "parent-1",
 					scope: "ws",
-					info: { createdBy: "t", roleName: "worker" },
-					visibility: spec.visibility ?? "listed",
+					info: { createdBy: spec.createdBy ?? "tool:Agent", roleName: "worker" },
+					// pi-delegation's only V1 visibility: every real child is hidden.
+					visibility: "hidden",
 					createdAt: "2026-01-01T00:00:00.000Z",
 				},
 				snapshot: {
@@ -54,9 +53,7 @@ function fakeService(
 	} as unknown as DelegationService;
 }
 
-function harness(
-	children: Record<string, { visibility?: "hidden" | "listed"; noActivity?: boolean }>,
-) {
+function harness(children: Record<string, { createdBy?: string; noActivity?: boolean }>) {
 	let clock = 1_000_000;
 	const timers: (() => void)[] = [];
 	const published: string[] = [];
@@ -124,9 +121,24 @@ describe("subagent roster", () => {
 		expect(h.roster.read().revision).toBeGreaterThan(1);
 	});
 
-	test("hides hidden helpers", () => {
-		const h = harness({ r: { visibility: "hidden" } });
-		h.roster.handle(ev("run-started", "r"));
+	test("lists Agent-tool, review and swarm children although delegation marks them hidden", () => {
+		const h = harness({
+			a: { createdBy: "tool:Agent" },
+			r: { createdBy: "tool:request_review" },
+			s: { createdBy: "tool:swarm_add" },
+		});
+		for (const id of ["a", "r", "s"]) h.roster.handle(ev("run-started", id));
+		expect(
+			h.roster
+				.read()
+				.rows.map((row) => row.childSessionId)
+				.sort(),
+		).toEqual(["a", "r", "s"]);
+	});
+
+	test("leaves the host's internal helpers out", () => {
+		const h = harness({ c: { createdBy: "host:commit-analysis" } });
+		h.roster.handle(ev("run-started", "c"));
 		expect(h.roster.read().rows).toHaveLength(0);
 	});
 
