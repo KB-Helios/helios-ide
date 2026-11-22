@@ -97,7 +97,7 @@ test("lists user scope without a workspace and repository scope with a trusted o
 	const userOnly = await list();
 	expect(userOnly.projectSettingsPath).toBeUndefined();
 	expect(userOnly.packages.map((p) => [p.name, p.scope])).toEqual([["@fixture/pi-tools", "user"]]);
-	expect(userOnly.builtins.map((b) => b.name)).toEqual(["mcp", "tool-search"]);
+	expect(userOnly.builtins.map((b) => b.name)).toEqual(["mcp", "tool-search", "codemode"]);
 
 	const withWorkspace = await list("w1");
 	expect(withWorkspace.projectTrusted).toBe(true);

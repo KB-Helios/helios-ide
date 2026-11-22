@@ -801,8 +801,7 @@ a project picker, the prompt hero, and the reused
   replaced while the Remove dialog was open; both refresh the list on failure, so the user sees the
   current entry and can retry from it. Rows show a status dot + label + one reason line, the name,
   User/Project and HTTP/stdio chips (stdio: "Runs on host — inherits the host environment"), an exposure
-  menu (`deferred | direct | hidden`; configured codemode reads "treated as deferred (codemode not available
-  yet)"), the enable switch, at most one primary and one secondary action — the status table `mcpRowView`
+  menu (`codemode | deferred | direct | hidden`, each with its hint), the enable switch, at most one primary and one secondary action — the status table `mcpRowView`
   encodes: Sign in (needs sign-in) · Review & approve (pending approval, or a pending repo override)
   · Edit (an invalid repo entry) · **Reconnect** (failed, with **Show log** beside it; disconnected) ·
   **Reload now** (pending reload) · **Open a chat** (not running, with Test connection beside it for HTTP)

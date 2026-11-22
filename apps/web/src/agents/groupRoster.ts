@@ -1,7 +1,7 @@
 import type { SubagentRosterRow } from "@thinkrail/contracts";
 import type { Translator } from "@thinkrail/locales/react";
 
-export type AgentGroupId = "working" | "queued" | "failed" | "done";
+export type AgentGroupId = "working" | "queued" | "failed" | "stopped" | "done";
 
 export interface AgentGroup {
 	id: AgentGroupId;
@@ -16,13 +16,16 @@ export function agentGroupOf(row: SubagentRosterRow): AgentGroupId {
 			return "queued";
 		case "error":
 			return "failed";
+		case "aborted":
+			// A stopped run never reads as success.
+			return "stopped";
 		default:
 			return "done";
 	}
 }
 
 /** State-first order: failures lead because they are the one row the user must see. */
-const ORDER: readonly AgentGroupId[] = ["failed", "working", "queued", "done"];
+const ORDER: readonly AgentGroupId[] = ["failed", "working", "queued", "stopped", "done"];
 
 export function groupRoster(rows: readonly SubagentRosterRow[]): AgentGroup[] {
 	const groups = new Map<AgentGroupId, SubagentRosterRow[]>();

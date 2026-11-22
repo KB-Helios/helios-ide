@@ -282,6 +282,7 @@ export function mcpSaveFeedback(result: McpListResult): string {
 }
 
 const EXPOSURE_LABEL = {
+	codemode: "mcp.exposure.codemode",
 	deferred: "mcp.exposure.deferred",
 	direct: "mcp.exposure.direct",
 	hidden: "mcp.exposure.hidden",
@@ -292,5 +293,5 @@ export function mcpExposureLabel(t: Translator, exposure: McpEditableExposure): 
 }
 
 export function mcpConfiguredExposureText(t: Translator, summary: McpServerSummary): string {
-	return summary.exposure === "codemode" ? t("mcp.exposure.codemodeConfigured") : summary.exposure;
+	return mcpExposureLabel(t, summary.exposure);
 }

@@ -74,7 +74,7 @@ test("summaries cover scope, approval states, replacement, folded overrides, rec
 	});
 	expect(pending["user:linear"]).toMatchObject({
 		oauth: true,
-		effectiveExposure: "deferred",
+		effectiveExposure: "codemode",
 		fingerprint: fingerprintMcpEntry("linear", {
 			url: "https://linear.example/mcp",
 			description: "Linear issues; use token=sk-live-secret",
@@ -192,7 +192,7 @@ test("folded project overrides retain validation errors regardless of approval",
 			expect(row.approval?.state).toBe(approved ? "approved" : "pending");
 			expect(row.configError).toBeTruthy();
 			expect(row.enabled).toBe(true);
-			expect(row.effectiveExposure).toBe("deferred");
+			expect(row.effectiveExposure).toBe("codemode");
 		}
 		expect(rows.find((row) => row.name === "enabled")?.configError).toBe(
 			'server "enabled": enabled must be a boolean',

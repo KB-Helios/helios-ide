@@ -119,7 +119,9 @@ First-name-wins in trust order — **builtins → personal (`<agentDir>/agents/*
 shadow a built-in or personal name (decision 6 below), and project definitions load only when
 `ctx.isProjectTrusted()`. Built-ins are **TS constants** (`builtins.ts`: scout / planner / worker /
 reviewer — user-settled), not `.md` files, so they survive `bun build --compile` and get
-typechecked; the `worker` alone can mutate files, and its prompt forbids history/index git
+typechecked; the `worker` alone has the `edit`/`write` tools (scout and reviewer keep `bash` for
+read-only inspection — git log/diff/blame — which their prompts, not the tool set, keep read-only), and
+the worker's prompt forbids history/index git
 (`commit`/`add`/`stash`/`reset`/`push`): a child shares the parent's worktree and branch, so a
 self-commit fragments the parent's history and detaches the work from whatever tracks it (in
 ThinkRail, the per-plan-step commit map); the parent/host owns

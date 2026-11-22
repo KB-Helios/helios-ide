@@ -73,6 +73,10 @@ const BUILTIN_COPY: Record<string, { title: MessageKey; description: MessageKey 
 		title: "settings.packages.builtin.tool-search.title",
 		description: "settings.packages.builtin.tool-search.description",
 	},
+	codemode: {
+		title: "settings.packages.builtin.codemode.title",
+		description: "settings.packages.builtin.codemode.description",
+	},
 };
 
 /** The tool and `/command` names one loaded extension registered. */

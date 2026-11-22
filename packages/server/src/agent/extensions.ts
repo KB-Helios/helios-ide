@@ -71,14 +71,20 @@ let bundled: BundledExtensions | undefined;
 export async function registerBundledRuntime(extensions: BundledExtensions): Promise<void> {
 	bundled = extensions;
 	setBundledTrashHelpers(extensions.trashHelpers);
-	const [{ registerBunOAuthFlows }, { bedrockProviderModule }, { setBedrockProviderModule }] =
-		await Promise.all([
-			import("@earendil-works/pi-ai/bun-oauth"),
-			import("@earendil-works/pi-ai/bedrock-provider"),
-			import("@earendil-works/pi-ai/compat"),
-		]);
+	const [
+		{ registerBunOAuthFlows },
+		{ bedrockProviderModule },
+		{ setBedrockProviderModule },
+		{ configureEmbeddedCodemodeRuntime },
+	] = await Promise.all([
+		import("@earendil-works/pi-ai/bun-oauth"),
+		import("@earendil-works/pi-ai/bedrock-provider"),
+		import("@earendil-works/pi-ai/compat"),
+		import("./codemode/runtime"),
+	]);
 	registerBunOAuthFlows();
 	setBedrockProviderModule(bedrockProviderModule);
+	configureEmbeddedCodemodeRuntime();
 }
 
 let devPaths: { extensionPaths: string[]; hostSkillPaths: string[] } | undefined;

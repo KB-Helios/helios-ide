@@ -45,6 +45,8 @@ const webGeneratedPath = join(sidecarDir, "web-assets.generated.ts");
 const extGeneratedPath = join(sidecarDir, "bundled-extensions.generated.ts");
 const runtimeGeneratedPath = join(sidecarDir, "runtime-assets.generated.ts");
 const entryPath = join(sidecarDir, "desktop-sidecar-entry.ts");
+// pi's codemode sandbox worker; see packages/server/src/agent/codemode/runtime.ts.
+const codemodeWorkerPath = join(desktopDir, "src", "extensions", "codemode", "worker.ts");
 const tauriDir = join(desktopDir, "src-tauri");
 const binariesDir = join(tauriDir, "binaries");
 const runtimeSources = resolveBuildRuntimeSources();
@@ -238,9 +240,13 @@ try {
 				"--bytecode",
 				"--format=esm",
 				"--sourcemap",
+				// Embeds entrypoints relative to apps/desktop, so the codemode worker sits at the
+				// `./src/extensions/codemode/worker.ts` pi resolves inside a Bun binary.
+				`--root=${desktopDir}`,
 				`--target=${target.bunTarget}`,
 				...windowsMetadataFlags(target),
 				entryPath,
+				codemodeWorkerPath,
 				"--outfile",
 				outFile,
 			],

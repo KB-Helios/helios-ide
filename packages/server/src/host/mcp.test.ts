@@ -988,7 +988,7 @@ test("wire overrides reject invalid enablement and exposure before changing proj
 		).toBe("MCP_CONFIG_INVALID");
 		expect(readFileSync(projectsPath, "utf8")).toBe(before);
 	}
-	for (const exposure of ["codemode", "codemode-deferred", "DIRECT", "", true, 0, null, {}, []]) {
+	for (const exposure of ["codemode-deferred", "DIRECT", "", true, 0, null, {}, []]) {
 		expect(
 			await codeOf(
 				request("mcp.setProjectOverride", {
